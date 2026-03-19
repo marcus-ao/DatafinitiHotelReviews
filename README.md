@@ -6,16 +6,16 @@
 
 本项目以 [Datafiniti Hotel Reviews](https://www.kaggle.com/datasets/datafiniti/hotel-reviews) 公共数据集为基础，构建细粒度酒店评论知识库，支撑基于 RAG 的推荐智能体与 LLM 微调研究。
 
-**数据规模（v3.0）**
+**数据规模**
 
 | 指标 | 数值 |
 |------|------|
 | 原始评论 | 10,000 条 |
 | 实验城市 | 10 个 / 8 个州 |
 | 实验酒店 | ~146 家（≥5 条评论）|
-| 实验评论 | ~5,850 条 |
+| 实验评论 | ~5,850-6,000 条 |
 | 句子粒度 | ~44,000 句 |
-| 方面标签 | ~37,000 个 |
+| 方面标签 | ~35,000-40,000 个 |
 
 **覆盖城市**：San Diego · San Francisco · New Orleans · Atlanta · Orlando · Seattle · Chicago · Honolulu · Dallas · Anaheim
 
@@ -43,23 +43,24 @@ DatafinitiHotelReviews/
 ├── scripts/
 │   ├── utils.py                 # 公共工具函数
 │   ├── 01_load_filter.py        # 数据加载与城市过滤
-│   ├── 02_clean_reviews.py      # 清洗管理者回复 + 噪声
+│   ├── 02_clean_and_dedupe.py   # 清洗、去重、日期标准化、酒店过滤
 │   ├── 03_split_sentences.py    # spaCy 分句
-│   ├── 04_classify_aspects.py   # 方面分类（规则 + 零样本）
-│   ├── 05_classify_sentiment.py # 句子级情感分析
-│   ├── 06_build_profiles.py     # 酒店方面画像聚合
-│   ├── 07_build_vector_index.py # BGE 编码 + ChromaDB 索引
-│   ├── 08_export_to_postgres.py # 导出到 PostgreSQL
+│   ├── 04_classify_aspects.py   # 输出 aspect_labels.pkl（长表）
+│   ├── 05_classify_sentiment.py # 输出 aspect_sentiment.pkl（长表）
+│   ├── 06_build_profiles.py     # 生成 hotel_profiles.pkl
+│   ├── 07_build_vector_index.py # BGE 编码 + ChromaDB + evidence_index
+│   ├── 08_load_to_postgres.py   # 导入 PostgreSQL
 │   └── 09_validate.py           # 数据质量验收
 ├── sql/
 │   └── init_schema.sql          # PostgreSQL DDL
 ├── configs/
-│   ├── params.yaml              # 所有可调参数
-│   └── db.yaml                  # 数据库连接配置（不提交 git）
+│   ├── params.yaml              # 非敏感全局参数
+│   └── db.yaml                  # 数据库连接配置（脚本唯一 DB 配置源，不提交 git）
+├── tests/                       # 关键逻辑与契约测试
 ├── notebooks/                   # 探索分析 Notebook
 ├── plans/                       # 规划文档
-│   ├── plan.md                  # 战略计划 v3.0
-│   └── implementation-guide.md  # 从 0 到 1 实施指南
+│   ├── plan.md                  # 战略计划
+│   └── implementation-guide.md  # 实施指南
 ├── requirements.txt
 ├── .gitignore
 └── README.md
@@ -85,6 +86,7 @@ python -m spacy download en_core_web_sm
 ```bash
 cp configs/db.yaml.example configs/db.yaml
 # 编辑 configs/db.yaml 填入 PostgreSQL 连接信息
+# 如需临时覆盖密码，可设置环境变量 HOTEL_DB_PASSWORD
 ```
 
 ### 3. 初始化 PostgreSQL Schema
@@ -97,13 +99,13 @@ psql -U hotel_user -d hotel_reviews_kb -f sql/init_schema.sql
 
 ```bash
 python scripts/01_load_filter.py
-python scripts/02_clean_reviews.py
+python scripts/02_clean_and_dedupe.py
 python scripts/03_split_sentences.py
 python scripts/04_classify_aspects.py   # GPU 推荐，约 30min
 python scripts/05_classify_sentiment.py
 python scripts/06_build_profiles.py
 python scripts/07_build_vector_index.py
-python scripts/08_export_to_postgres.py
+python scripts/08_load_to_postgres.py
 python scripts/09_validate.py
 ```
 
@@ -117,14 +119,15 @@ python scripts/09_validate.py
 - [ ] hotel 表：≥120 家（≥5 评论）
 - [ ] review 表：≥5,000 条（去重后）
 - [ ] sentence 表：≥35,000 句
-- [ ] aspect_sentiment：≥30,000 标签
-- [ ] unclassified 率：< 15%
+- [ ] aspect_labels / aspect_sentiment 覆盖全部句子
+- [ ] hotel_aspect_profile 行数 = 酒店数 × 6
 - [ ] 日期有效率：100%
-- [ ] ChromaDB 条目数与 sentence 表一致
-- [ ] PostgreSQL 外键完整性：0 违例
+- [ ] ChromaDB 条目数与 evidence_index / sentence 表一致
+- [ ] PostgreSQL 6 张核心表行数与中间产物一致
+- [ ] ChromaDB 支持 `city + aspect + sentiment` 过滤检索
 
 ## 参考文档
 
-- [战略计划 v3.0](plans/plan.md)
-- [从 0 到 1 实施指南](plans/implementation-guide.md)
+- [战略计划](plans/plan.md)
+- [实施指南](plans/implementation-guide.md)
 - [Datafiniti Hotel Reviews Dataset](https://www.kaggle.com/datasets/datafiniti/hotel-reviews)

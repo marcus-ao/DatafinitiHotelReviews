@@ -1,85 +1,95 @@
 """
 06_build_profiles.py
-步骤 11：聚合酒店方面情感画像
-输入:  data/intermediate/sentiment_classified.pkl
+步骤 12a：聚合酒店方面画像
+输入:  data/intermediate/aspect_sentiment.pkl
         data/intermediate/cleaned_reviews.pkl
 输出: data/intermediate/hotel_profiles.pkl
 """
 
-import pandas as pd
 from pathlib import Path
-from utils import load_config, log_step
+
+import pandas as pd
+
+from utils import ASPECT_CATEGORIES, ensure_columns, load_config, log_step
 
 
-ASPECTS = [
-    "location_transport", "cleanliness", "service",
-    "room_facilities", "quiet_sleep", "value", "general"
-]
+def compute_profile_row(hotel_id: str, aspect: str, group: pd.DataFrame) -> dict:
+    pos = group[group["sentiment"] == "positive"]
+    neg = group[group["sentiment"] == "negative"]
+    neu = group[group["sentiment"] == "neutral"]
 
+    pos_count = int(len(pos))
+    neg_count = int(len(neg))
+    neu_count = int(len(neu))
+    total_count = int(len(group))
 
-def compute_aspect_sentiment_vector(group: pd.DataFrame) -> dict:
-    """计算单酒店的方面情感分布向量"""
-    vec = {}
-    for aspect in ASPECTS:
-        sub = group[group["primary_aspect"] == aspect]
-        if len(sub) == 0:
-            vec[f"{aspect}_pos"] = None
-            vec[f"{aspect}_neg"] = None
-            vec[f"{aspect}_neu"] = None
-            vec[f"{aspect}_n"]   = 0
-            continue
-        n = len(sub)
-        vec[f"{aspect}_pos"] = round((sub["sentiment"] == "positive").sum() / n, 4)
-        vec[f"{aspect}_neg"] = round((sub["sentiment"] == "negative").sum() / n, 4)
-        vec[f"{aspect}_neu"] = round((sub["sentiment"] == "neutral").sum() / n, 4)
-        vec[f"{aspect}_n"]   = n
-    return vec
+    recency_weighted_pos = round(float(pos["recency_weight"].sum()), 3)
+    recency_weighted_neg = round(float(neg["recency_weight"].sum()), 3)
+    controversy_score = round(
+        min(pos_count, neg_count) / max(max(pos_count, neg_count), 1),
+        3,
+    )
+    final_aspect_score = round(
+        recency_weighted_pos - recency_weighted_neg - controversy_score * 0.3,
+        3,
+    )
+
+    return {
+        "hotel_id": hotel_id,
+        "aspect": aspect,
+        "pos_count": pos_count,
+        "neg_count": neg_count,
+        "neu_count": neu_count,
+        "total_count": total_count,
+        "recency_weighted_pos": recency_weighted_pos,
+        "recency_weighted_neg": recency_weighted_neg,
+        "controversy_score": controversy_score,
+        "final_aspect_score": final_aspect_score,
+    }
 
 
 def main():
     cfg = load_config()
-    sent_df    = pd.read_pickle("data/intermediate/sentiment_classified.pkl")
-    reviews_df = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
-    log_step("STEP11", f"句子: {len(sent_df)}, 评论: {len(reviews_df)}")
+    aspect_df = pd.read_pickle("data/intermediate/aspect_sentiment.pkl")
+    review_df = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
+    ensure_columns(
+        aspect_df,
+        ["review_id", "hotel_id", "aspect", "sentiment"],
+        "aspect_sentiment.pkl",
+    )
+    ensure_columns(review_df, ["review_id", "hotel_id", "recency_bucket"], "cleaned_reviews.pkl")
+    log_step("STEP12a", f"标签: {len(aspect_df)}, 评论: {len(review_df)}")
 
-    # 酒店元数据（从 reviews_df 聚合）
-    hotel_meta = reviews_df.groupby("hotel_id").agg(
-        hotel_name=("hotel_name",   "first"),
-        city=       ("city",         "first"),
-        state=      ("state",        "first"),
-        address=    ("address",      "first"),
-        latitude=   ("latitude",     "first"),
-        longitude=  ("longitude",    "first"),
-        n_reviews=  ("review_id",    "count"),
-        avg_rating= ("rating",       "mean"),
-        min_review_date=("review_date", "min"),
-        max_review_date=("review_date", "max"),
-    ).reset_index()
-    hotel_meta["avg_rating"] = hotel_meta["avg_rating"].round(2)
+    review_meta = review_df[["review_id", "recency_bucket"]].drop_duplicates("review_id")
+    aspect_full = aspect_df.merge(review_meta, on="review_id", how="left", validate="many_to_one")
+    aspect_full["recency_weight"] = aspect_full["recency_bucket"].map(
+        cfg["recency"]["buckets"]
+    ).fillna(cfg["recency"]["buckets"].get("unknown", 1.0))
 
-    # 方面情感向量
-    profile_rows = []
-    for hotel_id, group in sent_df.groupby("hotel_id"):
-        row = {"hotel_id": hotel_id, "n_sentences": len(group)}
-        row.update(compute_aspect_sentiment_vector(group))
-        # 主导情感（跨所有方面）
-        all_sent = group["sentiment"]
-        row["overall_pos"] = round((all_sent == "positive").sum() / len(group), 4)
-        row["overall_neg"] = round((all_sent == "negative").sum() / len(group), 4)
-        row["overall_neu"] = round((all_sent == "neutral").sum() / len(group), 4)
-        profile_rows.append(row)
+    core_df = aspect_full[aspect_full["aspect"].isin(ASPECT_CATEGORIES)].copy()
+    hotel_ids = sorted(review_df["hotel_id"].unique().tolist())
 
-    profile_df = pd.DataFrame(profile_rows)
-    hotel_profiles = hotel_meta.merge(profile_df, on="hotel_id", how="left")
+    rows = []
+    for hotel_id in hotel_ids:
+        hotel_group = core_df[core_df["hotel_id"] == hotel_id]
+        for aspect in ASPECT_CATEGORIES:
+            aspect_group = hotel_group[hotel_group["aspect"] == aspect]
+            rows.append(compute_profile_row(hotel_id, aspect, aspect_group))
 
-    print(f"\n✅ 酒店画像: {len(hotel_profiles)} 家酒店")
-    print(f"   均值 n_sentences: {hotel_profiles['n_sentences'].mean():.1f}")
-    print(f"   overall_pos 均值: {hotel_profiles['overall_pos'].mean():.3f}")
-    print(f"   overall_neg 均值: {hotel_profiles['overall_neg'].mean():.3f}")
+    profile_df = pd.DataFrame(rows)
+    expected_rows = len(hotel_ids) * len(ASPECT_CATEGORIES)
+    if len(profile_df) != expected_rows:
+        raise AssertionError(
+            f"hotel_profiles 行数异常: {len(profile_df)} != {expected_rows}"
+        )
+
+    print(f"\n[OK] 酒店方面画像: {len(profile_df)} 行 ({len(hotel_ids)} 家酒店 × {len(ASPECT_CATEGORIES)} 方面)")
+    print(f"   final_aspect_score 均值: {profile_df['final_aspect_score'].mean():.3f}")
 
     out_path = Path("data/intermediate/hotel_profiles.pkl")
-    hotel_profiles.to_pickle(out_path)
-    print(f"💾 保存: {out_path} ({len(hotel_profiles)} 行)")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    profile_df.to_pickle(out_path)
+    print(f"[SAVE] {out_path} ({len(profile_df)} 行)")
 
 
 if __name__ == "__main__":

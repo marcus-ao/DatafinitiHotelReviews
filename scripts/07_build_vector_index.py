@@ -1,95 +1,186 @@
 """
 07_build_vector_index.py
-步骤 12：句子向量化 → 写入 ChromaDB
-输入:  data/intermediate/sentiment_classified.pkl
-输出: data/chroma_db/ (ChromaDB 持久化目录)
+步骤 12b-12c：构建 evidence_index 元数据并写入 ChromaDB
+输入:  data/intermediate/sentences.pkl
+        data/intermediate/aspect_sentiment.pkl
+        data/intermediate/cleaned_reviews.pkl
+输出: data/intermediate/evidence_index.pkl
+        data/chroma_db/
 """
 
-import pandas as pd
 from pathlib import Path
+
+import pandas as pd
 from tqdm import tqdm
-from utils import load_config, log_step
+
+from utils import ensure_columns, iso_date, load_config, log_step
+
+
+def select_metadata_label(group: pd.DataFrame) -> pd.Series:
+    ranked = group.copy()
+    ranked["general_rank"] = (ranked["aspect"] == "general").astype(int)
+    ranked = ranked.sort_values(
+        by=["general_rank", "confidence", "sentiment_confidence"],
+        ascending=[True, False, False],
+    )
+    return ranked.iloc[0]
 
 
 def main():
     cfg = load_config()
     ecfg = cfg["embedding"]
 
-    df = pd.read_pickle("data/intermediate/sentiment_classified.pkl")
-    log_step("STEP12", f"输入: {len(df)} 句子")
+    sent_df = pd.read_pickle("data/intermediate/sentences.pkl")
+    aspect_df = pd.read_pickle("data/intermediate/aspect_sentiment.pkl")
+    review_df = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
+    ensure_columns(
+        sent_df,
+        ["sentence_id", "review_id", "hotel_id", "sentence_text", "city"],
+        "sentences.pkl",
+    )
+    ensure_columns(
+        aspect_df,
+        ["sentence_id", "aspect", "sentiment", "confidence", "label_source"],
+        "aspect_sentiment.pkl",
+    )
+    ensure_columns(
+        review_df,
+        ["review_id", "hotel_name", "review_date", "rating", "recency_bucket"],
+        "cleaned_reviews.pkl",
+    )
+    log_step("STEP12b", f"句子: {len(sent_df)}，标签: {len(aspect_df)}")
 
-    # ── 编码 ──
+    primary_meta = (
+        aspect_df.groupby("sentence_id", group_keys=False)
+        .apply(select_metadata_label)
+        .reset_index(drop=True)
+    )
+
+    evidence_df = (
+        sent_df.merge(
+            primary_meta[
+                [
+                    "sentence_id",
+                    "aspect",
+                    "sentiment",
+                    "confidence",
+                    "label_source",
+                ]
+            ],
+            on="sentence_id",
+            how="left",
+            validate="one_to_one",
+        )
+        .merge(
+            review_df[
+                [
+                    "review_id",
+                    "hotel_name",
+                    "review_date",
+                    "rating",
+                    "recency_bucket",
+                    "city",
+                ]
+            ].drop_duplicates("review_id"),
+            on="review_id",
+            how="left",
+            suffixes=("", "_review"),
+            validate="many_to_one",
+        )
+    )
+
+    evidence_df["aspect"] = evidence_df["aspect"].fillna("general")
+    evidence_df["sentiment"] = evidence_df["sentiment"].fillna("neutral")
+    evidence_df["text_id"] = evidence_df["sentence_id"]
+    evidence_df["city"] = evidence_df["city"].fillna(evidence_df["city_review"])
+    evidence_df["embedding_id"] = range(len(evidence_df))
+    evidence_df = evidence_df[
+        [
+            "text_id",
+            "hotel_id",
+            "sentence_id",
+            "sentence_text",
+            "aspect",
+            "sentiment",
+            "city",
+            "hotel_name",
+            "review_date",
+            "rating",
+            "recency_bucket",
+            "embedding_id",
+        ]
+    ].copy()
+
+    out_meta = Path("data/intermediate/evidence_index.pkl")
+    out_meta.parent.mkdir(parents=True, exist_ok=True)
+    evidence_df.to_pickle(out_meta)
+    print(f"[SAVE] {out_meta} ({len(evidence_df)} 行)")
+
+    log_step("STEP12c", "编码句向量并写入 ChromaDB")
     from sentence_transformers import SentenceTransformer
-    print(f"   加载 Embedding 模型: {ecfg['model']}")
-    model = SentenceTransformer(ecfg["model"])
 
-    texts = df["sentence_text"].tolist()
-    print(f"   编码 {len(texts)} 句子 (batch_size={ecfg['encode_batch_size']})...")
+    model = SentenceTransformer(ecfg["model"])
+    texts = evidence_df["sentence_text"].tolist()
     embeddings = model.encode(
         texts,
-        normalize_embeddings=True,
+        normalize_embeddings=bool(ecfg.get("normalize", True)),
         show_progress_bar=True,
-        batch_size=ecfg["encode_batch_size"]
+        batch_size=ecfg["encode_batch_size"],
     )
-    print(f"✅ 编码完成: shape={embeddings.shape}")
 
-    # ── ChromaDB ──
     import chromadb
-    persist_dir = ecfg["chroma_persist_dir"]
-    Path(persist_dir).mkdir(parents=True, exist_ok=True)
-    client = chromadb.PersistentClient(path=persist_dir)
 
-    # 删除旧集合
+    persist_dir = Path(ecfg["chroma_persist_dir"])
+    persist_dir.mkdir(parents=True, exist_ok=True)
+    client = chromadb.PersistentClient(path=str(persist_dir))
+
     try:
         client.delete_collection(ecfg["chroma_collection"])
-        print(f"   已删除旧集合: {ecfg['chroma_collection']}")
     except Exception:
         pass
 
     collection = client.create_collection(
         name=ecfg["chroma_collection"],
-        metadata={"hnsw:space": "cosine"}
+        metadata={"hnsw:space": "cosine"},
     )
 
-    # 构建 metadata
-    metadatas = []
-    for _, row in df.iterrows():
-        metadatas.append({
-            "review_id":      str(row["review_id"]),
-            "hotel_id":       str(row["hotel_id"]),
-            "city":           str(row.get("city", "")),
-            "aspect":         str(row["primary_aspect"]),
-            "sentiment":      str(row["sentiment"]),
-            "label_source":   str(row["label_source"]),
-            "sentence_order": int(row["sentence_order"]),
-            "char_len":       int(row["char_len"]),
-        })
-
-    # 分批写入
-    BATCH = 5000
-    ids = df["sentence_id"].tolist()
-    for i in tqdm(range(0, len(df), BATCH), desc="写入 ChromaDB"):
+    batch_size = 5000
+    ids = evidence_df["sentence_id"].tolist()
+    for start in tqdm(range(0, len(evidence_df), batch_size), desc="写入 ChromaDB"):
+        batch = evidence_df.iloc[start : start + batch_size]
         collection.add(
-            ids=ids[i : i + BATCH],
-            embeddings=embeddings[i : i + BATCH].tolist(),
-            documents=texts[i : i + BATCH],
-            metadatas=metadatas[i : i + BATCH]
+            ids=ids[start : start + batch_size],
+            embeddings=embeddings[start : start + batch_size].tolist(),
+            documents=batch["sentence_text"].tolist(),
+            metadatas=[
+                {
+                    "hotel_id": str(row["hotel_id"]),
+                    "city": str(row["city"]),
+                    "hotel_name": str(row["hotel_name"]),
+                    "aspect": str(row["aspect"]),
+                    "sentiment": str(row["sentiment"]),
+                    "rating": int(row["rating"]) if pd.notna(row["rating"]) else 0,
+                    "review_date": iso_date(row["review_date"]) or "",
+                    "recency_bucket": str(row["recency_bucket"]) if pd.notna(row["recency_bucket"]) else "unknown",
+                }
+                for _, row in batch.iterrows()
+            ],
         )
 
-    count = collection.count()
-    print(f"\n✅ ChromaDB 写入完成: {count} 条记录")
-    print(f"   持久化目录: {persist_dir}")
+    print(f"\n[OK] ChromaDB 写入完成: {collection.count()} 条记录")
 
-    # 快速检索测试
-    test_query = "The location was very convenient near downtown"
+    test_query = "quiet hotel near downtown with good service"
     test_result = collection.query(
-        query_embeddings=model.encode([test_query], normalize_embeddings=True).tolist(),
+        query_embeddings=model.encode(
+            [test_query],
+            normalize_embeddings=bool(ecfg.get("normalize", True)),
+        ).tolist(),
         n_results=3,
-        where={"aspect": "location_transport"}
+        where={"aspect": "location_transport"},
     )
-    print(f"\n🔍 检索测试 ('{test_query[:40]}...')")
+    print(f"\n[QUERY] 检索测试: {test_query}")
     for doc, meta in zip(test_result["documents"][0], test_result["metadatas"][0]):
-        print(f"   [{meta['aspect']} / {meta['sentiment']}] {doc[:80]}...")
+        print(f"   [{meta['aspect']}|{meta['sentiment']}] {meta['hotel_name']}: {doc[:80]}...")
 
 
 if __name__ == "__main__":

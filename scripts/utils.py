@@ -1,60 +1,29 @@
 """
-utils.py — 公用工具函数
-所有脚本共用的辅助函数集中在此处
+utils.py - Shared helpers for the hotel reviews data pipeline.
 """
 
+from __future__ import annotations
+
 import hashlib
+import os
 import re
-import yaml
-import pandas as pd
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
+
+import pandas as pd
+import yaml
 
 
-# ──────────────────────────────────────────────
-# 配置加载
-# ──────────────────────────────────────────────
+ASPECT_CATEGORIES = [
+    "location_transport",
+    "cleanliness",
+    "service",
+    "room_facilities",
+    "quiet_sleep",
+    "value",
+]
 
-def load_config(config_path: str = "configs/params.yaml") -> dict:
-    with open(config_path, encoding="utf-8") as f:
-        return yaml.safe_load(f)
-
-
-# ──────────────────────────────────────────────
-# 主键生成
-# ──────────────────────────────────────────────
-
-def make_hotel_id(hotel_key: str) -> str:
-    """keys 字段 → 12 位 MD5 定长主键"""
-    return hashlib.md5(hotel_key.encode("utf-8")).hexdigest()[:12]
-
-
-def make_review_id(hotel_id: str, date_raw: str, title: str, text: str) -> str:
-    """组合字段 → 16 位 SHA256 评论唯一标识"""
-    raw = f"{hotel_id}|{date_raw}|{title}|{text[:200]}"
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
-
-
-# ──────────────────────────────────────────────
-# 日期解析（修复 .000Z 解析 Bug）
-# ──────────────────────────────────────────────
-
-def safe_parse_timestamp(date_str) -> Optional[pd.Timestamp]:
-    """
-    修复 pd.to_datetime 对 '2018-11-27T00:00:00.000Z' 的向量化解析失败。
-    改用逐行 pd.Timestamp() 解析，确保 100% 成功率。
-    """
-    if pd.isna(date_str):
-        return pd.NaT
-    try:
-        return pd.Timestamp(str(date_str))
-    except Exception:
-        return pd.NaT
-
-
-# ──────────────────────────────────────────────
-# 管理者回复去除
-# ──────────────────────────────────────────────
+ALL_ASPECT_CATEGORIES = ASPECT_CATEGORIES + ["general"]
 
 MANAGER_PATTERNS = [
     r"(?:Dear|Hello)\s+(?:Guest|Traveler|Sir|Madam|valued\s+guest|Mr\.|Mrs\.|Ms\.)",
@@ -75,82 +44,166 @@ TAIL_NOISE_PATTERNS = [
 ]
 
 
-def remove_manager_response(text: str, min_preserve: int = 100) -> tuple:
-    """
-    去除管理者回复，返回 (cleaned_text, had_manager_reply)。
-    """
+def load_yaml(path: str | Path) -> dict:
+    with open(path, encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
+
+
+def load_config(config_path: str = "configs/params.yaml") -> dict:
+    return load_yaml(config_path)
+
+
+def load_db_config(config_path: str = "configs/db.yaml") -> dict:
+    path = Path(config_path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Database config not found: {path}. "
+            "Create it from configs/db.yaml.example first."
+        )
+
+    raw = load_yaml(path)
+    postgres = raw.get("postgres", {})
+    required = {"host", "port", "dbname", "user", "password", "schema"}
+    missing = sorted(required - set(postgres))
+    if missing:
+        raise KeyError(f"configs/db.yaml 缺少字段: {', '.join(missing)}")
+
+    password = os.environ.get("HOTEL_DB_PASSWORD", postgres["password"])
+    return {
+        "host": postgres["host"],
+        "port": int(postgres["port"]),
+        "dbname": postgres["dbname"],
+        "user": postgres["user"],
+        "password": password,
+        "schema": postgres["schema"],
+        "connect_timeout": int(postgres.get("connect_timeout", 30)),
+        "pool_size": int(postgres.get("pool_size", 5)),
+        "max_overflow": int(postgres.get("max_overflow", 10)),
+    }
+
+
+def get_pg_conn(db_config: Optional[dict] = None):
+    import psycopg2
+
+    cfg = db_config or load_db_config()
+    return psycopg2.connect(
+        host=cfg["host"],
+        port=cfg["port"],
+        dbname=cfg["dbname"],
+        user=cfg["user"],
+        password=cfg["password"],
+        connect_timeout=cfg["connect_timeout"],
+    )
+
+
+def make_hotel_id(hotel_key: str) -> str:
+    return hashlib.md5(str(hotel_key).encode("utf-8")).hexdigest()[:12]
+
+
+def make_review_id(hotel_id: str, date_raw: str, title: str, text: str) -> str:
+    raw = f"{hotel_id}|{date_raw}|{title}|{text}"
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def safe_parse_timestamp(date_str) -> Optional[pd.Timestamp]:
+    if pd.isna(date_str):
+        return pd.NaT
+    try:
+        timestamp = pd.Timestamp(str(date_str))
+        if timestamp.tzinfo is not None:
+            timestamp = timestamp.tz_convert("UTC").tz_localize(None)
+        return timestamp
+    except Exception:
+        return pd.NaT
+
+
+def remove_manager_response(text: str, min_preserve: int = 100) -> tuple[str, bool]:
     if pd.isna(text) or not isinstance(text, str):
-        return (str(text) if not pd.isna(text) else ""), False
+        return "", False
 
     earliest = len(text)
-    for pat in MANAGER_PATTERNS:
-        m = re.search(pat, text, re.IGNORECASE)
-        if m and m.start() > min_preserve and m.start() < earliest:
-            earliest = m.start()
+    for pattern in MANAGER_PATTERNS:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match and min_preserve < match.start() < earliest:
+            earliest = match.start()
 
-    had_reply = earliest < len(text)
     cleaned = text[:earliest].rstrip()
-    for pat in TAIL_NOISE_PATTERNS:
-        cleaned = re.sub(pat, "", cleaned, flags=re.IGNORECASE).rstrip()
+    for pattern in TAIL_NOISE_PATTERNS:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE).rstrip()
 
-    return cleaned, had_reply
+    return cleaned, earliest < len(text)
 
 
-# ──────────────────────────────────────────────
-# 时间桶
-# ──────────────────────────────────────────────
-
-def assign_recency_bucket(review_date, reference_date: pd.Timestamp, buckets: dict) -> str:
+def assign_recency_bucket(
+    review_date,
+    reference_date: pd.Timestamp,
+    buckets: dict,
+) -> str:
     if pd.isna(review_date):
         return "unknown"
+
     try:
-        delta = (reference_date - pd.Timestamp(review_date)).days
+        delta_days = (reference_date - pd.Timestamp(review_date)).days
     except Exception:
         return "unknown"
-    if delta <= 90:   return "recent_90d"
-    elif delta <= 365: return "recent_1y"
-    elif delta <= 730: return "recent_2y"
-    else:              return "older"
+
+    if delta_days <= 90:
+        return "recent_90d"
+    if delta_days <= 365:
+        return "recent_1y"
+    if delta_days <= 730:
+        return "recent_2y"
+    return "older"
 
 
 def rating_to_weak_sentiment(rating) -> str:
     try:
-        r = int(rating)
-        return "positive" if r >= 4 else ("negative" if r <= 2 else "neutral")
-    except (ValueError, TypeError):
+        value = int(rating)
+    except (TypeError, ValueError):
         return "neutral"
+    return "positive" if value >= 4 else ("negative" if value <= 2 else "neutral")
 
 
-# ──────────────────────────────────────────────
-# 数据库工具
-# ──────────────────────────────────────────────
+def normalize_whitespace(text: str) -> str:
+    if not isinstance(text, str):
+        return ""
+    return re.sub(r"\s+", " ", text).strip()
 
-def get_pg_conn(config: dict):
-    """从配置创建 psycopg2 连接"""
-    import os
-    import psycopg2
-    import re as _re
-    db_url = config["data"]["db_url"]
-    pw = os.environ.get("HOTEL_DB_PASSWORD")
-    if pw:
-        db_url = _re.sub(r"(?<=://.+:)[^@]+(?=@)", pw, db_url)
-    return psycopg2.connect(db_url)
-
-
-# ──────────────────────────────────────────────
-# 日志 + 断言
-# ──────────────────────────────────────────────
 
 def log_step(step: str, msg: str) -> None:
     print(f"[{step}] {msg}")
 
 
-def assert_shape(df: pd.DataFrame, expected_rows: int,
-                 tolerance: float = 0.10, label: str = "") -> None:
-    lo = int(expected_rows * (1 - tolerance))
-    hi = int(expected_rows * (1 + tolerance))
+def ensure_columns(df: pd.DataFrame, required: Iterable[str], label: str) -> None:
+    missing = [col for col in required if col not in df.columns]
+    if missing:
+        raise KeyError(f"{label} 缺少字段: {', '.join(missing)}")
+
+
+def assert_shape(
+    df: pd.DataFrame,
+    expected_rows: int,
+    tolerance: float = 0.10,
+    label: str = "",
+) -> None:
+    low = int(expected_rows * (1 - tolerance))
+    high = int(expected_rows * (1 + tolerance))
     actual = len(df)
-    assert lo <= actual <= hi, (
-        f"[ASSERT] {label}: 期望 ~{expected_rows}±{tolerance*100:.0f}% 行，实际 {actual}"
-    )
-    print(f"✅ {label}: {actual} 行 (预期 ~{expected_rows})")
+    if not low <= actual <= high:
+        raise AssertionError(
+            f"[ASSERT] {label}: 期望 ~{expected_rows}±{tolerance * 100:.0f}% 行，实际 {actual}"
+        )
+    print(f"[OK] {label}: {actual} 行 (预期 ~{expected_rows})")
+
+
+def assert_unique(df: pd.DataFrame, subset: list[str], label: str) -> None:
+    dup_count = int(df.duplicated(subset=subset).sum())
+    if dup_count:
+        raise AssertionError(f"{label} 存在 {dup_count} 条重复记录: {subset}")
+    print(f"[OK] {label}: 主键唯一 ({', '.join(subset)})")
+
+
+def iso_date(value) -> Optional[str]:
+    if pd.isna(value):
+        return None
+    return pd.Timestamp(value).date().isoformat()

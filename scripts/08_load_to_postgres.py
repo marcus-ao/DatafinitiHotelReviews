@@ -2,182 +2,307 @@
 08_load_to_postgres.py
 步骤 13：将所有中间数据写入 PostgreSQL
 输入:  data/intermediate/*.pkl
-输出: PostgreSQL kb schema 中的 6 张表
+输出: PostgreSQL kb schema 中的 6 张核心表
 """
 
+from __future__ import annotations
+
+from typing import Iterable
+
 import pandas as pd
-import psycopg2
 from psycopg2.extras import execute_values
-from pathlib import Path
-from utils import load_config, log_step, get_pg_conn
+
+from utils import ensure_columns, get_pg_conn, load_db_config, log_step
 
 
-def upsert_hotels(conn, hotel_profiles: pd.DataFrame):
-    log_step("PG", "写入 hotel 表")
-    cols = [
-        "hotel_id", "hotel_name", "city", "state", "address",
-        "latitude", "longitude", "n_reviews", "avg_rating",
-        "min_review_date", "max_review_date", "n_sentences",
-        "overall_pos", "overall_neg", "overall_neu"
-    ]
-    rows = [
-        tuple(row[c] if pd.notna(row.get(c)) else None for c in cols)
-        for _, row in hotel_profiles.iterrows()
-    ]
-    sql = f"""
-        INSERT INTO kb.hotel ({', '.join(cols)})
-        VALUES %s
-        ON CONFLICT (hotel_id) DO UPDATE SET
-            n_reviews      = EXCLUDED.n_reviews,
-            avg_rating     = EXCLUDED.avg_rating,
-            n_sentences    = EXCLUDED.n_sentences,
-            overall_pos    = EXCLUDED.overall_pos,
-            overall_neg    = EXCLUDED.overall_neg,
-            overall_neu    = EXCLUDED.overall_neu,
-            updated_at     = NOW()
-    """
-    with conn.cursor() as cur:
-        execute_values(cur, sql, rows)
-    conn.commit()
-    print(f"   ✅ hotel: {len(rows)} 行")
-
-
-def upsert_reviews(conn, reviews_df: pd.DataFrame):
-    log_step("PG", "写入 review 表")
-    cols = [
-        "review_id", "hotel_id", "review_date", "review_year",
-        "review_month", "recency_bucket", "rating", "sentiment_weak",
-        "has_manager_reply", "char_len_clean", "review_text_clean",
-        "username", "user_city"
-    ]
+def _rows_from_df(df: pd.DataFrame, columns: Iterable[str]) -> list[tuple]:
     rows = []
-    for _, row in reviews_df.iterrows():
-        rows.append(tuple(
-            row.get(c) if pd.notna(row.get(c) if row.get(c) is not None else float('nan')) else None
-            for c in cols
-        ))
-    sql = f"""
-        INSERT INTO kb.review ({', '.join(cols)})
-        VALUES %s
-        ON CONFLICT (review_id) DO NOTHING
-    """
+    for _, row in df.iterrows():
+        rows.append(
+            tuple(None if pd.isna(row[column]) else row[column] for column in columns)
+        )
+    return rows
+
+
+def build_hotel_df(review_df: pd.DataFrame, sentence_df: pd.DataFrame) -> pd.DataFrame:
+    hotel_df = (
+        review_df.groupby("hotel_id")
+        .agg(
+            hotel_key=("hotel_key", "first"),
+            hotel_name=("hotel_name", "first"),
+            address=("address", "first"),
+            city=("city", "first"),
+            state=("state", "first"),
+            country=("country", "first"),
+            postal_code=("postal_code", "first"),
+            lat=("lat", "first"),
+            lng=("lng", "first"),
+            hotel_category=("primary_category", "first"),
+            categories_raw=("categories", "first"),
+            hotel_website=("hotel_website", "first"),
+            n_reviews=("review_id", "count"),
+            avg_rating=("rating", "mean"),
+            rating_std=("rating", "std"),
+        )
+        .reset_index()
+    )
+    sentence_counts = sentence_df.groupby("hotel_id").size().rename("n_sentences").reset_index()
+    hotel_df = hotel_df.merge(sentence_counts, on="hotel_id", how="left")
+    hotel_df["avg_rating"] = hotel_df["avg_rating"].round(2)
+    hotel_df["rating_std"] = hotel_df["rating_std"].round(2)
+    hotel_df["n_sentences"] = hotel_df["n_sentences"].fillna(0).astype(int)
+    return hotel_df
+
+
+def truncate_tables(conn, schema: str) -> None:
+    log_step("PG", "清空旧表数据")
     with conn.cursor() as cur:
-        execute_values(cur, sql, rows, page_size=500)
+        cur.execute(
+            f"""
+            TRUNCATE TABLE
+                {schema}.evidence_index,
+                {schema}.hotel_aspect_profile,
+                {schema}.aspect_sentiment,
+                {schema}.sentence,
+                {schema}.review,
+                {schema}.hotel
+            CASCADE
+            """
+        )
     conn.commit()
-    print(f"   ✅ review: {len(rows)} 行")
 
 
-def upsert_sentences(conn, sent_df: pd.DataFrame):
-    log_step("PG", "写入 sentence 表")
-    cols = [
-        "sentence_id", "review_id", "hotel_id",
-        "sentence_order", "sentence_text", "char_len", "token_count"
-    ]
-    rows = [
-        tuple(row.get(c) for c in cols)
-        for _, row in sent_df.iterrows()
-    ]
-    sql = f"""
-        INSERT INTO kb.sentence ({', '.join(cols)})
-        VALUES %s
-        ON CONFLICT (sentence_id) DO NOTHING
-    """
+def load_table(conn, schema: str, table: str, df: pd.DataFrame, columns: list[str], page_size: int = 1000) -> None:
+    ensure_columns(df, columns, f"{table} load df")
+    rows = _rows_from_df(df, columns)
+    sql = f"INSERT INTO {schema}.{table} ({', '.join(columns)}) VALUES %s"
     with conn.cursor() as cur:
-        execute_values(cur, sql, rows, page_size=1000)
+        execute_values(cur, sql, rows, page_size=page_size)
     conn.commit()
-    print(f"   ✅ sentence: {len(rows)} 行")
-
-
-def upsert_aspect_sentiment(conn, classified_df: pd.DataFrame):
-    log_step("PG", "写入 aspect_sentiment 表")
-    cols = [
-        "sentence_id", "review_id", "hotel_id",
-        "aspect", "sentiment", "label_source", "confidence"
-    ]
-    rows = []
-    for _, row in classified_df.iterrows():
-        # 主方面写一条
-        rows.append((
-            row["sentence_id"], row["review_id"], row["hotel_id"],
-            row["primary_aspect"], row["sentiment"],
-            row["label_source"], 0.85 if row["label_source"] == "rule" else 0.65
-        ))
-    sql = f"""
-        INSERT INTO kb.aspect_sentiment ({', '.join(cols)})
-        VALUES %s
-        ON CONFLICT (sentence_id, aspect) DO UPDATE SET
-            sentiment    = EXCLUDED.sentiment,
-            label_source = EXCLUDED.label_source,
-            confidence   = EXCLUDED.confidence
-    """
-    with conn.cursor() as cur:
-        execute_values(cur, sql, rows, page_size=1000)
-    conn.commit()
-    print(f"   ✅ aspect_sentiment: {len(rows)} 行")
-
-
-def upsert_hotel_aspect_profile(conn, profiles_df: pd.DataFrame):
-    log_step("PG", "写入 hotel_aspect_profile 表")
-    ASPECTS = [
-        "location_transport", "cleanliness", "service",
-        "room_facilities", "quiet_sleep", "value", "general"
-    ]
-    rows = []
-    for _, row in profiles_df.iterrows():
-        for asp in ASPECTS:
-            n = row.get(f"{asp}_n", 0)
-            if not n:
-                continue
-            rows.append((
-                row["hotel_id"], asp,
-                row.get(f"{asp}_pos"), row.get(f"{asp}_neg"),
-                row.get(f"{asp}_neu"), int(n)
-            ))
-    sql = """
-        INSERT INTO kb.hotel_aspect_profile
-            (hotel_id, aspect, pos_ratio, neg_ratio, neu_ratio, n_sentences)
-        VALUES %s
-        ON CONFLICT (hotel_id, aspect) DO UPDATE SET
-            pos_ratio   = EXCLUDED.pos_ratio,
-            neg_ratio   = EXCLUDED.neg_ratio,
-            neu_ratio   = EXCLUDED.neu_ratio,
-            n_sentences = EXCLUDED.n_sentences,
-            updated_at  = NOW()
-    """
-    with conn.cursor() as cur:
-        execute_values(cur, sql, rows)
-    conn.commit()
-    print(f"   ✅ hotel_aspect_profile: {len(rows)} 行")
+    print(f"   [OK] {table}: {len(rows)} 行")
 
 
 def main():
-    cfg = load_config()
-    conn = get_pg_conn(cfg)
+    db_cfg = load_db_config()
+    schema = db_cfg["schema"]
+    conn = get_pg_conn(db_cfg)
 
-    reviews_df  = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
-    classified  = pd.read_pickle("data/intermediate/sentiment_classified.pkl")
-    profiles    = pd.read_pickle("data/intermediate/hotel_profiles.pkl")
+    review_df = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
+    sentence_df = pd.read_pickle("data/intermediate/sentences.pkl")
+    aspect_df = pd.read_pickle("data/intermediate/aspect_sentiment.pkl")
+    profile_df = pd.read_pickle("data/intermediate/hotel_profiles.pkl")
+    evidence_df = pd.read_pickle("data/intermediate/evidence_index.pkl")
 
-    # sentence 表只需基础字段
-    sent_cols = ["sentence_id", "review_id", "hotel_id",
-                 "sentence_order", "sentence_text", "char_len", "token_count"]
-    sent_df = classified[sent_cols].drop_duplicates(subset=["sentence_id"])
+    ensure_columns(
+        review_df,
+        [
+            "review_id",
+            "hotel_id",
+            "hotel_key",
+            "hotel_name",
+            "address",
+            "city",
+            "state",
+            "country",
+            "postal_code",
+            "lat",
+            "lng",
+            "primary_category",
+            "categories",
+            "hotel_website",
+            "review_date",
+            "review_year",
+            "review_month",
+            "recency_bucket",
+            "rating",
+            "sentiment_weak",
+            "review_title",
+            "review_text_raw",
+            "review_text_clean",
+            "full_text",
+            "char_len_raw",
+            "char_len_clean",
+            "has_manager_reply",
+            "review_source_url",
+        ],
+        "cleaned_reviews.pkl",
+    )
+    ensure_columns(
+        sentence_df,
+        ["sentence_id", "review_id", "hotel_id", "sentence_text", "sentence_order", "char_len", "token_count", "city"],
+        "sentences.pkl",
+    )
+    ensure_columns(
+        aspect_df,
+        ["sentence_id", "hotel_id", "aspect", "sentiment", "confidence", "label_source", "evidence_span"],
+        "aspect_sentiment.pkl",
+    )
+    ensure_columns(
+        profile_df,
+        [
+            "hotel_id",
+            "aspect",
+            "pos_count",
+            "neg_count",
+            "neu_count",
+            "total_count",
+            "recency_weighted_pos",
+            "recency_weighted_neg",
+            "controversy_score",
+            "final_aspect_score",
+        ],
+        "hotel_profiles.pkl",
+    )
+    ensure_columns(
+        evidence_df,
+        [
+            "text_id",
+            "hotel_id",
+            "sentence_id",
+            "sentence_text",
+            "aspect",
+            "sentiment",
+            "city",
+            "hotel_name",
+            "review_date",
+            "rating",
+            "recency_bucket",
+            "embedding_id",
+        ],
+        "evidence_index.pkl",
+    )
 
-    upsert_hotels(conn, profiles)
-    upsert_reviews(conn, reviews_df)
-    upsert_sentences(conn, sent_df)
-    upsert_aspect_sentiment(conn, classified)
-    upsert_hotel_aspect_profile(conn, profiles)
+    hotel_df = build_hotel_df(review_df, sentence_df)
 
-    # 汇总
+    review_out = review_df[
+        [
+            "review_id",
+            "hotel_id",
+            "review_date",
+            "review_year",
+            "review_month",
+            "recency_bucket",
+            "rating",
+            "sentiment_weak",
+            "review_title",
+            "review_text_raw",
+            "review_text_clean",
+            "full_text",
+            "char_len_raw",
+            "char_len_clean",
+            "has_manager_reply",
+            "review_source_url",
+            "city",
+            "hotel_name",
+        ]
+    ].copy()
+
+    sentence_out = sentence_df[
+        [
+            "sentence_id",
+            "review_id",
+            "hotel_id",
+            "sentence_text",
+            "sentence_order",
+            "char_len",
+            "token_count",
+            "city",
+        ]
+    ].copy()
+
+    aspect_out = aspect_df[
+        [
+            "sentence_id",
+            "hotel_id",
+            "aspect",
+            "sentiment",
+            "confidence",
+            "label_source",
+            "evidence_span",
+        ]
+    ].copy()
+
+    truncate_tables(conn, schema)
+    load_table(
+        conn,
+        schema,
+        "hotel",
+        hotel_df,
+        [
+            "hotel_id",
+            "hotel_key",
+            "hotel_name",
+            "address",
+            "city",
+            "state",
+            "country",
+            "postal_code",
+            "lat",
+            "lng",
+            "hotel_category",
+            "categories_raw",
+            "hotel_website",
+            "n_reviews",
+            "avg_rating",
+            "rating_std",
+        ],
+    )
+    load_table(
+        conn,
+        schema,
+        "review",
+        review_out,
+        list(review_out.columns),
+        page_size=500,
+    )
+    load_table(
+        conn,
+        schema,
+        "sentence",
+        sentence_out,
+        list(sentence_out.columns),
+        page_size=1000,
+    )
+    load_table(
+        conn,
+        schema,
+        "aspect_sentiment",
+        aspect_out,
+        list(aspect_out.columns),
+        page_size=1000,
+    )
+    load_table(
+        conn,
+        schema,
+        "hotel_aspect_profile",
+        profile_df,
+        list(profile_df.columns),
+        page_size=1000,
+    )
+    load_table(
+        conn,
+        schema,
+        "evidence_index",
+        evidence_df,
+        list(evidence_df.columns),
+        page_size=1000,
+    )
+
     with conn.cursor() as cur:
-        for table in ["hotel", "review", "sentence", "aspect_sentiment", "hotel_aspect_profile"]:
-            cur.execute(f"SELECT COUNT(*) FROM kb.{table}")
-            cnt = cur.fetchone()[0]
-            print(f"   kb.{table}: {cnt} 行")
+        for table in [
+            "hotel",
+            "review",
+            "sentence",
+            "aspect_sentiment",
+            "hotel_aspect_profile",
+            "evidence_index",
+        ]:
+            cur.execute(f"SELECT COUNT(*) FROM {schema}.{table}")
+            count = cur.fetchone()[0]
+            print(f"   {schema}.{table}: {count} 行")
 
     conn.close()
-    print("\n✅ PostgreSQL 数据加载完成")
+    print("\n[OK] PostgreSQL 数据加载完成")
 
 
 if __name__ == "__main__":

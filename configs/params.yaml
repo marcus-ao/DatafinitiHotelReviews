@@ -1,6 +1,6 @@
 # ============================================================
 # Hotel Reviews Knowledge Base — 全局配置文件
-# 版本: v3.0  |  勿在此文件中存储密码，密码请用环境变量
+# 请勿在此文件中存储密码，密码请用环境变量
 # ============================================================
 
 data:
@@ -16,8 +16,6 @@ data:
     - "Honolulu"
     - "Dallas"
     - "Anaheim"
-  # PostgreSQL 连接 URL — 密码请替换或用环境变量 HOTEL_DB_PASSWORD
-  db_url: "postgresql://hotel_user:dev_password@localhost:5432/hotel_reviews_kb"
 
 cleaning:
   min_text_length: 50          # 低于此长度的评论直接删除
@@ -34,7 +32,6 @@ hotel_filter:
 
 sentence:
   min_sentence_length: 10      # 过短碎片句丢弃阈值
-  max_sentence_length: 500     # 超长句标记阈值
   min_fragment_merge_length: 15  # 碎片句合并阈值（合并到前一句）
   splitter: "spacy"            # spacy | nltk
 

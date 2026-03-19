@@ -1012,14 +1012,14 @@ print("\n✅ 全部验证通过！知识库构建完成。")
 
 ```bash
 # 一键执行全流程（顺序运行）
-python scripts/01_load_and_filter.py          # ~10s
-python scripts/02_clean_reviews.py            # ~30s
+python scripts/01_load_filter.py          # ~10s
+python scripts/02_clean_and_dedupe.py            # ~30s
 python scripts/03_split_sentences.py          # ~3min
 python scripts/04_classify_aspects.py         # ~30min(GPU) / ~3h(CPU)
 python scripts/05_classify_sentiment.py       # ~3min(GPU) / ~20min(CPU)
 python scripts/06_build_profiles.py           # ~10s
 python scripts/07_build_vector_index.py       # ~6min(GPU) / ~25min(CPU)
-python scripts/08_export_to_postgres.py       # ~30s (需先执行 8.1/8.2 的 SQL 初始化)
+python scripts/08_load_to_postgres.py       # ~30s (需先执行 8.1/8.2 的 SQL 初始化)
 python scripts/09_validate.py                 # ~10s
 ```
 
