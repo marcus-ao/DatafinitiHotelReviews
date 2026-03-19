@@ -1,0 +1,42 @@
+# ============================================================
+# Hotel Reviews Knowledge Base — Python Dependencies
+# Install: pip install -r requirements.txt
+# Python: 3.10+
+# ============================================================
+
+# ── 数据处理 ──
+pandas>=2.0.0
+numpy>=1.24.0
+tqdm>=4.65.0
+pyyaml>=6.0
+scikit-learn>=1.3.0
+
+# ── NLP — 分句 ──
+spacy>=3.7.0
+# 安装后执行: python -m spacy download en_core_web_sm
+
+# ── NLP — 方面分类 + 情感分析 ──
+transformers>=4.40.0
+torch>=2.1.0
+# 注意: torch 建议从 https://pytorch.org 按 CUDA 版本安装
+
+# ── NLP — 向量编码 ──
+sentence-transformers>=2.7.0
+
+# ── 向量数据库 ──
+chromadb>=0.5.0
+
+# ── 关系数据库 ──
+psycopg2-binary>=2.9.9
+
+# ── 工具 ──
+python-dotenv>=1.0.0
+jupyter>=1.0.0
+ipykernel>=6.29.0
+matplotlib>=3.8.0
+seaborn>=0.13.0
+
+# ── 可选: 加速推理 ──
+# accelerate>=0.30.0
+# bitsandbytes>=0.43.0   # 4-bit 量化 (仅 Linux GPU)
+# optimum>=1.19.0        # ONNX 加速

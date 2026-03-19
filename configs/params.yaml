@@ -1,0 +1,80 @@
+# ============================================================
+# Hotel Reviews Knowledge Base — 全局配置文件
+# 版本: v3.0  |  勿在此文件中存储密码，密码请用环境变量
+# ============================================================
+
+data:
+  raw_file: "raw_data/Datafiniti_Hotel_Reviews.csv"
+  experiment_cities:
+    - "San Diego"
+    - "San Francisco"
+    - "New Orleans"
+    - "Atlanta"
+    - "Orlando"
+    - "Seattle"
+    - "Chicago"
+    - "Honolulu"
+    - "Dallas"
+    - "Anaheim"
+  # PostgreSQL 连接 URL — 密码请替换或用环境变量 HOTEL_DB_PASSWORD
+  db_url: "postgresql://hotel_user:dev_password@localhost:5432/hotel_reviews_kb"
+
+cleaning:
+  min_text_length: 50          # 低于此长度的评论直接删除
+  min_preserve_length: 100     # 管理者回复切分的最短保留段
+  noise_exact_matches:
+    - "MoreMore"
+    - "More"
+    - "N/A"
+    - "NA"
+
+hotel_filter:
+  min_reviews_per_hotel: 5     # 每家酒店最低评论数
+  min_avg_text_length: 100     # 每家酒店平均评论字符下限
+
+sentence:
+  min_sentence_length: 10      # 过短碎片句丢弃阈值
+  max_sentence_length: 500     # 超长句标记阈值
+  min_fragment_merge_length: 15  # 碎片句合并阈值（合并到前一句）
+  splitter: "spacy"            # spacy | nltk
+
+aspect:
+  categories:
+    - location_transport
+    - cleanliness
+    - service
+    - room_facilities
+    - quiet_sleep
+    - value
+  zeroshot_model: "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
+  zeroshot_threshold: 0.45     # 低于此置信度不归入该方面
+  zeroshot_min_char_len: 30    # 短于此长度的句子跳过 zero-shot，直接归 general
+  zeroshot_batch_size: 32
+
+sentiment:
+  model: "nlptown/bert-base-multilingual-uncased-sentiment"
+  batch_size: 64
+  # 5 分类 → 3 分类映射
+  # 1-2 星 → negative, 3 星 → neutral, 4-5 星 → positive
+
+recency:
+  reference_date: "2019-01-30"  # 数据集最晚日期
+  buckets:
+    recent_90d: 1.2
+    recent_1y:  1.0
+    recent_2y:  0.9
+    older:      0.8
+    unknown:    1.0             # 日期缺失时使用默认权重
+
+embedding:
+  model: "BAAI/bge-small-en-v1.5"
+  dimension: 384
+  normalize: true
+  chroma_collection: "hotel_evidence"
+  chroma_persist_dir: "data/chroma_db"
+  encode_batch_size: 256
+
+reranker:
+  model: "BAAI/bge-reranker-base"
+  top_k_before_rerank: 20      # 初检 top-k，再重排
+  top_k_after_rerank: 5        # 最终保留证据句数
