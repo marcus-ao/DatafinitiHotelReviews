@@ -16,14 +16,26 @@ from tqdm import tqdm
 from utils import ensure_columns, iso_date, load_config, log_step
 
 
-def select_metadata_label(group: pd.DataFrame) -> pd.Series:
-    ranked = group.copy()
+def build_primary_meta(aspect_df: pd.DataFrame) -> pd.DataFrame:
+    # 这里不用 groupby.apply，是为了避免不同 pandas 版本下
+    # sentence_id 被放进索引或直接丢失，导致后续 merge 时报 KeyError。
+    # 通过排序后按 sentence_id 去重，可以稳定地为每个句子选出一个主标签。
+    ranked = aspect_df.copy()
     ranked["general_rank"] = (ranked["aspect"] == "general").astype(int)
     ranked = ranked.sort_values(
-        by=["general_rank", "confidence", "sentiment_confidence"],
-        ascending=[True, False, False],
+        by=["sentence_id", "general_rank", "confidence", "sentiment_confidence"],
+        ascending=[True, True, False, False],
     )
-    return ranked.iloc[0]
+    primary_meta = ranked.drop_duplicates(subset=["sentence_id"], keep="first").copy()
+    return primary_meta[
+        [
+            "sentence_id",
+            "aspect",
+            "sentiment",
+            "confidence",
+            "label_source",
+        ]
+    ]
 
 
 def main():
@@ -50,23 +62,14 @@ def main():
     )
     log_step("STEP12b", f"句子: {len(sent_df)}，标签: {len(aspect_df)}")
 
-    primary_meta = (
-        aspect_df.groupby("sentence_id", group_keys=False)
-        .apply(select_metadata_label)
-        .reset_index(drop=True)
-    )
+    primary_meta = build_primary_meta(aspect_df)
+    if primary_meta["sentence_id"].duplicated().any():
+        raise AssertionError("primary_meta 中存在重复 sentence_id")
 
+    # 先拼接句子级标签，再关联评论级补充字段，统一生成 evidence_index。
     evidence_df = (
         sent_df.merge(
-            primary_meta[
-                [
-                    "sentence_id",
-                    "aspect",
-                    "sentiment",
-                    "confidence",
-                    "label_source",
-                ]
-            ],
+            primary_meta,
             on="sentence_id",
             how="left",
             validate="one_to_one",
