@@ -1,7 +1,8 @@
 -- ============================================================
 -- Hotel Reviews Knowledge Base — PostgreSQL Schema
 -- 适用: 本科毕业设计「基于酒店评论知识库的推荐智能体研究」
--- 执行: psql -U hotel_user -d hotel_reviews_kb -f sql/init_schema.sql
+-- 执行: psql -U <db_user> -d hotel_reviews_kb -f sql/init_schema.sql
+-- 说明: 数据库连接参数由 configs/db.yaml 提供，HOTEL_DB_PASSWORD 可临时覆盖密码字段
 -- ============================================================
 
 CREATE SCHEMA IF NOT EXISTS kb;

@@ -18,6 +18,16 @@ def check(condition: bool, name: str, detail: str = "") -> bool:
     return condition
 
 
+def build_chroma_where(filters: dict[str, str]) -> dict:
+    # 新版 Chroma 要求 where 只包含一个顶层操作符；多条件过滤时使用 $and 包装。
+    items = [{key: value} for key, value in filters.items() if value is not None]
+    if not items:
+        return {}
+    if len(items) == 1:
+        return items[0]
+    return {"$and": items}
+
+
 def main():
     cfg = load_config()
     db_cfg = load_db_config()
@@ -91,7 +101,13 @@ def main():
         result = collection.query(
             query_embeddings=query_embedding,
             n_results=1,
-            where={"city": "San Diego", "aspect": "location_transport", "sentiment": "positive"},
+            where=build_chroma_where(
+                {
+                    "city": "San Diego",
+                    "aspect": "location_transport",
+                    "sentiment": "positive",
+                }
+            ),
         )
         passed.append(check(len(result["ids"][0]) == 1, "ChromaDB city/aspect/sentiment 过滤查询正常"))
     except Exception as exc:
