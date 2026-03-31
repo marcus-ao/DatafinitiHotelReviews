@@ -6,7 +6,7 @@
 
 - 数据处理与知识库构建主链路已完成，验证结果为 `28/28`
 - `E1`、`E2`、`E5`、`E6`、`E7`、`E8` 已完成正式结果并保留在仓库中
-- `E3/E4` 代码与评测链路已准备完成，Base 组约定在云端 GPU 环境运行
+- `E3/E4` 代码与评测链路已准备完成，云端 Base 组计划切换为 `Qwen3.5-2B / 4B / 9B` 对比
 - 默认检索配置已冻结为 `aspect_main_no_rerank`
 
 ## 仓库结构
@@ -15,6 +15,7 @@
 DatafinitiHotelReviews/
 ├── configs/
 ├── docs/
+│   ├── deployment/
 │   ├── plans/
 │   ├── repo/
 │   └── status/
@@ -86,11 +87,12 @@ python -m scripts.evaluation.run_experiment_suite --task e2_candidates
 python -m scripts.evaluation.run_experiment_suite --task e5_query_bridge
 ```
 
-`E3/E4` 的 Base 组固定使用 `Qwen/Qwen2.5-3B-Instruct`，当前约定在云端 GPU 环境执行，不在本地下载模型权重。
+`E3/E4` 的下一轮正式云端 Base 组计划使用 `Qwen3.5-2B / 4B / 9B` 对比。行为实验脚本现在已经支持通过 OpenAI-compatible API 调用云端 `vLLM`，部署和执行步骤见 `docs/deployment/01_autodl_qwen35_behavior_runbook.md`。
 
 ## 文档入口
 
 - 研究与实施计划：`docs/plans/`
+- 云端部署与行为实验手册：`docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 - 当前进度与下一步：`docs/status/`
 - 仓库结构与提交说明：`docs/repo/01_repository_structure_and_commit_guide.md`
 - 实验资产与运行说明：`experiments/README.md`

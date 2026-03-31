@@ -81,7 +81,14 @@ workflow:
   enable_fallback: false
 
 behavior:
-  base_model: "Qwen/Qwen2.5-3B-Instruct"
+  llm_backend: "api"                    # local | api
+  base_model: "Qwen/Qwen3.5-2B"         # 云端可通过 BEHAVIOR_MODEL_ID 覆盖为 4B / 9B
+  api_base_url: "http://127.0.0.1:8000/v1"
+  api_key_env: "OPENAI_API_KEY"
+  enable_thinking: false
+  temperature: 0.0
+  max_new_tokens: 256
+  api_timeout_seconds: 120
   prompt_versions:
     e3_preference: "e3_v1_structured_preference"
     e4_clarification: "e4_v1_clarify_decision"

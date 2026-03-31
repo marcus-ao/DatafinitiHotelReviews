@@ -8,7 +8,7 @@ import re
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import pandas as pd
 import torch
@@ -26,12 +26,14 @@ from scripts.evaluation.evaluate_e6_e8_retrieval import (
     retrieve_official_mode,
 )
 from scripts.shared.experiment_schemas import (
+    BehaviorRuntimeConfig,
     BridgeQueryRecord,
     ClarificationDecision,
     PreferenceParseResult,
     RunLogEntry,
     UserPreference,
 )
+from scripts.shared.behavior_runtime import flatten_openai_content, resolve_behavior_runtime_config
 from scripts.shared.experiment_utils import (
     E4_LABELS_DIR,
     E6_LABELS_DIR,
@@ -66,6 +68,13 @@ UNSUPPORTED_PATTERNS = {
 }
 
 NEGATIVE_MARKERS = ["不要", "别", "避免", "太差", "不好", "别太强调"]
+
+
+class BehaviorLLMBackend(Protocol):
+    runtime_config: BehaviorRuntimeConfig
+
+    def generate_json(self, system_prompt: str, user_prompt: str, max_new_tokens: int | None = None) -> str:
+        ...
 
 
 def load_json(path: str | Path) -> dict:
@@ -240,10 +249,20 @@ def parse_json_with_repair(raw_text: str) -> tuple[dict[str, Any] | None, bool]:
             return None, False
 
 
+def build_behavior_backend(
+    runtime_config: BehaviorRuntimeConfig,
+    api_key: str | None,
+) -> BehaviorLLMBackend:
+    if runtime_config.llm_backend == "api":
+        return OpenAICompatibleModel(runtime_config, api_key)
+    return LocalBaseModel(runtime_config)
+
+
 class LocalBaseModel:
-    def __init__(self, model_id: str) -> None:
-        self.model_id = model_id
-        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+    def __init__(self, runtime_config: BehaviorRuntimeConfig) -> None:
+        self.runtime_config = runtime_config
+        self.model_id = runtime_config.model_id
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -257,11 +276,11 @@ class LocalBaseModel:
             self.device = "cpu"
             dtype = torch.float32
 
-        self.model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype)
+        self.model = AutoModelForCausalLM.from_pretrained(self.model_id, torch_dtype=dtype)
         self.model.to(self.device)
         self.model.eval()
 
-    def generate_json(self, system_prompt: str, user_prompt: str, max_new_tokens: int = 256) -> str:
+    def generate_json(self, system_prompt: str, user_prompt: str, max_new_tokens: int | None = None) -> str:
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -272,17 +291,58 @@ class LocalBaseModel:
             return_tensors="pt",
         ).to(self.device)
         attention_mask = torch.ones_like(input_ids)
+        target_max_tokens = max_new_tokens or self.runtime_config.max_new_tokens
+        generate_kwargs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_mask,
+            "max_new_tokens": target_max_tokens,
+            "pad_token_id": self.tokenizer.pad_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+        }
+        if self.runtime_config.temperature > 0:
+            generate_kwargs["do_sample"] = True
+            generate_kwargs["temperature"] = self.runtime_config.temperature
+        else:
+            generate_kwargs["do_sample"] = False
         with torch.inference_mode():
-            output = self.model.generate(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                max_new_tokens=max_new_tokens,
-                do_sample=False,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
-            )
+            output = self.model.generate(**generate_kwargs)
         generated = output[0][input_ids.shape[-1] :]
         return self.tokenizer.decode(generated, skip_special_tokens=True).strip()
+
+
+class OpenAICompatibleModel:
+    def __init__(self, runtime_config: BehaviorRuntimeConfig, api_key: str | None) -> None:
+        try:
+            from openai import OpenAI
+        except ImportError as exc:
+            raise ImportError(
+                "当前环境缺少 openai 依赖，请先执行 `pip install openai` 或 `pip install -r requirements.txt`。"
+            ) from exc
+
+        self.runtime_config = runtime_config
+        self.model_id = runtime_config.model_id
+        self.client = OpenAI(
+            api_key=api_key or "EMPTY",
+            base_url=runtime_config.api_base_url,
+            timeout=runtime_config.api_timeout_seconds,
+        )
+
+    def generate_json(self, system_prompt: str, user_prompt: str, max_new_tokens: int | None = None) -> str:
+        response = self.client.chat.completions.create(
+            model=self.model_id,
+            temperature=self.runtime_config.temperature,
+            max_tokens=max_new_tokens or self.runtime_config.max_new_tokens,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            extra_body={
+                "chat_template_kwargs": {
+                    "enable_thinking": self.runtime_config.enable_thinking,
+                }
+            },
+        )
+        return flatten_openai_content(response.choices[0].message.content)
 
 
 def build_preference_prompts(
@@ -472,6 +532,7 @@ def build_balanced_e4_subset(
 def run_e3_preference_eval(output_root: Path, limit_queries: int | None = None) -> Path:
     cfg = load_config()
     frozen_config = load_json(EXPERIMENT_ASSETS_DIR / "frozen_config.yaml")
+    behavior_runtime_config, behavior_api_key = resolve_behavior_runtime_config(cfg, frozen_config)
     split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
     judged_queries = load_jsonl(EXPERIMENT_ASSETS_DIR / "judged_queries.jsonl")
     slot_lookup = {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "slot_gold.jsonl")}
@@ -489,7 +550,12 @@ def run_e3_preference_eval(output_root: Path, limit_queries: int | None = None) 
         "split_config_hash": split_manifest["meta"]["config_hash"],
         "query_scope": "all_86_initial_queries",
         "query_count": len(judged_queries),
-        "base_model_id": frozen_config["behavior"]["base_model"],
+        "behavior_backend": behavior_runtime_config.llm_backend,
+        "base_model_id": behavior_runtime_config.model_id,
+        "behavior_api_base_url": behavior_runtime_config.api_base_url,
+        "behavior_enable_thinking": behavior_runtime_config.enable_thinking,
+        "behavior_temperature": behavior_runtime_config.temperature,
+        "behavior_max_new_tokens": behavior_runtime_config.max_new_tokens,
         "prompt_version_id": frozen_config["behavior"]["prompt_versions"]["e3_preference"],
         "default_retrieval_mode": frozen_config["workflow"]["default_retrieval_mode"],
         "fallback_enabled": frozen_config["workflow"]["enable_fallback"],
@@ -506,19 +572,20 @@ def run_e3_preference_eval(output_root: Path, limit_queries: int | None = None) 
                 "generated_at": run_started_at,
                 "stable_run_config": stable_run_config,
                 "official_group_ids": E3_GROUPS,
+                "behavior_runtime_config": behavior_runtime_config.model_dump(),
             },
             handle,
             ensure_ascii=False,
             indent=2,
         )
 
-    llm_runner: LocalBaseModel | None = None
+    llm_runner: BehaviorLLMBackend | None = None
     log_rows: list[dict[str, Any]] = []
     parsed_by_group: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for group_id in E3_GROUPS:
         if group_id == "B_base_llm_structured" and llm_runner is None:
-            llm_runner = LocalBaseModel(frozen_config["behavior"]["base_model"])
+            llm_runner = build_behavior_backend(behavior_runtime_config, behavior_api_key)
 
         for query_row in judged_queries:
             query_id = query_row["query_id"]
@@ -534,7 +601,11 @@ def run_e3_preference_eval(output_root: Path, limit_queries: int | None = None) 
                     list(city_to_state),
                     city_to_state,
                 )
-                raw_response = llm_runner.generate_json(system_prompt, user_prompt)
+                raw_response = llm_runner.generate_json(
+                    system_prompt,
+                    user_prompt,
+                    max_new_tokens=behavior_runtime_config.max_new_tokens,
+                )
                 payload, repaired = parse_json_with_repair(raw_response)
                 if repaired:
                     error_types.append("json_repaired")
@@ -597,6 +668,7 @@ def run_e3_preference_eval(output_root: Path, limit_queries: int | None = None) 
                         "query": query_row,
                         "gold": gold,
                         "result": parse_result.model_dump(),
+                        "behavior_runtime_config": behavior_runtime_config.model_dump(),
                     },
                 ).model_dump()
             )
@@ -687,6 +759,7 @@ def run_e3_preference_eval(output_root: Path, limit_queries: int | None = None) 
 def run_e4_clarification_eval(output_root: Path, limit_queries: int | None = None) -> Path:
     cfg = load_config()
     frozen_config = load_json(EXPERIMENT_ASSETS_DIR / "frozen_config.yaml")
+    behavior_runtime_config, behavior_api_key = resolve_behavior_runtime_config(cfg, frozen_config)
     split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
     judged_queries = load_jsonl(EXPERIMENT_ASSETS_DIR / "judged_queries.jsonl")
     clarify_lookup = {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "clarify_gold.jsonl")}
@@ -707,7 +780,12 @@ def run_e4_clarification_eval(output_root: Path, limit_queries: int | None = Non
         "query_scope": "all_86_queries",
         "query_count": len(judged_queries),
         "balanced_subset_size": len(balanced_subset),
-        "base_model_id": frozen_config["behavior"]["base_model"],
+        "behavior_backend": behavior_runtime_config.llm_backend,
+        "base_model_id": behavior_runtime_config.model_id,
+        "behavior_api_base_url": behavior_runtime_config.api_base_url,
+        "behavior_enable_thinking": behavior_runtime_config.enable_thinking,
+        "behavior_temperature": behavior_runtime_config.temperature,
+        "behavior_max_new_tokens": behavior_runtime_config.max_new_tokens,
         "prompt_version_id": frozen_config["behavior"]["prompt_versions"]["e4_clarification"],
         "default_retrieval_mode": frozen_config["workflow"]["default_retrieval_mode"],
         "fallback_enabled": frozen_config["workflow"]["enable_fallback"],
@@ -725,19 +803,20 @@ def run_e4_clarification_eval(output_root: Path, limit_queries: int | None = Non
                 "generated_at": run_started_at,
                 "stable_run_config": stable_run_config,
                 "balanced_subset_query_ids": balanced_subset,
+                "behavior_runtime_config": behavior_runtime_config.model_dump(),
             },
             handle,
             ensure_ascii=False,
             indent=2,
         )
 
-    llm_runner: LocalBaseModel | None = None
+    llm_runner: BehaviorLLMBackend | None = None
     log_rows: list[dict[str, Any]] = []
     decisions_by_group: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for group_id in E4_GROUPS:
         if group_id == "B_base_llm_clarify" and llm_runner is None:
-            llm_runner = LocalBaseModel(frozen_config["behavior"]["base_model"])
+            llm_runner = build_behavior_backend(behavior_runtime_config, behavior_api_key)
 
         for query_row in judged_queries:
             query_id = query_row["query_id"]
@@ -752,7 +831,11 @@ def run_e4_clarification_eval(output_root: Path, limit_queries: int | None = Non
                     query_row["query_text_zh"],
                     list(city_to_state),
                 )
-                raw_response = llm_runner.generate_json(system_prompt, user_prompt)
+                raw_response = llm_runner.generate_json(
+                    system_prompt,
+                    user_prompt,
+                    max_new_tokens=behavior_runtime_config.max_new_tokens,
+                )
                 payload, _ = parse_json_with_repair(raw_response)
                 coerced, schema_valid = coerce_clarification_payload(payload)
                 decision = ClarificationDecision(
@@ -788,6 +871,7 @@ def run_e4_clarification_eval(output_root: Path, limit_queries: int | None = Non
                         "query": query_row,
                         "gold": gold,
                         "result": decision.model_dump(),
+                        "behavior_runtime_config": behavior_runtime_config.model_dump(),
                     },
                 ).model_dump()
             )

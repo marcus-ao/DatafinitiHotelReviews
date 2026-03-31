@@ -31,6 +31,11 @@
 - `E3`
 - `E4`
 
+云端行为实验操作手册：
+
+- `../docs/deployment/01_autodl_qwen35_behavior_runbook.md`
+  用于 `Qwen3.5-2B / 4B / 9B` 的 AutoDL 部署、API 冒烟、`E3/E4` 正式运行和结果回传。
+
 ## 冻结资产
 
 - `assets/frozen_config.yaml`
@@ -119,8 +124,9 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 
 补充说明：
 
-- `E3/E4` 的 Base 组不建议在当前本地机器下载模型
-- 推荐在云端 GPU 环境执行，再将正式 run 同步回本仓库
+- `E3/E4` 的下一轮正式 Base 组计划切换为 `Qwen3.5-2B / 4B / 9B`
+- 推荐在 AutoDL 云端 GPU 环境执行，再将正式 run 同步回本仓库
+- 当前行为实验脚本已经支持 OpenAI-compatible API backend，云端配置方式详见 `../docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 
 ## 推荐阅读顺序
 

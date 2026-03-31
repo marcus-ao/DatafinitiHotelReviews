@@ -12,53 +12,51 @@
 
 - `E1 / E2 / E5 / E6 / E7 / E8` 都已经有正式结果
 - `E3 / E4` 的代码实现已经完成
-- 现在最需要确认的是：云端有 GPU 的设备何时用于 `Qwen/Qwen2.5-3B-Instruct` 的运行
+- 现在最需要确认的是：如何按云端手册配置 AutoDL，并让 `Qwen3.5-2B / 4B / 9B` 进入正式对比
 - 你已经明确要求：本地不再下载或缓存 `Qwen`
 
 ## 手册 A：你现在最该先做什么
 
-### 第一步：不要再在本地下载 `Qwen/Qwen2.5-3B-Instruct`
+### 第一步：不要再在本地下载任何 Qwen Base 模型
 
 你需要明确一件事：
 
-- `E3/E4` 的 `B` 组仍然固定依赖 `Qwen/Qwen2.5-3B-Instruct`
-- 但该模型将放在云端有 GPU 的设备执行
+- `E3/E4` 的下一轮正式 Base 组已经切换为 `Qwen3.5-2B / 4B / 9B`
+- 三个模型都将在云端有 GPU 的设备执行
 - 当前本地缓存已经清理，不需要再重复下载
 
-### 第二步：在云端环境运行 E3
+### 第二步：先按总手册把云端环境搭起来
 
-建议命令：
+- `docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 
-```bash
-cd <repo-root>
-source venv/bin/activate
-python -m scripts.evaluation.run_experiment_suite --task e3_preference
-```
+优先完成：
 
-跑完后检查：
+- 租 `vGPU-48GB`
+- 扩数据盘
+- 配缓存目录
+- 安装 `vLLM` 和 `openai`
+- 跑通 `Qwen3.5-2B / 4B / 9B` 的 API 冒烟验证
 
-- 是否生成了新的 `experiments/runs/e3_*/`
-- 里面是否包含：
-  - `run_meta.json`
-  - `results.jsonl`
-  - `summary.csv`
-  - `analysis.md`
+### 第三步：确认行为实验脚本已经接上 API backend
 
-### 第三步：接着在云端环境运行 E4
+在正式跑 `E3/E4` 之前，你要先确认一件关键事实：
 
-建议命令：
+- 当前行为实验脚本现在已经支持通过 OpenAI-compatible API 调用云端 `vLLM`
+- 你真正需要确认的是：云端环境变量和 `configs/params.yaml` 是否与服务地址一致
+- 在正式跑之前，先做一轮最小 API 冒烟验证，确保返回结果里没有 `<think>`
 
-```bash
-cd <repo-root>
-source venv/bin/activate
-python -m scripts.evaluation.run_experiment_suite --task e4_clarification
-```
+### 第四步：接着正式跑 E3 与 E4
 
-跑完后检查：
+当 API backend 已接好后，再按统一顺序执行：
 
-- 是否生成了新的 `experiments/runs/e4_*/`
-- 是否生成：
-  - `experiments/labels/e4_clarification/clarification_question_audit.csv`
+1. 启动 `Qwen3.5-2B`
+2. 跑 `E3`
+3. 跑 `E4`
+4. 保存日志和 run 目录
+5. 停服务
+6. 换 `Qwen3.5-4B`
+7. 重复同样步骤
+8. 再换 `Qwen3.5-9B`
 
 ## 手册 B：E4 跑完后你需要人工看什么
 
@@ -112,23 +110,26 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 
 这通常说明：
 
-- 云端环境没有准备好 `Qwen/Qwen2.5-3B-Instruct`
+- 云端环境没有准备好 `Qwen3.5`
 - 或 Hugging Face 权限 / 下载过程失败
 
 这时不要继续怀疑实验脚本逻辑，优先把问题判断为：
 
 - “云端 Base 模型不可用”
 
-### 情况 2：规则组能跑，Base 组失败
+### 情况 2：`vLLM` 服务能通，但实验脚本仍失败
 
 这通常说明：
 
-- `E3/E4` 的脚手架本身没有大问题
-- 当前真正阻塞的是云端 `B` 组模型依赖
+- 云端模型服务本身可能没问题
+- 当前真正阻塞的更可能是：
+  - `OPENAI_BASE_URL` 配错
+  - `BEHAVIOR_MODEL_ID` 与当前启动模型不一致
+  - `BEHAVIOR_ENABLE_THINKING` 没按实验要求关闭
 
 这时应该记录为：
 
-- “实现已完成，正式 A/B 结果待云端 Base 模型可用后补跑”
+- “部署已完成，但行为实验运行配置仍需校正后补跑”
 
 ### 情况 3：E4 跑完但没有生成审计文件
 
@@ -152,4 +153,4 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 
 ## 手册 E：一句话版
 
-不要再在本地下载 `Qwen`；等云端 GPU 环境准备好后再跑 `E3` 和 `E4`，跑完后再人工审一下 `clarification_question_audit.csv`。
+不要再在本地下载 `Qwen`；先按 `docs/deployment/01_autodl_qwen35_behavior_runbook.md` 配好 AutoDL 上的 `Qwen3.5-2B / 4B / 9B`，确认 API 冒烟通过后就可以正式跑 `E3` 和 `E4`，跑完再人工审一下 `clarification_question_audit.csv`。

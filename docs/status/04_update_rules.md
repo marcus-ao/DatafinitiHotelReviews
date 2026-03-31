@@ -12,6 +12,10 @@
 - `02_next_steps.md`
 - `03_manual_intervention_guide.md`
 
+如果进展涉及云端部署、模型对比方案或 AutoDL 操作步骤，还应同步更新：
+
+- `../deployment/01_autodl_qwen35_behavior_runbook.md`
+
 ## 二、什么时候必须更新
 
 以下场景必须更新：
@@ -72,7 +76,7 @@
 
 因此只要下面这些状态发生变化，就要同步更新：
 
-1. `Qwen/Qwen2.5-3B-Instruct` 的云端执行环境是否已经准备好
+1. `Qwen3.5-2B / 4B / 9B` 的云端执行环境是否已经准备好
 2. `E3` 是否已经跑出正式 `summary.csv` 与 `analysis.md`
 3. `E4` 是否已经跑出正式 `summary.csv` 与 `analysis.md`
 4. `experiments/labels/e4_clarification/clarification_question_audit.csv` 是否已经生成并被人工审计

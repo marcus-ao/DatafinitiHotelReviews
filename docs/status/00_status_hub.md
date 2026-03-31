@@ -17,6 +17,17 @@
 - `04_update_rules.md`
   说明这组文件后续如何持续维护与更新。
 
+## 当前推荐先读
+
+- `../deployment/01_autodl_qwen35_behavior_runbook.md`
+  云端 `Qwen3.5-2B / 4B / 9B` 部署、`E3/E4` 行为实验执行和结果回传的总手册。
+- `01_current_progress.md`
+  先看当前已经完成到哪里。
+- `02_next_steps.md`
+  再看接下来按什么顺序推进。
+- `03_manual_intervention_guide.md`
+  最后看当前需要你亲手做的动作。
+
 ## 当前维护原则
 
 - 本目录中的文件以“当前真实状态”为准，不以早期设想为准。

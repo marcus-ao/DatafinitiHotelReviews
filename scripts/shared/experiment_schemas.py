@@ -47,6 +47,20 @@ class PreferenceParseResult(BaseModel):
     error_types: list[str] = Field(default_factory=list)
 
 
+class BehaviorRuntimeConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    llm_backend: Literal["local", "api"] = "local"
+    model_id: str
+    api_base_url: str | None = None
+    api_key_env: str = "OPENAI_API_KEY"
+    api_key_present: bool = False
+    enable_thinking: bool = False
+    temperature: float = 0.0
+    max_new_tokens: int = 256
+    api_timeout_seconds: int = 120
+
+
 class ClarificationDecision(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

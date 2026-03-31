@@ -181,7 +181,8 @@
 - 运行默认配置已冻结：
   - `workflow.default_retrieval_mode = aspect_main_no_rerank`
   - `workflow.enable_fallback = false`
-  - `behavior.base_model = Qwen/Qwen2.5-3B-Instruct`
+  - `behavior.llm_backend = api`
+  - `behavior.base_model = Qwen/Qwen3.5-2B`
 
 `E5` 正式结果目录：
 
@@ -209,8 +210,11 @@
 `E3/E4` 当前状态说明：
 
 - 规则组与 Base 组实验逻辑都已写好
-- Base 组固定模型仍是 `Qwen/Qwen2.5-3B-Instruct`
-- 但该模型后续将放在云端有 GPU 的环境执行，不再在当前本地机器下载或缓存
+- 行为实验脚本现在已经支持通过 OpenAI-compatible API 调用云端 `vLLM`
+- 下一轮正式云端行为实验方案已经切换为 `Qwen3.5-2B / 4B / 9B` 对比
+- 新方案统一采用 non-thinking 模式，并固定在云端 GPU 环境执行
+- 现在真正待做的是在 AutoDL 上按统一配置跑出 `E3/E4` 正式结果
+- 云端部署与执行总手册见 `docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 
 ## 当前已形成的可写材料
 
