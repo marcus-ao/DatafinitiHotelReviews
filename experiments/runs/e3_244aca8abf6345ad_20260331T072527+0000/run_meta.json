@@ -1,0 +1,38 @@
+{
+  "run_id": "e3_244aca8abf6345ad_20260331T072527+0000",
+  "generated_at": "2026-03-31T07:25:27+00:00",
+  "stable_run_config": {
+    "task": "E3",
+    "split_config_hash": "9219c89c8c419d0c",
+    "query_scope": "all_86_initial_queries",
+    "query_count": 86,
+    "behavior_backend": "api",
+    "base_model_id": "Qwen/Qwen3.5-2B",
+    "behavior_api_base_url": "http://127.0.0.1:8000/v1",
+    "behavior_enable_thinking": false,
+    "behavior_temperature": 0.0,
+    "behavior_max_new_tokens": 256,
+    "prompt_version_id": "e3_v1_structured_preference",
+    "default_retrieval_mode": "aspect_main_no_rerank",
+    "fallback_enabled": false,
+    "official_group_ids": [
+      "A_rule_parser",
+      "B_base_llm_structured"
+    ]
+  },
+  "official_group_ids": [
+    "A_rule_parser",
+    "B_base_llm_structured"
+  ],
+  "behavior_runtime_config": {
+    "llm_backend": "api",
+    "model_id": "Qwen/Qwen3.5-2B",
+    "api_base_url": "http://127.0.0.1:8000/v1",
+    "api_key_env": "OPENAI_API_KEY",
+    "api_key_present": true,
+    "enable_thinking": false,
+    "temperature": 0.0,
+    "max_new_tokens": 256,
+    "api_timeout_seconds": 120
+  }
+}

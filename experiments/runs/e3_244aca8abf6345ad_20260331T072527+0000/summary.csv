@@ -1,0 +1,3 @@
+﻿group_id,query_count,schema_valid_rate,exact_match_rate,unsupported_detection_recall,city_slot_f1,hotel_category_slot_f1,focus_aspects_slot_f1,avoid_aspects_slot_f1,unsupported_requests_slot_f1,avg_latency_ms,config_hash
+A_rule_parser,86,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,0.028,84346793ccd0b45f
+B_base_llm_structured,86,1.0,0.5698,0.0667,0.9186,1.0,0.8258,1.0,0.125,469.137,09a8635adb19baf5
