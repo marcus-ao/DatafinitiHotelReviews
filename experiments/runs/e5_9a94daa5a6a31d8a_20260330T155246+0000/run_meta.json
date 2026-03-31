@@ -1,0 +1,23 @@
+{
+  "run_id": "e5_9a94daa5a6a31d8a_20260330T155246+0000",
+  "generated_at": "2026-03-30T15:52:46+00:00",
+  "stable_run_config": {
+    "task": "E5",
+    "split_config_hash": "9219c89c8c419d0c",
+    "query_scope": "e6_executable_query_units",
+    "query_count": 40,
+    "target_unit_count": 80,
+    "base_model_id": "Qwen/Qwen2.5-3B-Instruct",
+    "prompt_version_id": "e5_v1_bridge_retrieval",
+    "default_retrieval_mode": "aspect_main_no_rerank",
+    "fallback_enabled": false,
+    "official_group_ids": [
+      "A_zh_direct_dense_no_rerank",
+      "B_structured_query_en_dense_no_rerank"
+    ],
+    "query_strategy": {
+      "A": "zh_direct_dense_no_rerank",
+      "B": "structured_query_en_dense_no_rerank"
+    }
+  }
+}

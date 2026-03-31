@@ -1,0 +1,1389 @@
+{
+  "meta": {
+    "seed": 20260326,
+    "ratios": {
+      "train": 0.7,
+      "dev": 0.15,
+      "test": 0.15
+    },
+    "generated_at": "2026-03-29T12:32:51+00:00",
+    "hotel_count": 146,
+    "config_hash": "9219c89c8c419d0c"
+  },
+  "splits": {
+    "train": [
+      "27358b1962c2",
+      "af2abadac2c1",
+      "c54f1bdde2b2",
+      "3fee150c6750",
+      "6a53e9eec44d",
+      "e1a945777c2c",
+      "1a3643d0bfe8",
+      "eb18d1b1d24d",
+      "482470cfda20",
+      "c9641b53912b",
+      "9ad370737bc1",
+      "7f11e89253ed",
+      "5ec2635eafee",
+      "adf7d4162d07",
+      "94b0a36d75ef",
+      "e8325fc5fadb",
+      "fa50f4b7a42c",
+      "6eb386edfc6c",
+      "d3dae731cba3",
+      "e9d8b18ab8af",
+      "013a4c9b9e99",
+      "3e0d775845fe",
+      "70bd4cafe922",
+      "8bb752ce9c16",
+      "e69cb9ad3ae1",
+      "ac4e2e9aafcb",
+      "f1bebe918027",
+      "00ba3467aebe",
+      "7851141719d8",
+      "89c2b793c9d0",
+      "70fae2a4f7d1",
+      "e0b2c14e7cc2",
+      "c8a5008ba006",
+      "d610bae4f519",
+      "57de96ac6668",
+      "3e2dae214f7e",
+      "55b9998f1657",
+      "3ca88a68fe40",
+      "dbfe57f00dae",
+      "38bb76d3cecf",
+      "228e1a484fe4",
+      "bfa36dfd5b8c",
+      "ee3b6afa9c7a",
+      "7dac05945dba",
+      "12e68c9e1ab5",
+      "b5a607eb8483",
+      "23e465619c47",
+      "d260f30fa159",
+      "ed6b6fee451a",
+      "c40f86b2c00a",
+      "e80cfff838c2",
+      "2f2db59d229f",
+      "57fbaddc3aab",
+      "c7a0f0f5b8a5",
+      "d45c311cd54e",
+      "9794e23ca46f",
+      "bda738ebcce6",
+      "5535bc263906",
+      "607239a43eb5",
+      "9e8ec48b84ea",
+      "a9a5dc9620d2",
+      "804e56a68eaa",
+      "f4f37ee7078e",
+      "566d09bad678",
+      "b5871262005f",
+      "68beb7afb09a",
+      "5d8264dcb654",
+      "f725fb0f3971",
+      "d51ba09d2e6c",
+      "f085802351ec",
+      "528425c8f33c",
+      "4603a6a61ab4",
+      "e02bb9a107af",
+      "35ccc512348f",
+      "ec97504a7827",
+      "acde701babea",
+      "8fbc23a4aa36",
+      "78272760dcc1",
+      "fda4acc8ca78",
+      "d417afbe91ef",
+      "1d76a54b3156",
+      "57a04c84cbb4",
+      "692c249fef53",
+      "7d8b49855207",
+      "515e543e85ee",
+      "f9444fc77000",
+      "c2c7d28e71f3",
+      "add4fdf5e2e2",
+      "14dad79b0938",
+      "62547f697047",
+      "a4d3fa552bb7",
+      "e16259e07c0b"
+    ],
+    "dev": [
+      "5aeb70983670",
+      "5b073cc4a544",
+      "21dabac4fc68",
+      "d62bc2a63a67",
+      "6ea64fc28875",
+      "a2bb206f8300",
+      "aedc85706508",
+      "a9636d907100",
+      "50914c3fab7d",
+      "c3f6c86f32f8",
+      "bf149ce610c2",
+      "ac20517c296c",
+      "59020369affe",
+      "a120b65475bf",
+      "f92dcf2a1331",
+      "ce9aec88b749",
+      "e5cd76606117",
+      "7033468d18af",
+      "29370c6a8cec",
+      "7cad33a368f5",
+      "9c61afb93f23",
+      "6e58dfe1921d",
+      "6a4471393167",
+      "08df7c03a115",
+      "23a376f6c971",
+      "1a38682d2494",
+      "8fd0f4ff55b8",
+      "0e363704732c",
+      "86d20d573065"
+    ],
+    "test": [
+      "bfb10d66f821",
+      "72a9d2fbc96c",
+      "e73773333429",
+      "bd1ba974bf11",
+      "7669c6fc99e7",
+      "79c2d98fa1cb",
+      "85a18ed72b1c",
+      "d30be52b2a2a",
+      "9e8bc983cff4",
+      "445d9279fa58",
+      "75334fbbe64c",
+      "cabad4abd2ba",
+      "e0eeae8afde3",
+      "98bd44439ff5",
+      "1bb0433b9fb8",
+      "4ba7bdc9b246",
+      "b115571efdc5",
+      "7213d9173df3",
+      "62fa571ddd54",
+      "ad12fec3ad85",
+      "d702791f5180",
+      "f6c6d40a783b",
+      "84953c35a9d0",
+      "75fef46b9663",
+      "5ac72eb101c1"
+    ]
+  },
+  "hotels": [
+    {
+      "hotel_id": "27358b1962c2",
+      "hotel_name": "Holiday Inn Express & Suites Anaheim Resort Area",
+      "city": "Anaheim",
+      "state": "CA",
+      "review_count": 11,
+      "split": "train"
+    },
+    {
+      "hotel_id": "3fee150c6750",
+      "hotel_name": "Anaheim Del Sol Inn",
+      "city": "Anaheim",
+      "state": "CA",
+      "review_count": 96,
+      "split": "train"
+    },
+    {
+      "hotel_id": "5aeb70983670",
+      "hotel_name": "Quality Inn & Suites Anaheim at the Park",
+      "city": "Anaheim",
+      "state": "CA",
+      "review_count": 5,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "5b073cc4a544",
+      "hotel_name": "Eden Roc Inn & Suites",
+      "city": "Anaheim",
+      "state": "CA",
+      "review_count": 26,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "af2abadac2c1",
+      "hotel_name": "Best Western Plus Pavilions",
+      "city": "Anaheim",
+      "state": "CA",
+      "review_count": 23,
+      "split": "train"
+    },
+    {
+      "hotel_id": "bfb10d66f821",
+      "hotel_name": "TownePlace Suites Anaheim Maingate Near Angel Stadium",
+      "city": "Anaheim",
+      "state": "CA",
+      "review_count": 57,
+      "split": "test"
+    },
+    {
+      "hotel_id": "c54f1bdde2b2",
+      "hotel_name": "Lemon Tree Hotel Suites",
+      "city": "Anaheim",
+      "state": "CA",
+      "review_count": 5,
+      "split": "train"
+    },
+    {
+      "hotel_id": "1a3643d0bfe8",
+      "hotel_name": "Hampton Inn & Suites Atlanta - Downtown",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 41,
+      "split": "train"
+    },
+    {
+      "hotel_id": "21dabac4fc68",
+      "hotel_name": "Comfort Inn Atlanta Downtown South",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 6,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "482470cfda20",
+      "hotel_name": "Quality Suites Buckhead Village",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 48,
+      "split": "train"
+    },
+    {
+      "hotel_id": "5ec2635eafee",
+      "hotel_name": "Hotel Indigo Atlanta Downtown",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 6,
+      "split": "train"
+    },
+    {
+      "hotel_id": "6a53e9eec44d",
+      "hotel_name": "Aloft Atlanta Downtown",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 16,
+      "split": "train"
+    },
+    {
+      "hotel_id": "6ea64fc28875",
+      "hotel_name": "Wingate By Wyndham Atlanta Galleria Center",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 79,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "72a9d2fbc96c",
+      "hotel_name": "Georgia Tech Hotel Conference Center",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 19,
+      "split": "test"
+    },
+    {
+      "hotel_id": "7f11e89253ed",
+      "hotel_name": "JW Marriott Atlanta Buckhead",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 111,
+      "split": "train"
+    },
+    {
+      "hotel_id": "94b0a36d75ef",
+      "hotel_name": "The Ritz-Carlton, Atlanta",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 85,
+      "split": "train"
+    },
+    {
+      "hotel_id": "9ad370737bc1",
+      "hotel_name": "Hyatt Place AtlantaDowntown",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 28,
+      "split": "train"
+    },
+    {
+      "hotel_id": "a2bb206f8300",
+      "hotel_name": "Hampton Inn Atlanta-Perimeter Center",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 41,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "adf7d4162d07",
+      "hotel_name": "Extended Stay America - Atlanta - Perimeter - Hammond Drive",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 10,
+      "split": "train"
+    },
+    {
+      "hotel_id": "bd1ba974bf11",
+      "hotel_name": "Residence Inn Atlanta Midtown/Peachtree at 17th",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 20,
+      "split": "test"
+    },
+    {
+      "hotel_id": "c9641b53912b",
+      "hotel_name": "Fairfield Inn & Suites by Marriott Atlanta Buckhead",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 17,
+      "split": "train"
+    },
+    {
+      "hotel_id": "d62bc2a63a67",
+      "hotel_name": "Hampton Inn Atlanta - Cumberland Mall / NW",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 24,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "e1a945777c2c",
+      "hotel_name": "Highland Inn",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 24,
+      "split": "train"
+    },
+    {
+      "hotel_id": "e73773333429",
+      "hotel_name": "The Westin Atlanta Airport",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 6,
+      "split": "test"
+    },
+    {
+      "hotel_id": "e8325fc5fadb",
+      "hotel_name": "Renaissance Atlanta Waverly Hotel & Convention Center",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 90,
+      "split": "train"
+    },
+    {
+      "hotel_id": "eb18d1b1d24d",
+      "hotel_name": "Hilton Garden Inn Atlanta Midtown",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 28,
+      "split": "train"
+    },
+    {
+      "hotel_id": "fa50f4b7a42c",
+      "hotel_name": "Motel 6 Atlanta Downtown",
+      "city": "Atlanta",
+      "state": "GA",
+      "review_count": 33,
+      "split": "train"
+    },
+    {
+      "hotel_id": "013a4c9b9e99",
+      "hotel_name": "Conrad Chicago",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 74,
+      "split": "train"
+    },
+    {
+      "hotel_id": "3e0d775845fe",
+      "hotel_name": "Freehand Chicago",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 12,
+      "split": "train"
+    },
+    {
+      "hotel_id": "6eb386edfc6c",
+      "hotel_name": "Inn At Lincoln Park",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 5,
+      "split": "train"
+    },
+    {
+      "hotel_id": "70bd4cafe922",
+      "hotel_name": "River Hotel",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 59,
+      "split": "train"
+    },
+    {
+      "hotel_id": "7669c6fc99e7",
+      "hotel_name": "Hampton Inn Chicago Downtown/N Loop/Michigan Ave",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 5,
+      "split": "test"
+    },
+    {
+      "hotel_id": "79c2d98fa1cb",
+      "hotel_name": "Chicago Marriott at Medical District/UIC",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 25,
+      "split": "test"
+    },
+    {
+      "hotel_id": "8bb752ce9c16",
+      "hotel_name": "Hotel Felix",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 10,
+      "split": "train"
+    },
+    {
+      "hotel_id": "a9636d907100",
+      "hotel_name": "Chicago Marriott O'Hare",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 62,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "aedc85706508",
+      "hotel_name": "Kimpton Hotel Allegro",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 70,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "d3dae731cba3",
+      "hotel_name": "Hyatt Place Chicago Downtown/The Loop",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 70,
+      "split": "train"
+    },
+    {
+      "hotel_id": "e9d8b18ab8af",
+      "hotel_name": "Comfort Suites Michigan Avenue - Loop",
+      "city": "Chicago",
+      "state": "IL",
+      "review_count": 57,
+      "split": "train"
+    },
+    {
+      "hotel_id": "00ba3467aebe",
+      "hotel_name": "Best Western Plus Dallas Hotel & Conference Center",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 11,
+      "split": "train"
+    },
+    {
+      "hotel_id": "50914c3fab7d",
+      "hotel_name": "Best Western Northwest Inn",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 9,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "70fae2a4f7d1",
+      "hotel_name": "Knights Inn Market Center",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 19,
+      "split": "train"
+    },
+    {
+      "hotel_id": "7851141719d8",
+      "hotel_name": "Hawthorn Suites By Wyndham Dallas Park Central",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 25,
+      "split": "train"
+    },
+    {
+      "hotel_id": "85a18ed72b1c",
+      "hotel_name": "Residence Inn by Marriott Dallas Market Center",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 16,
+      "split": "test"
+    },
+    {
+      "hotel_id": "89c2b793c9d0",
+      "hotel_name": "Wyndham Garden-dallas North",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 15,
+      "split": "train"
+    },
+    {
+      "hotel_id": "ac4e2e9aafcb",
+      "hotel_name": "Hilton Garden Inn DallasMarket Center",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 38,
+      "split": "train"
+    },
+    {
+      "hotel_id": "bf149ce610c2",
+      "hotel_name": "Hyatt House DallasUptown",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 16,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "c3f6c86f32f8",
+      "hotel_name": "Hotel Zaza Dallas",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 28,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "d30be52b2a2a",
+      "hotel_name": "Residence Inn by Marriott Dallas Central Expressway",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 6,
+      "split": "test"
+    },
+    {
+      "hotel_id": "e0b2c14e7cc2",
+      "hotel_name": "Best Western Cityplace Inn",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 14,
+      "split": "train"
+    },
+    {
+      "hotel_id": "e69cb9ad3ae1",
+      "hotel_name": "Hampton Inn & Suites Dallas/Cockrell Hill I-30",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 19,
+      "split": "train"
+    },
+    {
+      "hotel_id": "f1bebe918027",
+      "hotel_name": "Extended Stay America-dallas-market Center",
+      "city": "Dallas",
+      "state": "TX",
+      "review_count": 12,
+      "split": "train"
+    },
+    {
+      "hotel_id": "3e2dae214f7e",
+      "hotel_name": "Outrigger Reef Waikiki Beach Resort",
+      "city": "Honolulu",
+      "state": "HI",
+      "review_count": 5,
+      "split": "train"
+    },
+    {
+      "hotel_id": "57de96ac6668",
+      "hotel_name": "Aqua Waikiki Pearl",
+      "city": "Honolulu",
+      "state": "HI",
+      "review_count": 6,
+      "split": "train"
+    },
+    {
+      "hotel_id": "59020369affe",
+      "hotel_name": "Hyatt Centric Waikiki Beach",
+      "city": "Honolulu",
+      "state": "HI",
+      "review_count": 24,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "9e8bc983cff4",
+      "hotel_name": "Ramada Plaza By Wyndham Waikiki",
+      "city": "Honolulu",
+      "state": "HI",
+      "review_count": 36,
+      "split": "test"
+    },
+    {
+      "hotel_id": "ac20517c296c",
+      "hotel_name": "Luana Waikiki Hotel & Suites",
+      "city": "Honolulu",
+      "state": "HI",
+      "review_count": 132,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "c8a5008ba006",
+      "hotel_name": "Shoreline Hotel Waikiki",
+      "city": "Honolulu",
+      "state": "HI",
+      "review_count": 18,
+      "split": "train"
+    },
+    {
+      "hotel_id": "d610bae4f519",
+      "hotel_name": "Waikiki Resort Hotel",
+      "city": "Honolulu",
+      "state": "HI",
+      "review_count": 74,
+      "split": "train"
+    },
+    {
+      "hotel_id": "228e1a484fe4",
+      "hotel_name": "Four Points by Sheraton French Quarter",
+      "city": "New Orleans",
+      "state": "LA",
+      "review_count": 60,
+      "split": "train"
+    },
+    {
+      "hotel_id": "38bb76d3cecf",
+      "hotel_name": "Drury Inn & Suites New Orleans",
+      "city": "New Orleans",
+      "state": "LA",
+      "review_count": 132,
+      "split": "train"
+    },
+    {
+      "hotel_id": "3ca88a68fe40",
+      "hotel_name": "Bienville House",
+      "city": "New Orleans",
+      "state": "LA",
+      "review_count": 56,
+      "split": "train"
+    },
+    {
+      "hotel_id": "445d9279fa58",
+      "hotel_name": "Best Western Plus French Quarter Landmark Hotel",
+      "city": "New Orleans",
+      "state": "LA",
+      "review_count": 100,
+      "split": "test"
+    },
+    {
+      "hotel_id": "55b9998f1657",
+      "hotel_name": "The Whitney Hotel",
+      "city": "New Orleans",
+      "state": "LA",
+      "review_count": 48,
+      "split": "train"
+    },
+    {
+      "hotel_id": "75334fbbe64c",
+      "hotel_name": "St. James Hotel, an Ascend Hotel Collection Member",
+      "city": "New Orleans",
+      "state": "LA",
+      "review_count": 136,
+      "split": "test"
+    },
+    {
+      "hotel_id": "a120b65475bf",
+      "hotel_name": "Hampton Inn & Suites New Orleans Downtown (French Quarter Area)",
+      "city": "New Orleans",
+      "state": "LA",
+      "review_count": 17,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "bfa36dfd5b8c",
+      "hotel_name": "Aloft New Orleans Downtown",
+      "city": "New Orleans",
+      "state": "LA",
+      "review_count": 19,
+      "split": "train"
+    },
+    {
+      "hotel_id": "dbfe57f00dae",
+      "hotel_name": "Best Western Plus St Charles Inn",
+      "city": "New Orleans",
+      "state": "LA",
+      "review_count": 70,
+      "split": "train"
+    },
+    {
+      "hotel_id": "f92dcf2a1331",
+      "hotel_name": "French Market Inn",
+      "city": "New Orleans",
+      "state": "LA",
+      "review_count": 144,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "12e68c9e1ab5",
+      "hotel_name": "Best Western Orlando Convention Center Hotel",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 36,
+      "split": "train"
+    },
+    {
+      "hotel_id": "23e465619c47",
+      "hotel_name": "Days Inn By Wyndham Orlando/International Drive",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 73,
+      "split": "train"
+    },
+    {
+      "hotel_id": "7033468d18af",
+      "hotel_name": "Buena Vista Palace",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 16,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "7dac05945dba",
+      "hotel_name": "Baymont By Wyndham Florida Mall",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 17,
+      "split": "train"
+    },
+    {
+      "hotel_id": "98bd44439ff5",
+      "hotel_name": "Best Western Orlando East Inn & Suites",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 68,
+      "split": "test"
+    },
+    {
+      "hotel_id": "b5a607eb8483",
+      "hotel_name": "Hampton Inn & Suites Orlando at SeaWorld",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 89,
+      "split": "train"
+    },
+    {
+      "hotel_id": "c40f86b2c00a",
+      "hotel_name": "Courtyard by Marriott Orlando Downtown",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 26,
+      "split": "train"
+    },
+    {
+      "hotel_id": "cabad4abd2ba",
+      "hotel_name": "Best Western Plus Universal Inn",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 8,
+      "split": "test"
+    },
+    {
+      "hotel_id": "ce9aec88b749",
+      "hotel_name": "Hilton Garden Inn Orlando Airport",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 105,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "d260f30fa159",
+      "hotel_name": "Sheraton Suites Orlando Airport",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 49,
+      "split": "train"
+    },
+    {
+      "hotel_id": "e0eeae8afde3",
+      "hotel_name": "Orlando Continental Plaza Hotel",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 27,
+      "split": "test"
+    },
+    {
+      "hotel_id": "e5cd76606117",
+      "hotel_name": "Marriott's Imperial Palms Villas",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 8,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "e80cfff838c2",
+      "hotel_name": "Comfort Suites Downtown",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 56,
+      "split": "train"
+    },
+    {
+      "hotel_id": "ed6b6fee451a",
+      "hotel_name": "Homewood Suites by Hilton Lake Buena Vista-Orlando",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 122,
+      "split": "train"
+    },
+    {
+      "hotel_id": "ee3b6afa9c7a",
+      "hotel_name": "Best Western Orlando Gateway Hotel",
+      "city": "Orlando",
+      "state": "FL",
+      "review_count": 16,
+      "split": "train"
+    },
+    {
+      "hotel_id": "1bb0433b9fb8",
+      "hotel_name": "SpringHill Suites San Diego Downtown/Bayfront",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 21,
+      "split": "test"
+    },
+    {
+      "hotel_id": "29370c6a8cec",
+      "hotel_name": "Hampton Inn San Diego Del Mar",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 100,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "2f2db59d229f",
+      "hotel_name": "Best Western Mission Bay",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 69,
+      "split": "train"
+    },
+    {
+      "hotel_id": "4ba7bdc9b246",
+      "hotel_name": "Ocean Park Inn",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 81,
+      "split": "test"
+    },
+    {
+      "hotel_id": "5535bc263906",
+      "hotel_name": "Extended Stay America San Diego - Fashion Valley",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 7,
+      "split": "train"
+    },
+    {
+      "hotel_id": "566d09bad678",
+      "hotel_name": "Courtyard San Diego Rancho Bernardo",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 26,
+      "split": "train"
+    },
+    {
+      "hotel_id": "57fbaddc3aab",
+      "hotel_name": "Best Western Plus Hacienda Hotel Old Town",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 64,
+      "split": "train"
+    },
+    {
+      "hotel_id": "5d8264dcb654",
+      "hotel_name": "Four Points by Sheraton San Diego - SeaWorld",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 12,
+      "split": "train"
+    },
+    {
+      "hotel_id": "607239a43eb5",
+      "hotel_name": "Quality Suites San Diego SeaWorld Area",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 54,
+      "split": "train"
+    },
+    {
+      "hotel_id": "62fa571ddd54",
+      "hotel_name": "Courtyard by Marriott San Diego Old Town",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 11,
+      "split": "test"
+    },
+    {
+      "hotel_id": "68beb7afb09a",
+      "hotel_name": "The Pearl Hotel",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 71,
+      "split": "train"
+    },
+    {
+      "hotel_id": "6a4471393167",
+      "hotel_name": "Pacific Shores Inn",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 13,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "6e58dfe1921d",
+      "hotel_name": "Best Western Cabrillo Garden Inn",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 23,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "7213d9173df3",
+      "hotel_name": "Hampton Inn San Diego/Mission Valley",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 35,
+      "split": "test"
+    },
+    {
+      "hotel_id": "7cad33a368f5",
+      "hotel_name": "Hilton Garden Inn San Diego Rancho Bernardo",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 30,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "804e56a68eaa",
+      "hotel_name": "Best Western Yacht Harbor Hotel",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 66,
+      "split": "train"
+    },
+    {
+      "hotel_id": "9794e23ca46f",
+      "hotel_name": "Pacific View Inn",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 9,
+      "split": "train"
+    },
+    {
+      "hotel_id": "9c61afb93f23",
+      "hotel_name": "The Westin San Diego",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 32,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "9e8ec48b84ea",
+      "hotel_name": "Holiday Inn San Diego-Bayside",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 12,
+      "split": "train"
+    },
+    {
+      "hotel_id": "a9a5dc9620d2",
+      "hotel_name": "Kimpton Solamar Hotel",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 40,
+      "split": "train"
+    },
+    {
+      "hotel_id": "b115571efdc5",
+      "hotel_name": "Ramada Limited San Diego/Near SeaWorld",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 33,
+      "split": "test"
+    },
+    {
+      "hotel_id": "b5871262005f",
+      "hotel_name": "Best Western Seven Seas",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 132,
+      "split": "train"
+    },
+    {
+      "hotel_id": "bda738ebcce6",
+      "hotel_name": "Marriott Vacation Club Pulse, San Diego",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 14,
+      "split": "train"
+    },
+    {
+      "hotel_id": "c7a0f0f5b8a5",
+      "hotel_name": "Best Western San Diego/Miramar Hotel",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 65,
+      "split": "train"
+    },
+    {
+      "hotel_id": "d45c311cd54e",
+      "hotel_name": "Best Western Plus Bayside Inn",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 64,
+      "split": "train"
+    },
+    {
+      "hotel_id": "d51ba09d2e6c",
+      "hotel_name": "Rodeway Inn San Diego Near Qualcomm Stadium",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 29,
+      "split": "train"
+    },
+    {
+      "hotel_id": "f4f37ee7078e",
+      "hotel_name": "Hilton Garden Inn San Diego Mission Valley/stadium",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 35,
+      "split": "train"
+    },
+    {
+      "hotel_id": "f725fb0f3971",
+      "hotel_name": "Best Western Lamplighter Inn Suites at SDSU",
+      "city": "San Diego",
+      "state": "CA",
+      "review_count": 24,
+      "split": "train"
+    },
+    {
+      "hotel_id": "08df7c03a115",
+      "hotel_name": "Hotel Abri",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 100,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "1a38682d2494",
+      "hotel_name": "Hotel Zephyr",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 30,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "1d76a54b3156",
+      "hotel_name": "Sf Plaza Hotel",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 7,
+      "split": "train"
+    },
+    {
+      "hotel_id": "23a376f6c971",
+      "hotel_name": "Hotel Rex San Francisco",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 27,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "35ccc512348f",
+      "hotel_name": "The St. Regis San Francisco",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 45,
+      "split": "train"
+    },
+    {
+      "hotel_id": "4603a6a61ab4",
+      "hotel_name": "Royal Pacific Motor Inn",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 6,
+      "split": "train"
+    },
+    {
+      "hotel_id": "515e543e85ee",
+      "hotel_name": "Greenwich Inn",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 13,
+      "split": "train"
+    },
+    {
+      "hotel_id": "528425c8f33c",
+      "hotel_name": "Hotel Nikko San Francisco",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 16,
+      "split": "train"
+    },
+    {
+      "hotel_id": "57a04c84cbb4",
+      "hotel_name": "The San Remo Hotel",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 15,
+      "split": "train"
+    },
+    {
+      "hotel_id": "692c249fef53",
+      "hotel_name": "Buena Vista Motor Inn",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 13,
+      "split": "train"
+    },
+    {
+      "hotel_id": "78272760dcc1",
+      "hotel_name": "Kensington Park Hotel",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 15,
+      "split": "train"
+    },
+    {
+      "hotel_id": "7d8b49855207",
+      "hotel_name": "Courtyard San Francisco Union Square",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 15,
+      "split": "train"
+    },
+    {
+      "hotel_id": "84953c35a9d0",
+      "hotel_name": "Hotel Vertigo",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 30,
+      "split": "test"
+    },
+    {
+      "hotel_id": "8fbc23a4aa36",
+      "hotel_name": "The Francisco Bay Inn",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 29,
+      "split": "train"
+    },
+    {
+      "hotel_id": "8fd0f4ff55b8",
+      "hotel_name": "Nob Hill Hotel",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 15,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "acde701babea",
+      "hotel_name": "City Center Inn & Suites-San Francisco",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 8,
+      "split": "train"
+    },
+    {
+      "hotel_id": "ad12fec3ad85",
+      "hotel_name": "Inn San Francisco",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 7,
+      "split": "test"
+    },
+    {
+      "hotel_id": "d417afbe91ef",
+      "hotel_name": "Civic Center Inn",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 11,
+      "split": "train"
+    },
+    {
+      "hotel_id": "d702791f5180",
+      "hotel_name": "The Monarch Hotel",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 19,
+      "split": "test"
+    },
+    {
+      "hotel_id": "e02bb9a107af",
+      "hotel_name": "San Francisco International Hostel",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 10,
+      "split": "train"
+    },
+    {
+      "hotel_id": "ec97504a7827",
+      "hotel_name": "The Orchard Garden Hotel",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 73,
+      "split": "train"
+    },
+    {
+      "hotel_id": "f085802351ec",
+      "hotel_name": "Columbus Motor Inn",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 36,
+      "split": "train"
+    },
+    {
+      "hotel_id": "f6c6d40a783b",
+      "hotel_name": "Hotel Diva",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 119,
+      "split": "test"
+    },
+    {
+      "hotel_id": "fda4acc8ca78",
+      "hotel_name": "Galleria Park Hotel",
+      "city": "San Francisco",
+      "state": "CA",
+      "review_count": 125,
+      "split": "train"
+    },
+    {
+      "hotel_id": "0e363704732c",
+      "hotel_name": "Residence Inn Seattle Downtown/Lake Union",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 50,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "14dad79b0938",
+      "hotel_name": "Grand Hyatt Seattle",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 135,
+      "split": "train"
+    },
+    {
+      "hotel_id": "5ac72eb101c1",
+      "hotel_name": "Four Points By Sheraton Downtown Seattle Center",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 26,
+      "split": "test"
+    },
+    {
+      "hotel_id": "62547f697047",
+      "hotel_name": "The Inn At Virginia Mason",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 20,
+      "split": "train"
+    },
+    {
+      "hotel_id": "75fef46b9663",
+      "hotel_name": "Hotel Sorrento",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 29,
+      "split": "test"
+    },
+    {
+      "hotel_id": "86d20d573065",
+      "hotel_name": "Seattle Pacific Hotel",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 13,
+      "split": "dev"
+    },
+    {
+      "hotel_id": "a4d3fa552bb7",
+      "hotel_name": "Courtyard Seattle Downtown/Lake Union",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 24,
+      "split": "train"
+    },
+    {
+      "hotel_id": "add4fdf5e2e2",
+      "hotel_name": "Mayflower Park Hotel",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 10,
+      "split": "train"
+    },
+    {
+      "hotel_id": "c2c7d28e71f3",
+      "hotel_name": "W Seattle",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 29,
+      "split": "train"
+    },
+    {
+      "hotel_id": "e16259e07c0b",
+      "hotel_name": "SpringHill Suites Seattle Downtown/South Lake Union",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 75,
+      "split": "train"
+    },
+    {
+      "hotel_id": "f9444fc77000",
+      "hotel_name": "Hyatt House Seattle/Downtown",
+      "city": "Seattle",
+      "state": "WA",
+      "review_count": 155,
+      "split": "train"
+    }
+  ],
+  "city_summary": {
+    "Anaheim": {
+      "train": 4,
+      "dev": 2,
+      "test": 1
+    },
+    "Atlanta": {
+      "train": 13,
+      "dev": 4,
+      "test": 3
+    },
+    "Chicago": {
+      "train": 7,
+      "dev": 2,
+      "test": 2
+    },
+    "Dallas": {
+      "train": 8,
+      "dev": 3,
+      "test": 2
+    },
+    "Honolulu": {
+      "train": 4,
+      "dev": 2,
+      "test": 1
+    },
+    "New Orleans": {
+      "train": 6,
+      "dev": 2,
+      "test": 2
+    },
+    "Orlando": {
+      "train": 9,
+      "dev": 3,
+      "test": 3
+    },
+    "San Diego": {
+      "train": 18,
+      "dev": 5,
+      "test": 5
+    },
+    "San Francisco": {
+      "train": 16,
+      "dev": 4,
+      "test": 4
+    },
+    "Seattle": {
+      "train": 7,
+      "dev": 2,
+      "test": 2
+    }
+  }
+}

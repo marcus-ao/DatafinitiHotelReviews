@@ -75,3 +75,14 @@ reranker:
   model: "BAAI/bge-reranker-base"
   top_k_before_rerank: 20      # 初检 top-k，再重排
   top_k_after_rerank: 5        # 最终保留证据句数
+
+workflow:
+  default_retrieval_mode: "aspect_main_no_rerank"
+  enable_fallback: false
+
+behavior:
+  base_model: "Qwen/Qwen2.5-3B-Instruct"
+  prompt_versions:
+    e3_preference: "e3_v1_structured_preference"
+    e4_clarification: "e4_v1_clarify_decision"
+    e5_query_bridge: "e5_v1_bridge_retrieval"

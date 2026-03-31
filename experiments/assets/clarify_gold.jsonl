@@ -1,0 +1,86 @@
+{"query_id": "q001", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q002", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q003", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q004", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q005", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q006", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q007", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q008", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q009", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q010", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q011", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q012", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q013", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q014", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q015", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q016", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q017", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q018", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q019", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q020", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q021", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q022", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q023", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q024", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q025", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q026", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q027", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q028", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q029", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q030", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q031", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q032", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q033", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q034", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q035", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q036", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q037", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q038", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q039", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q040", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q041", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q042", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q043", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q044", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q045", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q046", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q047", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q048", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q049", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q050", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q051", "clarify_needed": true, "clarify_reason": "missing_city", "target_slots": ["city"]}
+{"query_id": "q052", "clarify_needed": true, "clarify_reason": "missing_city", "target_slots": ["city"]}
+{"query_id": "q053", "clarify_needed": true, "clarify_reason": "missing_city", "target_slots": ["city"]}
+{"query_id": "q054", "clarify_needed": true, "clarify_reason": "missing_city", "target_slots": ["city"]}
+{"query_id": "q055", "clarify_needed": true, "clarify_reason": "missing_city", "target_slots": ["city"]}
+{"query_id": "q056", "clarify_needed": true, "clarify_reason": "missing_city", "target_slots": ["city"]}
+{"query_id": "q057", "clarify_needed": true, "clarify_reason": "aspect_conflict", "target_slots": ["focus_aspects", "avoid_aspects"]}
+{"query_id": "q058", "clarify_needed": true, "clarify_reason": "aspect_conflict", "target_slots": ["focus_aspects", "avoid_aspects"]}
+{"query_id": "q059", "clarify_needed": true, "clarify_reason": "aspect_conflict", "target_slots": ["focus_aspects", "avoid_aspects"]}
+{"query_id": "q060", "clarify_needed": true, "clarify_reason": "aspect_conflict", "target_slots": ["focus_aspects", "avoid_aspects"]}
+{"query_id": "q061", "clarify_needed": true, "clarify_reason": "aspect_conflict", "target_slots": ["focus_aspects", "avoid_aspects"]}
+{"query_id": "q062", "clarify_needed": true, "clarify_reason": "aspect_conflict", "target_slots": ["focus_aspects", "avoid_aspects"]}
+{"query_id": "q063", "clarify_needed": true, "clarify_reason": "aspect_conflict", "target_slots": ["focus_aspects", "avoid_aspects"]}
+{"query_id": "q064", "clarify_needed": true, "clarify_reason": "aspect_conflict", "target_slots": ["focus_aspects", "avoid_aspects"]}
+{"query_id": "q065", "clarify_needed": true, "clarify_reason": "aspect_conflict", "target_slots": ["focus_aspects", "avoid_aspects"]}
+{"query_id": "q066", "clarify_needed": true, "clarify_reason": "aspect_conflict", "target_slots": ["focus_aspects", "avoid_aspects"]}
+{"query_id": "q067", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q068", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q069", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q070", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q071", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q072", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q073", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q074", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q075", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q076", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q077", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q078", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q079", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q080", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q081", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q082", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q083", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q084", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q085", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
+{"query_id": "q086", "clarify_needed": false, "clarify_reason": "", "target_slots": []}
