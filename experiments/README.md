@@ -1,19 +1,19 @@
 # Experiments Workspace
 
-本目录集中存放毕业设计当前阶段的实验资产、人工标注入口、正式结果和阶段总结。
+本目录集中存放毕业设计当前阶段的实验资产、人工标注入口、正式结果、论文材料和下一阶段规划入口。
 
 ## 目录分层
 
 - `assets/`
   冻结配置、切分、query gold、rubric 等长期复用资产。
 - `assets/e3_diagnostic_query_ids.json`
-  `E3 v2` 诊断子集。
+  `E3 v2` 历史诊断子集。
 - `assets/e4_diagnostic_query_ids.json`
-  `E4 v2` 诊断子集。
+  `E4 v2` 历史诊断子集。
 - `labels/e1_aspect_reliability/`
   `E1` 的样本、正式 gold、审计说明和正式结果。
 - `labels/e4_clarification/`
-  `E4` 的人工问题质量审计资产目录。
+  `E4` 的人工问题质量审计资产目录，当前已补齐 `4B` 正式 run 的首轮人工评分。
 - `labels/e6_qrels/`
   `E6-E8` 共用的 qrels 标注入口、冻结 qrels 和标注说明。
 - `reports/`
@@ -31,6 +31,15 @@
 - `E6`：方面引导检索 vs 朴素召回
 - `E7`：reranker 消融
 - `E8`：主通道与 fallback 边界
+
+当前下一官方阶段：
+
+- `E9`：证据约束生成
+- `E10`：Base vs PEFT 行为对照
+
+对应规划文档：
+
+- `../docs/plans/03_generation_and_peft_phase_plan.md`
 
 云端行为实验操作手册：
 
@@ -66,11 +75,13 @@
 ### `labels/e4_clarification/`
 
 - `clarification_question_audit.csv`
-  当前最新一轮 `E4` 审计副本，当前对应 `Qwen3.5-4B` 全量正式 run，便于继续人工填写。
+  当前最新一轮 `E4` 审计副本，当前已经完成首轮人工评分。
 - `clarification_question_audit_e4_4a15a89128a90d11_baseline.csv`
   `Qwen3.5-2B` baseline 的冻结快照，不随 rerun 覆盖。
 - `clarification_question_audit_e4_55c8021e1119fb77_qwen35_4b_full.csv`
-  `Qwen3.5-4B` 全量正式 run 的冻结快照。
+  `Qwen3.5-4B` 全量正式 run 的原始快照。
+- `clarification_question_audit_e4_55c8021e1119fb77_qwen35_4b_reviewed.csv`
+  `Qwen3.5-4B` 全量正式 run 的人工 reviewed 冻结副本。
 
 ## 当前保留的正式主结果 run
 
@@ -90,6 +101,14 @@
 - `runs/e4_4a15a89128a90d11_20260331T073016+0000/`
 - `runs/e4_96e0e4afb24dab2d_20260331T091021+0000/`
 - `runs/e4_f928a37444c1bf52_20260331T121012+0000/`
+
+## 当前论文材料入口
+
+- `reports/01_aspect_kb_stage_1_summary.md`
+- `reports/02_aspect_kb_stage_2_summary.md`
+- `reports/03_behavior_stage_1_qwen35_2b_baseline.md`
+- `reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
+- `reports/05_behavior_stage_3_chapter_materials.md`
 
 ## 最小运行入口
 
@@ -149,21 +168,22 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification --quer
 
 - `Qwen3.5-2B` 的第一轮 `E3/E4` baseline 已归档
 - `Qwen3.5-4B` 的全量 `E3/E4` 正式结果已经完成，并已成为当前行为实验主结果
+- 最新 `E4` 审计已完成首轮人工评分，并冻结为 reviewed 副本
+- `E3 / E4 / E5` 的章节材料已整理为 `reports/05_behavior_stage_3_chapter_materials.md`
 - 当前默认 prompt 版本已切到：
   - `E3 = e3_v2_cn_slots_only`
   - `E4 = e4_v2_cn_decision_label_fewshot`
 - 当前默认行为模型配置已冻结为 `Qwen/Qwen3.5-4B`
-- 上面的诊断子集命令主要用于后续补充对比、额外调试或 `Qwen3.5-9B` 扩展实验，不再是当前主线阻塞项
+- `Qwen3.5-9B` 目前只作为可选附录模型，不是当前主线阻塞项
 - 推荐在 AutoDL 云端 GPU 环境执行，再将正式 run 同步回本仓库
 - 当前行为实验脚本已经支持 OpenAI-compatible API backend，云端配置方式详见 `../docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 
 ## 推荐阅读顺序
 
-- `reports/01_aspect_kb_stage_1_summary.md`
-- `reports/02_aspect_kb_stage_2_summary.md`
-- `reports/03_behavior_stage_1_qwen35_2b_baseline.md`
+- `reports/05_behavior_stage_3_chapter_materials.md`
 - `reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
 - `runs/e3_14928d821d811e86_20260331T122611+0000/analysis.md`
 - `runs/e4_55c8021e1119fb77_20260331T122648+0000/analysis.md`
 - `runs/e5_9a94daa5a6a31d8a_20260330T155246+0000/analysis.md`
+- `../docs/plans/03_generation_and_peft_phase_plan.md`
 - `../docs/repo/01_repository_structure_and_commit_guide.md`

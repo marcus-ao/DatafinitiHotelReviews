@@ -1,14 +1,18 @@
 # 基于酒店评论知识库的推荐智能体研究
 
-本科毕业设计主仓库，当前聚焦“评论知识组织 + 检索实验 + 行为实验脚手架”的可复现研究底座。
+本科毕业设计主仓库，当前聚焦“评论知识组织 + 检索实验 + 行为实验 + 后续生成与 PEFT 规划”的可复现研究底座。
 
 ## 当前状态
 
 - 数据处理与知识库构建主链路已完成，验证结果为 `28/28`
 - `E1`、`E2`、`E5`、`E6`、`E7`、`E8` 已完成正式结果并保留在仓库中
 - `E3/E4` 已完成 `Qwen3.5-4B` 全量正式结果，`Qwen3.5-2B` 第一轮结果作为弱基线归档保留
+- 最新 `E4` 审计已补齐，并冻结为 reviewed 快照
+- `E3 / E4 / E5` 的论文材料初版已整理为独立汇总文档
 - 默认检索配置已冻结为 `aspect_main_no_rerank`
 - 当前正式行为模型默认配置已冻结为 `Qwen/Qwen3.5-4B`
+- `Qwen/Qwen3.5-9B` 当前只作为可选附录模型，不进入主线
+- 当前下一官方阶段是 `E9` 证据约束生成，之后再进入 `E10 / PEFT`
 
 ## 仓库结构
 
@@ -90,11 +94,12 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 python -m scripts.evaluation.run_experiment_suite --task e5_query_bridge
 ```
 
-`E3/E4` 当前已经完成 `Qwen3.5-4B` 的全量正式结果，行为实验脚本支持通过 OpenAI-compatible API 调用云端 `vLLM`。如需复现实验或追加 `Qwen3.5-9B` 扩展对比，请按 `docs/deployment/01_autodl_qwen35_behavior_runbook.md` 中的云端流程执行。
+`E3/E4` 当前已经完成 `Qwen3.5-4B` 的全量正式结果，若后续需要复现实验或追加 `Qwen3.5-9B` 附录对比，请按 `docs/deployment/01_autodl_qwen35_behavior_runbook.md` 中的云端流程执行。当前行为章节材料的直接入口是 `experiments/reports/05_behavior_stage_3_chapter_materials.md`，后续 `E9 -> E10 / PEFT` 的官方推进方案见 `docs/plans/03_generation_and_peft_phase_plan.md`。
 
 ## 文档入口
 
 - 研究与实施计划：`docs/plans/`
+- 当前生成与 PEFT 阶段规划：`docs/plans/03_generation_and_peft_phase_plan.md`
 - 云端部署与行为实验手册：`docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 - 当前进度与下一步：`docs/status/`
 - 仓库结构与提交说明：`docs/repo/01_repository_structure_and_commit_guide.md`
@@ -105,4 +110,5 @@ python -m scripts.evaluation.run_experiment_suite --task e5_query_bridge
 - 数据规模：`10` 个城市、`146` 家酒店、`5947` 条评论、`51813` 条句子
 - 默认下游检索模式：`aspect_main_no_rerank`
 - 当前正式行为模型：`Qwen/Qwen3.5-4B`
+- 当前行为章节主结论已经稳定，`9B` 只影响附录强度
 - 仓库只保留正式实验资产，以及少量具有长期引用价值的行为基线 / 诊断 run，不保留 bootstrap、冒烟和未完成目录

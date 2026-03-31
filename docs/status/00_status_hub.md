@@ -20,13 +20,15 @@
 ## 当前推荐先读
 
 - `01_current_progress.md`
-  先看当前已经完成到哪里，尤其是 `E3/E4` 已切换到 `Qwen3.5-4B` 正式结果这一事实。
+  先看当前已经完成到哪里，尤其是行为主线已经完成 `4B` 正式结果且审计已补齐这一事实。
+- `../../experiments/reports/05_behavior_stage_3_chapter_materials.md`
+  当前行为章节最值得直接拿来写论文的汇总文档。
 - `02_next_steps.md`
-  再看接下来按什么顺序推进，当前主线已经从“重跑诊断”转成“审计收口与论文整理”。
+  再看接下来按什么顺序推进，当前主线已经从“行为结果收口”转向“可选 9B 附录 + E9 证据约束生成”。
 - `03_manual_intervention_guide.md`
-  最后看当前需要你亲手做的动作，主要是最新 `E4` 审计与是否追加 `9B`。
-- `../../experiments/reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
-  当前行为实验最值得直接引用的正式汇总文档。
+  最后看当前需要你亲手做的动作，主要是复核已完成的审计与决定是否追加 `9B`。
+- `../plans/03_generation_and_peft_phase_plan.md`
+  当你准备进入 `E9 -> E10 / PEFT` 时，直接按这份路线图推进。
 - `../deployment/01_autodl_qwen35_behavior_runbook.md`
   当你需要在云端复现实验或追加 `Qwen3.5-9B` 对比时，再回看这份总手册。
 
