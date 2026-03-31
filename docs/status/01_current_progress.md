@@ -4,7 +4,7 @@
 
 ## 总体阶段判断
 
-当前项目已经完成 Aspect-KB 章节的两轮核心收口，并进入行为实验第一轮。
+当前项目已经完成 Aspect-KB 章节的两轮核心收口，并完成行为实验主线的首轮正式结果。
 
 目前整体处于：
 
@@ -15,7 +15,9 @@
 - `E6-E8`：已完成正式检索评测并已收口为论文材料
 - 默认检索配置：已冻结为 `aspect_main_no_rerank`
 - `E5`：已完成正式首轮结果
-- `E3/E4`：第一轮 `Qwen3.5-2B` 云端 baseline 已归档，`v2` 优化中
+- `E3/E4`：`Qwen3.5-4B` 全量正式结果已完成，`Qwen3.5-2B` 第一轮结果作为弱基线归档保留
+- 当前正式行为模型：已冻结为 `Qwen/Qwen3.5-4B`
+- `Qwen3.5-9B`：可作为附录或扩展对比，当前不是主线阻塞项
 - PEFT / 主实验矩阵：尚未开始
 
 ## 已完成的核心内容
@@ -162,7 +164,7 @@
 
 ### 6. E3-E5：行为实验第一轮
 
-当前状态：共享行为评测底座已实现，`E5` 已完成正式结果，`E3/E4` 的 `Qwen3.5-2B` 第一轮 baseline 已完成并归档，当前进入 `v2` 优化
+当前状态：共享行为评测底座已实现，`E5` 已完成正式结果，`E3/E4` 已完成 `Qwen3.5-4B` 全量正式结果
 
 已完成内容：
 
@@ -182,7 +184,7 @@
   - `workflow.default_retrieval_mode = aspect_main_no_rerank`
   - `workflow.enable_fallback = false`
   - `behavior.llm_backend = api`
-  - `behavior.base_model = Qwen/Qwen3.5-2B`
+  - `behavior.base_model = Qwen/Qwen3.5-4B`
 
 `E5` 正式结果目录：
 
@@ -212,20 +214,59 @@
 - `Qwen3.5-2B` baseline run 已冻结：
   - `experiments/runs/e3_244aca8abf6345ad_20260331T072527+0000/`
   - `experiments/runs/e4_4a15a89128a90d11_20260331T073016+0000/`
-- baseline 归档总结已写入：
+- `Qwen3.5-2B` baseline 归档总结已写入：
   - `experiments/reports/03_behavior_stage_1_qwen35_2b_baseline.md`
-- 当前已锁定三类真实问题：
-  - `E3` 城市后处理过严，误伤 `Anaheim:CA` / `New Orleans:LA`
-  - `E3` 的 `unsupported_requests` 识别明显不足
-  - `E4` 出现“全判 `clarify_needed=false`”的塌缩
-- 当前代码已切到 `v2` 设计：
+- 中间诊断 run 已保留：
+  - `experiments/runs/e3_da541f84770ed8ed_20260331T090311+0000/`
+  - `experiments/runs/e4_96e0e4afb24dab2d_20260331T091021+0000/`
+  - `experiments/runs/e3_f62d907e600cfc14_20260331T120756+0000/`
+  - `experiments/runs/e4_f928a37444c1bf52_20260331T121012+0000/`
+- 当前正式全量 run 已完成：
+  - `experiments/runs/e3_14928d821d811e86_20260331T122611+0000/`
+  - `experiments/runs/e4_55c8021e1119fb77_20260331T122648+0000/`
+- 当前正式汇总材料已写入：
+  - `experiments/reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
+- 当前最新 `E4` 审计快照已冻结：
+  - `experiments/labels/e4_clarification/clarification_question_audit_e4_55c8021e1119fb77_qwen35_4b_full.csv`
+- 当前代码已稳定使用 `v2` 设计：
   - `E3 = e3_v2_cn_slots_only`
   - `E4 = e4_v2_cn_decision_label_fewshot`
-- 当前新增了诊断子集资产：
-  - `experiments/assets/e3_diagnostic_query_ids.json`
-  - `experiments/assets/e4_diagnostic_query_ids.json`
-- 下一步不是立刻切模型，而是先在云端用同一台 `Qwen3.5-2B` 服务重跑 `v2` 诊断子集
 - 云端部署与执行总手册见 `docs/deployment/01_autodl_qwen35_behavior_runbook.md`
+
+`E3` 当前正式结果：
+
+- `A_rule_parser`
+  - `Exact-Match Rate = 1.0000`
+  - `Unsupported Detection Recall = 1.0000`
+- `B_base_llm_structured`
+  - `Exact-Match Rate = 0.9767`
+  - `Unsupported Detection Recall = 1.0000`
+  - `City Slot F1 = 1.0000`
+  - `Focus Slot F1 = 1.0000`
+  - `Avoid Slot F1 = 0.9474`
+  - `Unsupported Slot F1 = 0.9836`
+
+`E4` 当前正式结果：
+
+- `A_rule_clarify`
+  - `Accuracy = 0.9767`
+  - `Precision = 0.8889`
+  - `Recall = 1.0000`
+  - `F1 = 0.9412`
+- `B_base_llm_clarify`
+  - `Accuracy = 0.9884`
+  - `Precision = 0.9412`
+  - `Recall = 1.0000`
+  - `F1 = 0.9697`
+  - `Over-clarification Rate = 0.0143`
+  - `Under-clarification Rate = 0.0000`
+
+当前解读：
+
+- `Qwen3.5-2B` 适合作为行为层弱基线保留，但不再作为正式主模型
+- `Qwen3.5-4B` 已经足够支撑 `E3/E4` 的正式论文结果
+- `E3` 的剩余错例已收缩到极少数 `value` 负向约束边界例，如 `q048 / q062`
+- `E4` 当前只剩 `q013` 这类易被误看成 conflict 的边界过澄清案例
 
 ## 当前已形成的可写材料
 
@@ -236,21 +277,26 @@
 - `1` 份 Aspect-KB 第一阶段汇总材料
 - `1` 份 Aspect-KB 第二阶段检索汇总材料
 - `1` 组 E5 正式桥接结果表
+- `1` 份 `Qwen3.5-2B` 行为弱基线归档材料
+- `1` 份 `Qwen3.5-4B` 行为正式结果归档材料
 - 多组 E1 / E2 / E6-E8 代表性案例
+- 多组 E3 / E4 行为案例与审计文件
 
 推荐优先阅读：
 
 - `experiments/reports/01_aspect_kb_stage_1_summary.md`
 - `experiments/reports/02_aspect_kb_stage_2_summary.md`
+- `experiments/reports/03_behavior_stage_1_qwen35_2b_baseline.md`
+- `experiments/reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
+- `experiments/runs/e3_14928d821d811e86_20260331T122611+0000/analysis.md`
+- `experiments/runs/e4_55c8021e1119fb77_20260331T122648+0000/analysis.md`
 - `experiments/runs/e5_9a94daa5a6a31d8a_20260330T155246+0000/analysis.md`
 
 ## 当前明确尚未完成的内容
 
-- `E3 v2` 诊断子集 rerun
-- `E4 v2` 诊断子集 rerun
-- 诊断通过后重跑 `Qwen3.5-2B` 全量 `E3/E4`
-- 若 `2B v2` 仍明显塌缩，再切到 `4B / 9B`
 - 最新一轮 `E4` 审计文件的人工审阅
+- 将 `E3 / E4 / E5` 收口为统一的行为实验论文材料
+- 视论文篇幅决定是否追加 `Qwen3.5-9B` 扩展对比
 - `E9/E10`
 - `G1-G4`
 - PEFT
@@ -258,7 +304,7 @@
 ## 当前最值得关注的事实
 
 1. Aspect-KB 章节已经完成两轮核心收口，当前主结论已经稳定。
-2. `E6` 证明了方面引导检索有效，`E7/E8` 作为负结果与边界结果同样有论文价值。
-3. 后续系统默认检索配置已经冻结为 `aspect_main_no_rerank`，不再把 reranker 或 fallback 当作主流程默认项。
-4. `E5` 已经证明“结构化英文检索表达”显著优于“中文直检”。
-5. 当前最直接的下一步，不是 PEFT，而是让 `E3/E4` 在固定检索后端上完成正式运行与分析。
+2. 默认检索后端仍固定为 `aspect_main_no_rerank`，`reranker` 与 `fallback` 不回到主流程。
+3. 行为实验当前正式主模型已经切换为 `Qwen/Qwen3.5-4B`，`2B` 保留为弱基线。
+4. `E5` 已经证明“结构化英文检索表达”显著优于“中文直检”，因此行为层实验建立在固定桥接与固定检索后端之上。
+5. 当前阶段更像“审计、收口和写作阶段”，而不是“继续救火调试阶段”；最直接的下一步是补齐 `E4` 审计并整理 `E3 / E4 / E5` 论文材料。

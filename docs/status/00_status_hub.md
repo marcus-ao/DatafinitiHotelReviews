@@ -19,14 +19,16 @@
 
 ## 当前推荐先读
 
-- `../deployment/01_autodl_qwen35_behavior_runbook.md`
-  云端 `Qwen3.5-2B / 4B / 9B` 部署、`E3/E4` 行为实验执行和结果回传的总手册。
 - `01_current_progress.md`
-  先看当前已经完成到哪里。
+  先看当前已经完成到哪里，尤其是 `E3/E4` 已切换到 `Qwen3.5-4B` 正式结果这一事实。
 - `02_next_steps.md`
-  再看接下来按什么顺序推进。
+  再看接下来按什么顺序推进，当前主线已经从“重跑诊断”转成“审计收口与论文整理”。
 - `03_manual_intervention_guide.md`
-  最后看当前需要你亲手做的动作。
+  最后看当前需要你亲手做的动作，主要是最新 `E4` 审计与是否追加 `9B`。
+- `../../experiments/reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
+  当前行为实验最值得直接引用的正式汇总文档。
+- `../deployment/01_autodl_qwen35_behavior_runbook.md`
+  当你需要在云端复现实验或追加 `Qwen3.5-9B` 对比时，再回看这份总手册。
 
 ## 当前维护原则
 

@@ -42,7 +42,7 @@ workflow:
   enable_fallback: false
 behavior:
   llm_backend: api
-  base_model: Qwen/Qwen3.5-2B
+  base_model: Qwen/Qwen3.5-4B
   api_base_url: http://127.0.0.1:8000/v1
   api_key_env: OPENAI_API_KEY
   enable_thinking: false

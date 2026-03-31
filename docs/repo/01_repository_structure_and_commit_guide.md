@@ -12,6 +12,7 @@ DatafinitiHotelReviews/
 │   ├── db.example.yaml
 │   └── params.yaml
 ├── docs/
+│   ├── deployment/
 │   ├── plans/
 │   ├── repo/
 │   └── status/
@@ -66,6 +67,7 @@ DatafinitiHotelReviews/
 - `evaluate_e3_e5_behavior.py`
 - `evaluate_e6_e8_retrieval.py`
 - `run_experiment_suite.py`
+- `smoke_test_qwen_api.py`
 
 ### `scripts/shared/`
 
@@ -96,19 +98,38 @@ DatafinitiHotelReviews/
 
 - `01_aspect_kb_stage_1_summary.md`
 - `02_aspect_kb_stage_2_summary.md`
+- `03_behavior_stage_1_qwen35_2b_baseline.md`
+- `04_behavior_stage_2_qwen35_4b_formal_summary.md`
 
 ### `experiments/runs/`
 
-当前只保留正式 run：
+当前保留两类 run：
+
+- 正式主结果 run
+- 少量具有长期引用价值的行为基线 / 诊断 run
+
+正式主结果：
 
 - `e2_770d3e0e2f4ded57_20260329T124258+0000`
+- `e3_14928d821d811e86_20260331T122611+0000`
+- `e4_55c8021e1119fb77_20260331T122648+0000`
 - `e5_9a94daa5a6a31d8a_20260330T155246+0000`
 - `e6_a98d0773422d5f2f_20260330T150721+0000`
 - `e7_4511a1b33877007a_20260330T151015+0000`
 - `e8_b610a6c12fd1195d_20260330T151133+0000`
 
+行为基线 / 诊断保留：
+
+- `e3_244aca8abf6345ad_20260331T072527+0000`
+- `e4_4a15a89128a90d11_20260331T073016+0000`
+- `e3_da541f84770ed8ed_20260331T090311+0000`
+- `e4_96e0e4afb24dab2d_20260331T091021+0000`
+- `e3_f62d907e600cfc14_20260331T120756+0000`
+- `e4_f928a37444c1bf52_20260331T121012+0000`
+
 ### `docs/`
 
+- `docs/deployment/`：云端部署与行为实验运行手册
 - `docs/plans/`：研究计划与实施说明
 - `docs/status/`：当前进度、下一步与人工介入手册
 - `docs/repo/`：仓库结构与提交说明
@@ -120,6 +141,8 @@ DatafinitiHotelReviews/
 - `test_pipeline_sentence_splitting.py`
 - `test_pipeline_aspect_classification.py`
 - `test_shared_project_utils.py`
+- `test_behavior_postprocess.py`
+- `test_behavior_runtime_config.py`
 
 ## 已清理内容
 
@@ -175,5 +198,5 @@ git add -n .
 重点确认：
 
 - `raw_data/`、`data/intermediate/`、`data/chroma_db/`、`venv/`、`configs/db.yaml` 没有被意外纳入
-- `experiments/runs/` 只剩 5 个正式 run
+- `experiments/runs/` 中只保留正式主结果和少量明确说明用途的行为基线 / 诊断 run
 - 根 README、`experiments/README.md` 和 `docs/status/` 的路径表述已经对齐

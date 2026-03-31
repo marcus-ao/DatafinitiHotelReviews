@@ -4,6 +4,11 @@
 
 本文件用于冻结当前 `Qwen/Qwen3.5-2B` 在 `E3/E4` 上的第一轮正式结果。该轮结果保留为“弱基线 / 负结果”对照，不删除、不覆盖，后续所有 `v2` 优化都必须在新的 run 目录中追加。
 
+后续阶段更新：
+
+- 当前正式主结果已经推进到 `Qwen3.5-4B` 全量 run
+- 请同时参阅：`experiments/reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
+
 ## 1. 本轮基线配置
 
 - 模型：`Qwen/Qwen3.5-2B`

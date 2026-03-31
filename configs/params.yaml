@@ -82,7 +82,7 @@ workflow:
 
 behavior:
   llm_backend: "api"                    # local | api
-  base_model: "Qwen/Qwen3.5-2B"         # 云端可通过 BEHAVIOR_MODEL_ID 覆盖为 4B / 9B
+  base_model: "Qwen/Qwen3.5-4B"         # 当前正式行为实验主模型；云端可通过 BEHAVIOR_MODEL_ID 覆盖为 9B
   api_base_url: "http://127.0.0.1:8000/v1"
   api_key_env: "OPENAI_API_KEY"
   enable_thinking: false

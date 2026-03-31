@@ -19,14 +19,14 @@
 - `reports/`
   阶段性论文材料汇总。
 - `runs/`
-  只保留正式运行结果，每个 run 目录统一包含 `run_meta.json`、`results.jsonl`、`summary.csv`、`analysis.md`。
+  保留正式运行结果，以及少量具有长期引用价值的行为基线 / 诊断 run；每个 run 目录统一包含 `run_meta.json`、`results.jsonl`、`summary.csv`、`analysis.md`。
 
 ## 当前保留的正式实验覆盖
 
 - `E1`：方面/情感标注可靠性
 - `E2`：候选缩圈有效性
-- `E3`：偏好解析第一轮云端 baseline
-- `E4`：澄清触发第一轮云端 baseline
+- `E3`：偏好解析正式结果，当前正式主模型为 `Qwen3.5-4B`
+- `E4`：澄清触发正式结果，当前正式主模型为 `Qwen3.5-4B`
 - `E5`：中文输入到英文检索表达桥接
 - `E6`：方面引导检索 vs 朴素召回
 - `E7`：reranker 消融
@@ -66,19 +66,30 @@
 ### `labels/e4_clarification/`
 
 - `clarification_question_audit.csv`
-  当前最新一轮 `E4` 审计副本，便于继续人工填写。
+  当前最新一轮 `E4` 审计副本，当前对应 `Qwen3.5-4B` 全量正式 run，便于继续人工填写。
 - `clarification_question_audit_e4_4a15a89128a90d11_baseline.csv`
   `Qwen3.5-2B` baseline 的冻结快照，不随 rerun 覆盖。
+- `clarification_question_audit_e4_55c8021e1119fb77_qwen35_4b_full.csv`
+  `Qwen3.5-4B` 全量正式 run 的冻结快照。
 
-## 当前保留的正式 run
+## 当前保留的正式主结果 run
 
 - `runs/e2_770d3e0e2f4ded57_20260329T124258+0000/`
-- `runs/e3_244aca8abf6345ad_20260331T072527+0000/`
-- `runs/e4_4a15a89128a90d11_20260331T073016+0000/`
+- `runs/e3_14928d821d811e86_20260331T122611+0000/`
+- `runs/e4_55c8021e1119fb77_20260331T122648+0000/`
 - `runs/e5_9a94daa5a6a31d8a_20260330T155246+0000/`
 - `runs/e6_a98d0773422d5f2f_20260330T150721+0000/`
 - `runs/e7_4511a1b33877007a_20260330T151015+0000/`
 - `runs/e8_b610a6c12fd1195d_20260330T151133+0000/`
+
+## 当前保留的历史 / 诊断行为 run
+
+- `runs/e3_244aca8abf6345ad_20260331T072527+0000/`
+- `runs/e3_da541f84770ed8ed_20260331T090311+0000/`
+- `runs/e3_f62d907e600cfc14_20260331T120756+0000/`
+- `runs/e4_4a15a89128a90d11_20260331T073016+0000/`
+- `runs/e4_96e0e4afb24dab2d_20260331T091021+0000/`
+- `runs/e4_f928a37444c1bf52_20260331T121012+0000/`
 
 ## 最小运行入口
 
@@ -137,10 +148,12 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification --quer
 补充说明：
 
 - `Qwen3.5-2B` 的第一轮 `E3/E4` baseline 已归档
+- `Qwen3.5-4B` 的全量 `E3/E4` 正式结果已经完成，并已成为当前行为实验主结果
 - 当前默认 prompt 版本已切到：
   - `E3 = e3_v2_cn_slots_only`
   - `E4 = e4_v2_cn_decision_label_fewshot`
-- 下一步先用同一版 `v2` 设计重跑 `Qwen3.5-2B` 诊断子集，再决定是否继续切到 `4B / 9B`
+- 当前默认行为模型配置已冻结为 `Qwen/Qwen3.5-4B`
+- 上面的诊断子集命令主要用于后续补充对比、额外调试或 `Qwen3.5-9B` 扩展实验，不再是当前主线阻塞项
 - 推荐在 AutoDL 云端 GPU 环境执行，再将正式 run 同步回本仓库
 - 当前行为实验脚本已经支持 OpenAI-compatible API backend，云端配置方式详见 `../docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 
@@ -149,5 +162,8 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification --quer
 - `reports/01_aspect_kb_stage_1_summary.md`
 - `reports/02_aspect_kb_stage_2_summary.md`
 - `reports/03_behavior_stage_1_qwen35_2b_baseline.md`
+- `reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
+- `runs/e3_14928d821d811e86_20260331T122611+0000/analysis.md`
+- `runs/e4_55c8021e1119fb77_20260331T122648+0000/analysis.md`
 - `runs/e5_9a94daa5a6a31d8a_20260330T155246+0000/analysis.md`
 - `../docs/repo/01_repository_structure_and_commit_guide.md`

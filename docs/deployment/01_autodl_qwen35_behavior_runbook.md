@@ -324,32 +324,25 @@ vllm serve ... 2>&1 | tee /root/autodl-tmp/logs/qwen35_2b_vllm.log
 
 在开始正式实验前，必须先做一次最小 API 验证。
 
-下面这段脚本是推荐的最小测试：
+仓库里已经提供了统一的冒烟脚本：
 
-```python
-from openai import OpenAI
+`scripts/evaluation/smoke_test_qwen_api.py`
 
-client = OpenAI(
-    api_key="EMPTY",
-    base_url="http://127.0.0.1:8000/v1",
-)
+推荐直接这样跑：
 
-response = client.chat.completions.create(
-    model="Qwen/Qwen3.5-4B",
-    temperature=0,
-    messages=[
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "Return a one-line JSON object: {\"status\":\"ok\"}"},
-    ],
-    extra_body={
-        "chat_template_kwargs": {
-            "enable_thinking": False,
-        }
-    },
-)
+```bash
+export OPENAI_API_KEY=EMPTY
+export OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+export BEHAVIOR_MODEL_ID=Qwen/Qwen3.5-4B
+export BEHAVIOR_ENABLE_THINKING=false
 
-print(response.choices[0].message.content)
+python scripts/evaluation/smoke_test_qwen_api.py
 ```
+
+这个脚本会读取当前环境变量并发起最小请求，因此切换 `2B / 4B / 9B` 时只需要改：
+
+- `BEHAVIOR_MODEL_ID`
+- `BEHAVIOR_ENABLE_THINKING`
 
 你需要检查两件事：
 
