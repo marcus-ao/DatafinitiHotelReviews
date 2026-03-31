@@ -1,0 +1,28 @@
+# E3 Preference Parsing Result
+
+## Summary Table
+
+| group_id | query_count | schema_valid_rate | exact_match_rate | unsupported_detection_recall | city_slot_f1 | hotel_category_slot_f1 | focus_aspects_slot_f1 | avoid_aspects_slot_f1 | unsupported_requests_slot_f1 | avg_latency_ms | config_hash |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| A_rule_parser | 23 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 0.045 | 2025de7cb38a7243 |
+| B_base_llm_structured | 23 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 1.0 | 2659.899 | 7d6b4c997cea841f |
+
+## Error Breakdown
+
+### A_rule_parser
+
+- city_missing: 0
+- aspect_mapping_error: 0
+- unsupported_missed: 0
+- unsupported_as_supported: 0
+
+- none
+
+### B_base_llm_structured
+
+- city_missing: 0
+- aspect_mapping_error: 0
+- unsupported_missed: 0
+- unsupported_as_supported: 0
+
+- none

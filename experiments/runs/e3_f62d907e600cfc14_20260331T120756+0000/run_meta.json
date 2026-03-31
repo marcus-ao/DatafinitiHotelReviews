@@ -1,0 +1,64 @@
+{
+  "run_id": "e3_f62d907e600cfc14_20260331T120756+0000",
+  "generated_at": "2026-03-31T12:07:56+00:00",
+  "stable_run_config": {
+    "task": "E3",
+    "split_config_hash": "9219c89c8c419d0c",
+    "query_scope": "query_id_file:e3_diagnostic_query_ids.json",
+    "query_count": 23,
+    "query_id_selection_hash": "7e7a4f0c2878eed9",
+    "behavior_backend": "api",
+    "base_model_id": "Qwen/Qwen3.5-4B",
+    "behavior_api_base_url": "http://127.0.0.1:8000/v1",
+    "behavior_enable_thinking": false,
+    "behavior_temperature": 0.0,
+    "behavior_max_new_tokens": 256,
+    "prompt_version_id": "e3_v2_cn_slots_only",
+    "default_retrieval_mode": "aspect_main_no_rerank",
+    "fallback_enabled": false,
+    "official_group_ids": [
+      "A_rule_parser",
+      "B_base_llm_structured"
+    ]
+  },
+  "official_group_ids": [
+    "A_rule_parser",
+    "B_base_llm_structured"
+  ],
+  "selected_query_ids": [
+    "q001",
+    "q003",
+    "q004",
+    "q005",
+    "q024",
+    "q025",
+    "q039",
+    "q040",
+    "q051",
+    "q052",
+    "q053",
+    "q054",
+    "q055",
+    "q056",
+    "q057",
+    "q058",
+    "q059",
+    "q060",
+    "q069",
+    "q072",
+    "q075",
+    "q077",
+    "q081"
+  ],
+  "behavior_runtime_config": {
+    "llm_backend": "api",
+    "model_id": "Qwen/Qwen3.5-4B",
+    "api_base_url": "http://127.0.0.1:8000/v1",
+    "api_key_env": "OPENAI_API_KEY",
+    "api_key_present": true,
+    "enable_thinking": false,
+    "temperature": 0.0,
+    "max_new_tokens": 256,
+    "api_timeout_seconds": 120
+  }
+}
