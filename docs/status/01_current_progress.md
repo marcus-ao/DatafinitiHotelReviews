@@ -15,7 +15,7 @@
 - `E6-E8`：已完成正式检索评测并已收口为论文材料
 - 默认检索配置：已冻结为 `aspect_main_no_rerank`
 - `E5`：已完成正式首轮结果
-- `E3/E4`：共享评测引擎已实现，但 Base 组正式运行改为放在云端 GPU 环境执行
+- `E3/E4`：第一轮 `Qwen3.5-2B` 云端 baseline 已归档，`v2` 优化中
 - PEFT / 主实验矩阵：尚未开始
 
 ## 已完成的核心内容
@@ -162,7 +162,7 @@
 
 ### 6. E3-E5：行为实验第一轮
 
-当前状态：共享行为评测底座已实现，`E5` 已完成正式结果，`E3/E4` 待正式运行
+当前状态：共享行为评测底座已实现，`E5` 已完成正式结果，`E3/E4` 的 `Qwen3.5-2B` 第一轮 baseline 已完成并归档，当前进入 `v2` 优化
 
 已完成内容：
 
@@ -209,11 +209,22 @@
 
 `E3/E4` 当前状态说明：
 
-- 规则组与 Base 组实验逻辑都已写好
-- 行为实验脚本现在已经支持通过 OpenAI-compatible API 调用云端 `vLLM`
-- 下一轮正式云端行为实验方案已经切换为 `Qwen3.5-2B / 4B / 9B` 对比
-- 新方案统一采用 non-thinking 模式，并固定在云端 GPU 环境执行
-- 现在真正待做的是在 AutoDL 上按统一配置跑出 `E3/E4` 正式结果
+- `Qwen3.5-2B` baseline run 已冻结：
+  - `experiments/runs/e3_244aca8abf6345ad_20260331T072527+0000/`
+  - `experiments/runs/e4_4a15a89128a90d11_20260331T073016+0000/`
+- baseline 归档总结已写入：
+  - `experiments/reports/03_behavior_stage_1_qwen35_2b_baseline.md`
+- 当前已锁定三类真实问题：
+  - `E3` 城市后处理过严，误伤 `Anaheim:CA` / `New Orleans:LA`
+  - `E3` 的 `unsupported_requests` 识别明显不足
+  - `E4` 出现“全判 `clarify_needed=false`”的塌缩
+- 当前代码已切到 `v2` 设计：
+  - `E3 = e3_v2_cn_slots_only`
+  - `E4 = e4_v2_cn_decision_label_fewshot`
+- 当前新增了诊断子集资产：
+  - `experiments/assets/e3_diagnostic_query_ids.json`
+  - `experiments/assets/e4_diagnostic_query_ids.json`
+- 下一步不是立刻切模型，而是先在云端用同一台 `Qwen3.5-2B` 服务重跑 `v2` 诊断子集
 - 云端部署与执行总手册见 `docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 
 ## 当前已形成的可写材料
@@ -235,9 +246,11 @@
 
 ## 当前明确尚未完成的内容
 
-- `E3` 正式 A/B 运行与结果分析
-- `E4` 正式 A/B 运行与结果分析
-- `experiments/labels/e4_clarification/clarification_question_audit.csv` 的人工审阅
+- `E3 v2` 诊断子集 rerun
+- `E4 v2` 诊断子集 rerun
+- 诊断通过后重跑 `Qwen3.5-2B` 全量 `E3/E4`
+- 若 `2B v2` 仍明显塌缩，再切到 `4B / 9B`
+- 最新一轮 `E4` 审计文件的人工审阅
 - `E9/E10`
 - `G1-G4`
 - PEFT

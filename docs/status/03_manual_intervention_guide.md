@@ -6,13 +6,14 @@
 
 ## 当前结论
 
-当前最可能的人工阻塞点，已经从“qrels 标注”切换成了“云端 Base 模型执行安排”。
+当前最可能的人工阻塞点，已经从“qrels 标注”切换成了“云端 `E3/E4 v2` 诊断 rerun 与结果回传”。
 
 也就是说：
 
 - `E1 / E2 / E5 / E6 / E7 / E8` 都已经有正式结果
-- `E3 / E4` 的代码实现已经完成
-- 现在最需要确认的是：如何按云端手册配置 AutoDL，并让 `Qwen3.5-2B / 4B / 9B` 进入正式对比
+- `Qwen3.5-2B` 的第一轮 `E3/E4` baseline 已经归档
+- `E3 / E4` 的 `v2` 代码实现已经完成
+- 现在最需要确认的是：先在云端用 `Qwen3.5-2B` 跑通 `v2` 诊断子集，再决定是否切到 `4B / 9B`
 - 你已经明确要求：本地不再下载或缓存 `Qwen`
 
 ## 手册 A：你现在最该先做什么
@@ -25,7 +26,17 @@
 - 三个模型都将在云端有 GPU 的设备执行
 - 当前本地缓存已经清理，不需要再重复下载
 
-### 第二步：先按总手册把云端环境搭起来
+### 第二步：先保持当前 baseline 不动
+
+你现在不要做的是：
+
+- 不要覆盖：
+  - `experiments/runs/e3_244aca8abf6345ad_20260331T072527+0000/`
+  - `experiments/runs/e4_4a15a89128a90d11_20260331T073016+0000/`
+- 不要删除：
+  - `experiments/reports/03_behavior_stage_1_qwen35_2b_baseline.md`
+
+### 第三步：再按总手册把云端环境搭起来
 
 - `docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 
@@ -35,9 +46,9 @@
 - 扩数据盘
 - 配缓存目录
 - 安装 `vLLM` 和 `openai`
-- 跑通 `Qwen3.5-2B / 4B / 9B` 的 API 冒烟验证
+- 先跑通当前 `Qwen3.5-2B` 的 API 冒烟验证
 
-### 第三步：确认行为实验脚本已经接上 API backend
+### 第四步：确认行为实验脚本已经接上 API backend
 
 在正式跑 `E3/E4` 之前，你要先确认一件关键事实：
 
@@ -45,7 +56,19 @@
 - 你真正需要确认的是：云端环境变量和 `configs/params.yaml` 是否与服务地址一致
 - 在正式跑之前，先做一轮最小 API 冒烟验证，确保返回结果里没有 `<think>`
 
-### 第四步：接着正式跑 E3 与 E4
+### 第五步：先跑 v2 诊断子集，不要直接上全量
+
+推荐顺序：
+
+1. 启动 `Qwen3.5-2B`
+2. 跑 `E3` 诊断子集：
+   - `python -m scripts.evaluation.run_experiment_suite --task e3_preference --query-id-file experiments/assets/e3_diagnostic_query_ids.json`
+3. 跑 `E4` 诊断子集：
+   - `python -m scripts.evaluation.run_experiment_suite --task e4_clarification --query-id-file experiments/assets/e4_diagnostic_query_ids.json`
+4. 把新的 run 目录同步回本地
+5. 先看指标，再决定是否跑全量
+
+### 第六步：诊断通过后再跑全量 E3 与 E4
 
 当 API backend 已接好后，再按统一顺序执行：
 
@@ -54,9 +77,9 @@
 3. 跑 `E4`
 4. 保存日志和 run 目录
 5. 停服务
-6. 换 `Qwen3.5-4B`
+6. 如果 `2B v2` 仍明显不足，再换 `Qwen3.5-4B`
 7. 重复同样步骤
-8. 再换 `Qwen3.5-9B`
+8. 最后再考虑 `Qwen3.5-9B`
 
 ## 手册 B：E4 跑完后你需要人工看什么
 
@@ -64,7 +87,8 @@
 
 重点文件：
 
-- `experiments/labels/e4_clarification/clarification_question_audit.csv`
+- 最新副本：`experiments/labels/e4_clarification/clarification_question_audit.csv`
+- 每轮真值文件：对应 `e4_*` run 目录中的 `clarification_question_audit.csv`
 
 你需要重点看这几列：
 
@@ -139,6 +163,7 @@
 
 - `scripts/evaluation/evaluate_e3_e5_behavior.py`
 - `experiments/labels/e4_clarification/`
+- 对应新的 `experiments/runs/e4_*/clarification_question_audit.csv`
 
 ## 手册 D：你现在暂时不用手动做的事
 
@@ -153,4 +178,4 @@
 
 ## 手册 E：一句话版
 
-不要再在本地下载 `Qwen`；先按 `docs/deployment/01_autodl_qwen35_behavior_runbook.md` 配好 AutoDL 上的 `Qwen3.5-2B / 4B / 9B`，确认 API 冒烟通过后就可以正式跑 `E3` 和 `E4`，跑完再人工审一下 `clarification_question_audit.csv`。
+不要再在本地下载 `Qwen`；先保留好已经归档的 `Qwen3.5-2B` baseline，再按 `docs/deployment/01_autodl_qwen35_behavior_runbook.md` 在云端启动同一个 `2B` 服务，先跑 `E3/E4 v2` 诊断子集，达标后再跑全量，不达标再切到 `4B / 9B`。

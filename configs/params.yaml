@@ -90,6 +90,6 @@ behavior:
   max_new_tokens: 256
   api_timeout_seconds: 120
   prompt_versions:
-    e3_preference: "e3_v1_structured_preference"
-    e4_clarification: "e4_v1_clarify_decision"
+    e3_preference: "e3_v2_cn_slots_only"
+    e4_clarification: "e4_v2_cn_decision_label_fewshot"
     e5_query_bridge: "e5_v1_bridge_retrieval"

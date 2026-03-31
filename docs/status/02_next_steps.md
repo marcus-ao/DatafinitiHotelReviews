@@ -7,78 +7,100 @@
 请按下面顺序推进，不建议跳步：
 
 1. 确认并保持默认检索配置固定为 `aspect_main_no_rerank`
-2. 按云端手册准备 `Qwen3.5-2B / 4B / 9B` 的 AutoDL 执行环境
-3. 完成 `E3` 正式多模型对比运行
-4. 完成 `E4` 正式多模型对比运行与问题质量审计
-5. 整理 `E3/E4/E5` 论文材料
-6. 再进入更后面的 `E9/E10`、PEFT 与主实验矩阵
+2. 保留当前 `Qwen3.5-2B` baseline，不覆盖、不删除
+3. 先在云端重跑 `E3 v2` 诊断子集
+4. 再重跑 `E4 v2` 诊断子集
+5. 只有诊断通过后，才重跑 `Qwen3.5-2B` 全量 `E3/E4`
+6. 若 `2B v2` 仍明显不足，再切到 `Qwen3.5-4B / 9B`
+7. 整理 `E3/E4/E5` 论文材料
+8. 再进入更后面的 `E9/E10`、PEFT 与主实验矩阵
 
 ## 第一优先级：立即要做
 
-### 任务 1：准备云端 Qwen3.5 多模型执行环境
+### 任务 1：保持 baseline 归档状态不变
 
 目标：
 
-- 按 `docs/deployment/01_autodl_qwen35_behavior_runbook.md` 在 AutoDL 上准备 `Qwen3.5-2B / 4B / 9B` 的轮流执行环境
+- 将第一轮 `Qwen3.5-2B` 的 `E3/E4` run 继续视为冻结基线，不覆盖原目录
 
 完成标准：
 
-- 明确设备为 `vGPU-48GB`
-- 数据盘至少扩到 `100GB`
-- 三个模型都能完成 `vLLM` 服务冒烟验证
-- `enable_thinking=False` 的控制方式已确认
+- `experiments/runs/e3_244aca8abf6345ad_20260331T072527+0000/` 保持不变
+- `experiments/runs/e4_4a15a89128a90d11_20260331T073016+0000/` 保持不变
+- `experiments/reports/03_behavior_stage_1_qwen35_2b_baseline.md` 已作为阶段总结保留
 
-### 任务 2：跑通 E3 正式实验
+### 任务 2：先跑 E3 v2 诊断子集
 
 目标：
 
-- 在已经冻结的检索后端上，完成规则组与 `Qwen3.5-2B / 4B / 9B` 的正式对照
+- 在云端 `Qwen3.5-2B` 服务不变的前提下，先验证 `e3_v2_cn_slots_only` 是否解决后处理误伤与 unsupported 漏检
 
 完成标准：
 
-- 产生一轮正式 `experiments/runs/e3_*/`
+- 使用：
+  - `experiments/assets/e3_diagnostic_query_ids.json`
+- 产生一轮新的 `experiments/runs/e3_*/`
 - 输出：
   - `run_meta.json`
   - `results.jsonl`
   - `summary.csv`
   - `analysis.md`
-- `summary.csv` 至少包含：
-  - `Slot-F1`
-  - `Exact-Match Rate`
-  - `Unsupported Detection Recall`
-  - `Schema Valid Rate`
+- 重点验收：
+  - 不再出现因 `City:ST` 格式导致的 `city_missing`
+  - `unsupported_detection_recall >= 0.50`
+  - `exact_match_rate` 相比 baseline 明显提升
 
-### 任务 3：跑通 E4 正式实验
+### 任务 3：再跑 E4 v2 诊断子集
 
 目标：
 
-- 完成规则组与 `Qwen3.5-2B / 4B / 9B` 的正式对照，并生成问题质量审计入口
+- 验证 `e4_v2_cn_decision_label_fewshot` 是否解决“全判 false”的塌缩
 
 完成标准：
 
-- 产生一轮正式 `experiments/runs/e4_*/`
+- 使用：
+  - `experiments/assets/e4_diagnostic_query_ids.json`
+- 产生一轮新的 `experiments/runs/e4_*/`
 - 输出：
   - `run_meta.json`
   - `results.jsonl`
   - `summary.csv`
   - `analysis.md`
 - 额外生成：
-  - `experiments/labels/e4_clarification/clarification_question_audit.csv`
+  - run 内部的 `clarification_question_audit.csv`
+  - 最新副本 `experiments/labels/e4_clarification/clarification_question_audit.csv`
+- 重点验收：
+  - 不再出现 `16` 条正例全部判 `false`
+  - 诊断子集 `recall >= 0.75`
+  - 平衡子集 `F1 >= 0.70`
 
-### 任务 4：检查 E3/E4 的云端执行链路是否稳定
+### 任务 4：只有诊断通过后，才重跑 2B 全量 E3/E4
 
-当前需要特别关注：
+目标：
 
-- 不再把“本地模型不可用”当作待解决项
-- 现在真正需要确认的是：
-  - 云端环境是否能稳定加载 `Qwen3.5`
-  - `vLLM` 服务是否能稳定返回 non-thinking 输出
-  - 行为实验脚本是否能通过 API backend 稳定落盘
-  - run 目录是否能同步回本仓库
+- 在同一版 `v2` 设计上重跑 `86` 条全量 query
 
-## 第二优先级：E3/E4 跑完后立刻做
+完成标准：
 
-### 任务 5：整理 E3/E4/E5 论文材料
+- 产生新的全量 `e3_*` / `e4_*` run
+- 新 run 与 baseline run 并列存在
+- 若 `2B v2` 仍明显塌缩，则不继续打磨 `2B`，直接切到 `4B`
+
+### 任务 5：按需切换到 4B / 9B
+
+触发条件：
+
+- `E4 v2` 诊断子集仍严重塌缩
+- 或 `E3 v2` 的 unsupported 识别仍明显不达标
+
+执行要求：
+
+- 保持同一版 `v2` prompt 和同一批诊断 query
+- 不在切模型时顺手改 prompt 或评测口径
+
+## 第二优先级：E3/E4 跑稳后立刻做
+
+### 任务 6：整理 E3/E4/E5 论文材料
 
 目标：
 
@@ -92,7 +114,7 @@
 - `2-3` 组典型错误/边界案例
 - `1` 段“固定后端条件下的行为层结论”
 
-### 任务 6：把行为实验与前面的 Aspect-KB 章节串起来
+### 任务 7：把行为实验与前面的 Aspect-KB 章节串起来
 
 建议整体叙述顺序：
 
@@ -113,4 +135,4 @@
 
 ## 一句话版本
 
-你现在最该做的，是先按云端手册把 `Qwen3.5-2B / 4B / 9B` 的 AutoDL 执行环境准备好，然后在已冻结的默认检索后端上跑出 `E3/E4` 正式多模型结果；`E5` 已经完成，后面再把 `E3/E4/E5` 一起收口成行为章节材料。
+你现在最该做的，是保留好已经跑出的 `Qwen3.5-2B` baseline，然后先在云端用同一个 `2B` 服务重跑 `E3/E4 v2` 诊断子集；只有诊断达标后再跑全量，不达标才切到 `4B / 9B`。

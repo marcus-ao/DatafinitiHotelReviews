@@ -38,6 +38,7 @@ def main() -> None:
     )
     parser.add_argument("--output-root", default=str(EXPERIMENT_RUNS_DIR))
     parser.add_argument("--limit-queries", type=int, default=None)
+    parser.add_argument("--query-id-file", default=None)
     parser.add_argument("--include-ablation", action="store_true")
     args = parser.parse_args()
 
@@ -65,10 +66,18 @@ def main() -> None:
         run_dir = run_retrieval_eval("E8", output_root=output_root, limit_queries=args.limit_queries)
         print(f"[OK] run saved to {run_dir}")
     elif args.task == "e3_preference":
-        run_dir = run_e3_preference_eval(output_root=output_root, limit_queries=args.limit_queries)
+        run_dir = run_e3_preference_eval(
+            output_root=output_root,
+            limit_queries=args.limit_queries,
+            query_id_file=args.query_id_file,
+        )
         print(f"[OK] run saved to {run_dir}")
     elif args.task == "e4_clarification":
-        run_dir = run_e4_clarification_eval(output_root=output_root, limit_queries=args.limit_queries)
+        run_dir = run_e4_clarification_eval(
+            output_root=output_root,
+            limit_queries=args.limit_queries,
+            query_id_file=args.query_id_file,
+        )
         print(f"[OK] run saved to {run_dir}")
     elif args.task == "e5_query_bridge":
         run_dir = run_e5_query_bridge_eval(output_root=output_root, limit_queries=args.limit_queries)

@@ -6,7 +6,7 @@
 
 - 数据处理与知识库构建主链路已完成，验证结果为 `28/28`
 - `E1`、`E2`、`E5`、`E6`、`E7`、`E8` 已完成正式结果并保留在仓库中
-- `E3/E4` 代码与评测链路已准备完成，云端 Base 组计划切换为 `Qwen3.5-2B / 4B / 9B` 对比
+- `E3/E4` 的 `Qwen3.5-2B` 第一轮云端 baseline 已归档，当前进入 `v2` 优化与诊断重跑阶段
 - 默认检索配置已冻结为 `aspect_main_no_rerank`
 
 ## 仓库结构
@@ -87,7 +87,7 @@ python -m scripts.evaluation.run_experiment_suite --task e2_candidates
 python -m scripts.evaluation.run_experiment_suite --task e5_query_bridge
 ```
 
-`E3/E4` 的下一轮正式云端 Base 组计划使用 `Qwen3.5-2B / 4B / 9B` 对比。行为实验脚本现在已经支持通过 OpenAI-compatible API 调用云端 `vLLM`，部署和执行步骤见 `docs/deployment/01_autodl_qwen35_behavior_runbook.md`。
+`E3/E4` 当前先保留 `Qwen3.5-2B` baseline，再用同一版 `v2` 设计重跑诊断子集；只有 `2B v2` 仍明显不足时，才继续切到 `Qwen3.5-4B / 9B`。行为实验脚本已经支持通过 OpenAI-compatible API 调用云端 `vLLM`，部署和执行步骤见 `docs/deployment/01_autodl_qwen35_behavior_runbook.md`。
 
 ## 文档入口
 
