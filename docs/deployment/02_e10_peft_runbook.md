@@ -224,4 +224,77 @@ python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
 
 当前 `E10` 的正确推进方式是：固定 `E9` 资产不动，在云端直接运行
 `accelerate launch -m scripts.training.train_e10_peft --config experiments/assets/e10_train_config.qwen35_4b_peft_v1.json`
-训练 `Qwen/Qwen3.5-4B` 的 PEFT adapter，回传并填写 adapter metadata，然后在本地运行 `e10_base_vs_peft` 做正式对照。
+训练 `Qwen/Qwen3.5-4B` 的 PEFT adapter，回传并填写 adapter metadata。由于当前单卡显存和 `merged PEFT + vLLM` 兼容性限制，`E10` 正式对照改为：
+
+- `Base` 组：云端 `vLLM` 服务 + 本地评测
+- `PEFT` 组：云端本地直载 merged 模型直接评测
+
+## 10. E10 单服务分时运行
+
+当前默认不要同时启动两个服务。
+
+原因：
+
+- `Qwen/Qwen3.5-4B` base 服务已经会占用绝大部分 48GB 显存
+- merged PEFT 服务再起第二个实例时会因为显存不足而失败
+
+所以当前标准流程固定为：
+
+1. 启动 Base 服务
+2. 本地只跑 `A_base_4b_grounded`
+3. 停掉 Base 服务
+4. 启动 PEFT merged 服务
+5. 本地只跑 `B_peft_4b_grounded`
+
+### Base 组
+
+云端启动：
+
+```bash
+source .venv-serve/bin/activate
+export OPENAI_API_KEY=EMPTY
+
+vllm serve /root/autodl-tmp/models/base/Qwen3.5-4B \
+  --served-model-name Qwen/Qwen3.5-4B \
+  --port 8000 \
+  --tensor-parallel-size 1 \
+  --max-model-len 8192 \
+  --reasoning-parser qwen3 \
+  --language-model-only
+```
+
+本地运行：
+
+```bash
+export OPENAI_BASE_URL=http://<cloud-host>:8000/v1
+export OPENAI_API_KEY=EMPTY
+unset BEHAVIOR_ADAPTER_METADATA_PATH
+unset BEHAVIOR_MODEL_ID
+
+python -m scripts.evaluation.run_experiment_suite \
+  --task e10_base_vs_peft \
+  --group-id A_base_4b_grounded
+```
+
+### PEFT 组
+
+当前不再要求启动 `merged PEFT` 的 `vLLM` 服务。
+
+在云端 `.venv-train` 中直接评测：
+
+```bash
+cd /root/autodl-tmp/workspace/DatafinitiHotelReviews
+source .venv-train/bin/activate
+export BEHAVIOR_LLM_BACKEND=local
+export BEHAVIOR_MODEL_ID=/root/autodl-tmp/models/merged/qwen35_4b_merged_exp01
+export BEHAVIOR_ADAPTER_METADATA_PATH=experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v1.json
+
+python -m scripts.evaluation.run_experiment_suite \
+  --task e10_base_vs_peft \
+  --group-id B_peft_4b_grounded
+```
+
+说明：
+
+- 这一步直接在云端生成 `B_peft_4b_grounded` 的 `e10_*` run
+- 跑完后，把该 run 同步回本地工作区即可

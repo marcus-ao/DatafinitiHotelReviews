@@ -278,6 +278,42 @@ class E9E10GenerationTestCase(unittest.TestCase):
         self.assertEqual(peft_runtime.adapter_path, "/tmp/adapter")
         self.assertEqual(peft_runtime.adapter_metadata_path, "/tmp/adapter_metadata.json")
 
+    def test_build_peft_runtime_config_supports_local_merged_model_path(self):
+        runtime_config = generation_mod.BehaviorRuntimeConfig(
+            llm_backend="local",
+            model_id="/root/autodl-tmp/models/merged/qwen35_4b_merged_exp01",
+            api_base_url=None,
+            api_key_env="OPENAI_API_KEY",
+            api_key_present=False,
+            enable_thinking=False,
+            temperature=0.0,
+            max_new_tokens=512,
+            api_timeout_seconds=120,
+        )
+        peft_runtime = generation_mod.build_peft_runtime_config(
+            runtime_config,
+            {
+                "adapter_name": "peft_v1",
+                "base_model_id": "Qwen/Qwen3.5-4B",
+                "served_model_id": "Qwen3.5-4B-PEFT-exp01",
+                "adapter_path": "/tmp/adapter",
+                "backend": "api",
+                "_metadata_path": "/tmp/adapter_metadata.json",
+                "_resolved_adapter_path": "/tmp/adapter",
+            },
+        )
+        self.assertEqual(peft_runtime.llm_backend, "local")
+        self.assertEqual(peft_runtime.model_id, "/root/autodl-tmp/models/merged/qwen35_4b_merged_exp01")
+        self.assertTrue(peft_runtime.use_peft_adapter)
+
+    def test_validate_adapter_metadata_base_model_accepts_path_and_hf_name(self):
+        generation_mod.validate_adapter_metadata_base_model(
+            {
+                "base_model_id": "/root/autodl-tmp/models/base/Qwen3.5-4B",
+            },
+            "Qwen/Qwen3.5-4B",
+        )
+
     def test_run_e10_base_vs_peft_requires_adapter_metadata_path(self):
         runtime_config = generation_mod.BehaviorRuntimeConfig(
             llm_backend="api",
@@ -297,6 +333,58 @@ class E9E10GenerationTestCase(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 generation_mod.run_e10_base_vs_peft(Path("/tmp/e10_missing_adapter"), limit_queries=1)
+
+    def test_run_e10_base_group_only_does_not_require_adapter_metadata(self):
+        runtime_config = generation_mod.BehaviorRuntimeConfig(
+            llm_backend="api",
+            model_id="Qwen/Qwen3.5-4B",
+            api_base_url="http://127.0.0.1:8000/v1",
+            api_key_env="OPENAI_API_KEY",
+            api_key_present=True,
+            enable_thinking=False,
+            temperature=0.0,
+            max_new_tokens=256,
+            api_timeout_seconds=120,
+        )
+        with mock.patch.object(
+            generation_mod,
+            "resolve_behavior_runtime_config",
+            return_value=(runtime_config, "EMPTY"),
+        ), mock.patch.object(
+            generation_mod,
+            "build_behavior_backend",
+            side_effect=RuntimeError("stop_after_runtime_resolution"),
+        ):
+            with self.assertRaises(RuntimeError):
+                generation_mod.run_e10_base_vs_peft(
+                    Path("/tmp/e10_base_only"),
+                    limit_queries=1,
+                    group_ids=["A_base_4b_grounded"],
+                )
+
+    def test_run_e10_multiple_groups_now_rejected(self):
+        runtime_config = generation_mod.BehaviorRuntimeConfig(
+            llm_backend="api",
+            model_id="Qwen/Qwen3.5-4B",
+            api_base_url="http://127.0.0.1:8000/v1",
+            api_key_env="OPENAI_API_KEY",
+            api_key_present=True,
+            enable_thinking=False,
+            temperature=0.0,
+            max_new_tokens=256,
+            api_timeout_seconds=120,
+        )
+        with mock.patch.object(
+            generation_mod,
+            "resolve_behavior_runtime_config",
+            return_value=(runtime_config, "EMPTY"),
+        ):
+            with self.assertRaises(ValueError):
+                generation_mod.run_e10_base_vs_peft(
+                    Path("/tmp/e10_bad_groups"),
+                    limit_queries=1,
+                    group_ids=["A_base_4b_grounded", "B_peft_4b_grounded"],
+                )
 
 
 if __name__ == "__main__":

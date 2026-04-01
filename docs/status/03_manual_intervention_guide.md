@@ -67,10 +67,19 @@ python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests
 3. 按 `docs/deployment/02_e10_peft_runbook.md` 在云端准备 adapter 训练与导出
 4. 回传 adapter 后，填写：
    - `experiments/assets/e10_adapter_metadata.template.json`
-5. 然后运行：
+5. 当前 `E10` 采用“分组分环境运行”：
+   - `A_base_4b_grounded`：云端 Base 服务 + 本地评测
+   - `B_peft_4b_grounded`：云端 `.venv-train` 本地直载 merged 模型评测
+6. 然后分别运行：
 
 ```bash
-python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
+python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --group-id A_base_4b_grounded
+```
+
+PEFT 组在云端执行：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --group-id B_peft_4b_grounded
 ```
 
 ### 第三步：`E10` 跑完后，按固定步骤做人工审计
@@ -127,6 +136,9 @@ python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
    - 优先检查 `OPENAI_BASE_URL`
    - 检查 `OPENAI_API_KEY`
    - 检查当前推理端点是否同时提供 base 和 PEFT 的 served model id
+4. 如果 merged PEFT 的 `vLLM` 服务起不来：
+   - 不要继续在服务环境里硬修
+   - 当前主线已经切换为“PEFT 组在云端训练环境本地直载 merged 模型评测”
 
 ## 手册 B：如果你确实要补 `9B` 附录，该怎么做
 

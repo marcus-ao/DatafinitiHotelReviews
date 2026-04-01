@@ -107,6 +107,13 @@ E10_ADAPTER_METADATA_REQUIRED_FIELDS = {
 }
 
 
+def canonical_model_id_name(model_id: str) -> str:
+    normalized = str(model_id).strip().rstrip("/")
+    if not normalized:
+        return ""
+    return Path(normalized).name
+
+
 def review_id_from_sentence_id(sentence_id: str) -> str:
     if "_s" in sentence_id:
         return sentence_id.rsplit("_s", 1)[0]
@@ -151,21 +158,40 @@ def load_adapter_metadata(path: str | Path) -> dict[str, Any]:
     return payload
 
 
+def validate_adapter_metadata_base_model(
+    adapter_metadata: dict[str, Any],
+    frozen_base_model_id: str,
+) -> None:
+    metadata_base = str(adapter_metadata["base_model_id"])
+    if metadata_base == frozen_base_model_id:
+        return
+    if canonical_model_id_name(metadata_base) == canonical_model_id_name(frozen_base_model_id):
+        return
+    raise ValueError(
+        "Adapter metadata 中的 base_model_id 与当前冻结主模型不一致："
+        f"{metadata_base} != {frozen_base_model_id}"
+    )
+
+
 def build_peft_runtime_config(
     base_runtime_config: BehaviorRuntimeConfig,
     adapter_metadata: dict[str, Any],
 ) -> BehaviorRuntimeConfig:
-    if adapter_metadata["backend"] != base_runtime_config.llm_backend:
+    if base_runtime_config.llm_backend == "api":
+        target_model_id = str(adapter_metadata["served_model_id"])
+    elif base_runtime_config.llm_backend == "local":
+        target_model_id = str(base_runtime_config.model_id).strip()
+        if not target_model_id:
+            raise ValueError(
+                "PEFT 本地直载模式需要设置 BEHAVIOR_MODEL_ID 指向 merged 模型路径。"
+            )
+    else:
         raise ValueError(
-            "Adapter metadata backend 与当前 behavior.llm_backend 不一致。"
-        )
-    if base_runtime_config.llm_backend != "api":
-        raise NotImplementedError(
-            "当前 E10 骨架仅支持通过 API backend 对比 Base 4B 与已部署的 PEFT 模型。"
+            f"不支持的 E10 PEFT backend: {base_runtime_config.llm_backend}"
         )
     return base_runtime_config.model_copy(
         update={
-            "model_id": str(adapter_metadata["served_model_id"]),
+            "model_id": target_model_id,
             "use_peft_adapter": True,
             "adapter_path": str(adapter_metadata["_resolved_adapter_path"]),
             "adapter_metadata_path": str(adapter_metadata["_metadata_path"]),
@@ -206,31 +232,34 @@ def build_e10_analysis_md(
     run_dir: Path,
     summary_rows: list[dict[str, Any]],
     grouped_rows: dict[str, list[dict[str, Any]]],
-    adapter_metadata: dict[str, Any],
+    adapter_metadata: dict[str, Any] | None,
 ) -> None:
-    base_rows = {row["query_id"]: row for row in grouped_rows["A_base_4b_grounded"]}
-    peft_rows = {row["query_id"]: row for row in grouped_rows["B_peft_4b_grounded"]}
+    base_rows = {row["query_id"]: row for row in grouped_rows.get("A_base_4b_grounded", [])}
+    peft_rows = {row["query_id"]: row for row in grouped_rows.get("B_peft_4b_grounded", [])}
     improved: list[dict[str, Any]] = []
     regressed: list[dict[str, Any]] = []
-    for query_id in sorted(base_rows):
-        base_row = base_rows[query_id]
-        peft_row = peft_rows[query_id]
-        delta = round(
-            peft_row["verification"].citation_precision - base_row["verification"].citation_precision,
-            4,
-        )
-        payload = {
-            "query_id": query_id,
-            "delta_citation_precision": delta,
-            "base_recommendations": len(base_row["response"].recommendations),
-            "peft_recommendations": len(peft_row["response"].recommendations),
-            "base_summary": base_row["response"].summary or "",
-            "peft_summary": peft_row["response"].summary or "",
-        }
-        if delta > 0:
-            improved.append(payload)
-        elif delta < 0:
-            regressed.append(payload)
+    if base_rows and peft_rows:
+        for query_id in sorted(base_rows):
+            if query_id not in peft_rows:
+                continue
+            base_row = base_rows[query_id]
+            peft_row = peft_rows[query_id]
+            delta = round(
+                peft_row["verification"].citation_precision - base_row["verification"].citation_precision,
+                4,
+            )
+            payload = {
+                "query_id": query_id,
+                "delta_citation_precision": delta,
+                "base_recommendations": len(base_row["response"].recommendations),
+                "peft_recommendations": len(peft_row["response"].recommendations),
+                "base_summary": base_row["response"].summary or "",
+                "peft_summary": peft_row["response"].summary or "",
+            }
+            if delta > 0:
+                improved.append(payload)
+            elif delta < 0:
+                regressed.append(payload)
 
     lines = [
         "# E10 Base vs PEFT Result",
@@ -244,10 +273,10 @@ def build_e10_analysis_md(
             "",
             "## Adapter Metadata",
             "",
-            f"- adapter_name: {adapter_metadata['adapter_name']}",
-            f"- base_model_id: {adapter_metadata['base_model_id']}",
-            f"- served_model_id: {adapter_metadata['served_model_id']}",
-            f"- adapter_path: {adapter_metadata['_resolved_adapter_path']}",
+            f"- adapter_name: {adapter_metadata['adapter_name']}" if adapter_metadata else "- adapter_name: n/a",
+            f"- base_model_id: {adapter_metadata['base_model_id']}" if adapter_metadata else "- base_model_id: n/a",
+            f"- served_model_id: {adapter_metadata['served_model_id']}" if adapter_metadata else "- served_model_id: n/a",
+            f"- adapter_path: {adapter_metadata['_resolved_adapter_path']}" if adapter_metadata else "- adapter_path: n/a",
             "",
             "## Representative Improvements",
             "",
@@ -1236,17 +1265,28 @@ def prepare_e10_manifests() -> tuple[Path, Path]:
     return SFT_TRAIN_MANIFEST_PATH, SFT_DEV_MANIFEST_PATH
 
 
-def run_e10_base_vs_peft(output_root: Path, limit_queries: int | None = None) -> Path:
+def run_e10_base_vs_peft(
+    output_root: Path,
+    limit_queries: int | None = None,
+    group_ids: list[str] | None = None,
+) -> Path:
+    return run_e10_base_vs_peft_with_groups(
+        output_root=output_root,
+        limit_queries=limit_queries,
+        group_ids=group_ids,
+    )
+
+
+def run_e10_base_vs_peft_with_groups(
+    output_root: Path,
+    limit_queries: int | None = None,
+    group_ids: list[str] | None = None,
+) -> Path:
     cfg = load_config()
     frozen_config = load_json(EXPERIMENT_ASSETS_DIR / "frozen_config.yaml")
     split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
     base_runtime_config, behavior_api_key = resolve_behavior_runtime_config(cfg, frozen_config)
     frozen_base_model_id = str(frozen_config["behavior"]["base_model"])
-    if base_runtime_config.model_id != frozen_base_model_id:
-        raise ValueError(
-            "E10 固定要求 Base 组使用冻结的正式行为模型 "
-            f"{frozen_base_model_id}；当前解析到的 model_id 为 {base_runtime_config.model_id}。"
-        )
 
     if not E9_UNITS_PATH.exists():
         raise FileNotFoundError(
@@ -1256,9 +1296,25 @@ def run_e10_base_vs_peft(output_root: Path, limit_queries: int | None = None) ->
         raise FileNotFoundError(
             "Missing E10 SFT manifests. 请先运行 `python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests`。"
         )
-    if not base_runtime_config.adapter_metadata_path:
+    selected_group_ids = group_ids or list(E10_GROUPS)
+    invalid_group_ids = sorted(set(selected_group_ids) - set(E10_GROUPS))
+    if invalid_group_ids:
+        raise ValueError(f"Unsupported E10 group_ids: {', '.join(invalid_group_ids)}")
+    if len(selected_group_ids) != 1:
         raise ValueError(
-            "运行 e10_base_vs_peft 需要提供 adapter metadata。"
+            "当前 E10 评测默认按单组分时运行。"
+            "请一次只传一个 --group-id：A_base_4b_grounded 或 B_peft_4b_grounded。"
+        )
+    needs_peft_group = "B_peft_4b_grounded" in selected_group_ids
+    needs_base_group = "A_base_4b_grounded" in selected_group_ids
+    if needs_base_group and base_runtime_config.model_id != frozen_base_model_id:
+        raise ValueError(
+            "E10 固定要求 Base 组使用冻结的正式行为模型 "
+            f"{frozen_base_model_id}；当前解析到的 model_id 为 {base_runtime_config.model_id}。"
+        )
+    if needs_peft_group and not base_runtime_config.adapter_metadata_path:
+        raise ValueError(
+            "运行 E10 的 PEFT 组需要提供 adapter metadata。"
             "请设置 BEHAVIOR_ADAPTER_METADATA_PATH 或在 behavior 配置中提供 adapter_metadata_path。"
         )
 
@@ -1268,29 +1324,37 @@ def run_e10_base_vs_peft(output_root: Path, limit_queries: int | None = None) ->
     evidence_df = pd.read_pickle("data/intermediate/evidence_index.pkl")
     evidence_lookup = build_evidence_lookup(evidence_df)
 
-    adapter_metadata = load_adapter_metadata(base_runtime_config.adapter_metadata_path)
-    if str(adapter_metadata["base_model_id"]) != frozen_base_model_id:
-        raise ValueError(
-            "Adapter metadata 中的 base_model_id 与当前冻结主模型不一致："
-            f"{adapter_metadata['base_model_id']} != {frozen_base_model_id}"
+    adapter_metadata: dict[str, Any] | None = None
+    peft_runtime_config: BehaviorRuntimeConfig | None = None
+    if needs_peft_group:
+        adapter_metadata = load_adapter_metadata(base_runtime_config.adapter_metadata_path)
+        validate_adapter_metadata_base_model(adapter_metadata, frozen_base_model_id)
+        peft_runtime_config = build_peft_runtime_config(base_runtime_config, adapter_metadata)
+    if "A_base_4b_grounded" in selected_group_ids:
+        base_runtime_config = base_runtime_config.model_copy(
+            update={
+                "use_peft_adapter": False,
+                "adapter_path": None,
+                "adapter_metadata_path": None,
+                "max_new_tokens": E9_GENERATION_MAX_NEW_TOKENS,
+            }
         )
-    peft_runtime_config = build_peft_runtime_config(base_runtime_config, adapter_metadata)
-    base_runtime_config = base_runtime_config.model_copy(
-        update={
-            "use_peft_adapter": False,
-            "adapter_path": None,
-            "adapter_metadata_path": None,
-            "max_new_tokens": E9_GENERATION_MAX_NEW_TOKENS,
-        }
-    )
-    peft_runtime_config = peft_runtime_config.model_copy(
-        update={"max_new_tokens": E9_GENERATION_MAX_NEW_TOKENS}
-    )
+    else:
+        base_runtime_config = base_runtime_config.model_copy(
+            update={"max_new_tokens": E9_GENERATION_MAX_NEW_TOKENS}
+        )
+    if peft_runtime_config is not None:
+        peft_runtime_config = peft_runtime_config.model_copy(
+            update={"max_new_tokens": E9_GENERATION_MAX_NEW_TOKENS}
+        )
 
-    group_runtime_configs = {
-        "A_base_4b_grounded": base_runtime_config,
-        "B_peft_4b_grounded": peft_runtime_config,
-    }
+    group_runtime_configs: dict[str, BehaviorRuntimeConfig] = {}
+    if "A_base_4b_grounded" in selected_group_ids:
+        group_runtime_configs["A_base_4b_grounded"] = base_runtime_config
+    if "B_peft_4b_grounded" in selected_group_ids:
+        if peft_runtime_config is None:
+            raise ValueError("PEFT runtime config 未初始化。")
+        group_runtime_configs["B_peft_4b_grounded"] = peft_runtime_config
     group_runners = {
         group_id: build_behavior_backend(runtime_config, behavior_api_key)
         for group_id, runtime_config in group_runtime_configs.items()
@@ -1303,17 +1367,17 @@ def run_e10_base_vs_peft(output_root: Path, limit_queries: int | None = None) ->
         "retrieval_mode": E9_RETRIEVAL_MODE,
         "candidate_policy": E9_CANDIDATE_POLICY,
         "base_model_id": frozen_base_model_id,
-        "peft_model_id": peft_runtime_config.model_id,
+        "peft_model_id": peft_runtime_config.model_id if peft_runtime_config is not None else "",
         "behavior_backend": base_runtime_config.llm_backend,
         "behavior_api_base_url": base_runtime_config.api_base_url,
         "behavior_enable_thinking": base_runtime_config.enable_thinking,
         "behavior_temperature": base_runtime_config.temperature,
         "behavior_max_new_tokens": E9_GENERATION_MAX_NEW_TOKENS,
-        "official_group_ids": E10_GROUPS,
+        "official_group_ids": selected_group_ids,
         "eval_units_hash": stable_hash([unit.config_hash for unit in eval_units]),
         "adapter_metadata_hash": stable_hash(
             {k: v for k, v in adapter_metadata.items() if not str(k).startswith("_")}
-        ),
+        ) if adapter_metadata else "",
         "fallback_enabled": False,
     }
     run_started_at = utc_now_iso()
@@ -1329,8 +1393,12 @@ def run_e10_base_vs_peft(output_root: Path, limit_queries: int | None = None) ->
                 "stable_run_config": stable_run_config,
                 "selected_query_ids": [unit.query_id for unit in eval_units],
                 "base_runtime_config": base_runtime_config.model_dump(),
-                "peft_runtime_config": peft_runtime_config.model_dump(),
-                "adapter_metadata": {k: v for k, v in adapter_metadata.items() if not str(k).startswith("_")},
+                "peft_runtime_config": peft_runtime_config.model_dump() if peft_runtime_config else None,
+                "adapter_metadata": (
+                    {k: v for k, v in adapter_metadata.items() if not str(k).startswith("_")}
+                    if adapter_metadata
+                    else None
+                ),
             },
             handle,
             ensure_ascii=False,
@@ -1340,7 +1408,7 @@ def run_e10_base_vs_peft(output_root: Path, limit_queries: int | None = None) ->
     log_rows: list[dict[str, Any]] = []
     audit_rows: list[dict[str, Any]] = []
     grouped_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for group_id in E10_GROUPS:
+    for group_id in selected_group_ids:
         llm_runner = group_runners[group_id]
         runtime_config = group_runtime_configs[group_id]
         for unit in eval_units:
@@ -1390,7 +1458,7 @@ def run_e10_base_vs_peft(output_root: Path, limit_queries: int | None = None) ->
 
     summary_rows = [
         build_e10_metric_row(group_id, grouped_rows[group_id], stable_run_config)
-        for group_id in E10_GROUPS
+        for group_id in selected_group_ids
     ]
 
     write_jsonl(run_dir / "results.jsonl", log_rows)

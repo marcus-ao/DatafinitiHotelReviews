@@ -49,6 +49,7 @@ def main() -> None:
     parser.add_argument("--output-root", default=str(EXPERIMENT_RUNS_DIR))
     parser.add_argument("--limit-queries", type=int, default=None)
     parser.add_argument("--query-id-file", default=None)
+    parser.add_argument("--group-id", action="append", default=None)
     parser.add_argument("--include-ablation", action="store_true")
     args = parser.parse_args()
 
@@ -104,7 +105,11 @@ def main() -> None:
         print(f"[OK] train manifest written to {train_path}")
         print(f"[OK] dev manifest written to {dev_path}")
     elif args.task == "e10_base_vs_peft":
-        run_dir = run_e10_base_vs_peft(output_root=output_root, limit_queries=args.limit_queries)
+        run_dir = run_e10_base_vs_peft(
+            output_root=output_root,
+            limit_queries=args.limit_queries,
+            group_ids=args.group_id,
+        )
         print(f"[OK] run saved to {run_dir}")
 
 
