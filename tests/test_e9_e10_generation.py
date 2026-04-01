@@ -157,6 +157,30 @@ class E9E10GenerationTestCase(unittest.TestCase):
         self.assertEqual(verification.out_of_pack_sentence_ids, ["s_other_pack"])
         self.assertEqual([row["support_score"] for row in audit_rows], [2, 0, 0])
 
+    def test_coerce_generation_payload_lifts_item_level_unsupported_notice(self):
+        unit = _build_eval_unit()
+        payload = {
+            "summary": "",
+            "recommendations": [
+                {
+                    "hotel_id": "hotel_1",
+                    "hotel_name": "Hotel One",
+                    "reasons": [],
+                    "unsupported_notice": "该酒店缺少足够证据。",
+                }
+            ],
+            "unsupported_notice": "",
+        }
+        response = generation_mod.coerce_generation_payload(
+            payload=payload,
+            unit=unit,
+            group_id="B_grounded_generation",
+            raw_response=json.dumps(payload, ensure_ascii=False),
+        )
+        self.assertTrue(response.schema_valid)
+        self.assertEqual(response.recommendations, [])
+        self.assertEqual(response.unsupported_notice, "该酒店缺少足够证据。")
+
     def test_generate_group_response_falls_back_after_repeat_invalid_citations(self):
         unit = _build_eval_unit()
         invalid_payload = json.dumps(

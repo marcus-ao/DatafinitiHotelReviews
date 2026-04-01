@@ -68,8 +68,11 @@ E9_RETRIEVAL_MODE = "aspect_main_no_rerank"
 E9_CANDIDATE_POLICY = "E2_B_final_aspect_score_top5"
 E9_CANDIDATE_MODE = "e9_frozen_top5"
 E10_CANDIDATE_MODE = "e10_frozen_assets"
-E9_MAX_RECOMMENDATIONS = 3
+E9_GENERATION_MAX_NEW_TOKENS = 512
+E9_MAX_RECOMMENDATIONS = 2
 E9_MAX_REASONS_PER_ITEM = 2
+E9_PROMPT_SENTENCE_LIMIT_FREE = 2
+E9_PROMPT_SENTENCE_LIMIT_GROUNDED = 3
 E9_RETRY_LIMIT = 1
 E9_OUTPUT_FIELDS = '{"summary":"","recommendations":[{"hotel_id":"","hotel_name":"","reasons":[{"aspect":"service","reason_text":"","sentence_id":null}]}],"unsupported_notice":""}'
 E9_QUERY_IDS_PATH = EXPERIMENT_ASSETS_DIR / "e9_generation_eval_query_ids.json"
@@ -345,22 +348,24 @@ def format_candidate_lines(unit: GenerationEvalUnit) -> list[str]:
     return lines
 
 
-def format_evidence_pack_lines(unit: GenerationEvalUnit, include_all_sentences: bool) -> list[str]:
+def format_evidence_pack_lines(unit: GenerationEvalUnit, grounded_mode: bool) -> list[str]:
     lines = []
     for pack in unit.evidence_packs:
         hotel_lookup = {hotel.hotel_id: hotel.hotel_name for hotel in unit.candidate_hotels}
         lines.append(f"Hotel {pack.hotel_id} | {hotel_lookup.get(pack.hotel_id, pack.hotel_id)}")
+        shown_sentence_ids: list[str] = []
         for aspect in sorted(pack.evidence_by_aspect):
             lines.append(f"Aspect {aspect}:")
             sentence_rows = pack.evidence_by_aspect[aspect]
-            if not include_all_sentences:
-                sentence_rows = sentence_rows[:2]
+            sentence_limit = E9_PROMPT_SENTENCE_LIMIT_GROUNDED if grounded_mode else E9_PROMPT_SENTENCE_LIMIT_FREE
+            sentence_rows = sentence_rows[:sentence_limit]
             for sentence in sentence_rows:
+                shown_sentence_ids.append(sentence.sentence_id)
                 lines.append(
                     f'- sentence_id={sentence.sentence_id} | text="{sentence.sentence_text}"'
                 )
-        if include_all_sentences:
-            lines.append(f"all_sentence_ids={','.join(pack.all_sentence_ids)}")
+        if grounded_mode:
+            lines.append(f"allowed_sentence_ids={','.join(shown_sentence_ids)}")
         lines.append("")
     return lines
 
@@ -368,8 +373,13 @@ def format_evidence_pack_lines(unit: GenerationEvalUnit, include_all_sentences: 
 def build_generation_prompts(unit: GenerationEvalUnit, group_id: str) -> tuple[str, str]:
     preference_payload = json.dumps(unit.user_preference_gold.model_dump(), ensure_ascii=False)
     candidate_lines = "\n".join(format_candidate_lines(unit))
-    include_all_sentences = group_id in {"B_grounded_generation", "C_grounded_generation_with_verifier", "A_base_4b_grounded", "B_peft_4b_grounded"}
-    evidence_lines = "\n".join(format_evidence_pack_lines(unit, include_all_sentences=include_all_sentences))
+    grounded_mode = group_id in {
+        "B_grounded_generation",
+        "C_grounded_generation_with_verifier",
+        "A_base_4b_grounded",
+        "B_peft_4b_grounded",
+    }
+    evidence_lines = "\n".join(format_evidence_pack_lines(unit, grounded_mode=grounded_mode))
     if group_id == "A_free_generation":
         system_prompt = (
             "你是酒店推荐工作流里的推荐解释生成器。\n"
@@ -377,6 +387,11 @@ def build_generation_prompts(unit: GenerationEvalUnit, group_id: str) -> tuple[s
             "统一输出 schema："
             f"{E9_OUTPUT_FIELDS}\n"
             f"最多返回 {E9_MAX_RECOMMENDATIONS} 家酒店；每家酒店最多 {E9_MAX_REASONS_PER_ITEM} 条理由。\n"
+            "summary 只写一句短句，尽量不超过 50 个汉字。\n"
+            "reason_text 必须短，不要复述整段证据。\n"
+            "recommendation item 里只允许 hotel_id、hotel_name、reasons 三个字段。\n"
+            "不要输出空的 reasons 数组；没有把握的酒店直接省略。\n"
+            "unsupported_notice 只能出现在根级字段，不能出现在酒店项内部。\n"
             "A 组允许 sentence_id 为 null，但仍然必须优先基于给定证据摘要组织表达，不要编造酒店事实。"
         )
     else:
@@ -386,6 +401,11 @@ def build_generation_prompts(unit: GenerationEvalUnit, group_id: str) -> tuple[s
             "统一输出 schema："
             f"{E9_OUTPUT_FIELDS}\n"
             f"最多返回 {E9_MAX_RECOMMENDATIONS} 家酒店；每家酒店最多 {E9_MAX_REASONS_PER_ITEM} 条理由。\n"
+            "summary 只写一句短句，尽量不超过 50 个汉字。\n"
+            "reason_text 必须短，不要复述整段证据。\n"
+            "recommendation item 里只允许 hotel_id、hotel_name、reasons 三个字段。\n"
+            "不要输出空的 reasons 数组；没有至少 1 条可验证理由的酒店直接省略。\n"
+            "unsupported_notice 只能出现在根级字段，不能出现在酒店项内部。\n"
             "每条理由必须包含单个 sentence_id，且该 sentence_id 必须来自当前 hotel 的 EvidencePack。\n"
             "如果给定证据不足以支持推荐，就减少推荐数量或在 unsupported_notice 中诚实说明。"
         )
@@ -398,7 +418,7 @@ def build_generation_prompts(unit: GenerationEvalUnit, group_id: str) -> tuple[s
         f"{candidate_lines}\n\n"
         "当前证据如下：\n"
         f"{evidence_lines}\n"
-        "请生成可验证的推荐结果。"
+        "请优先保留最有把握的 1-2 家酒店；宁可少推，不要凑满。"
     )
     return system_prompt, user_prompt
 
@@ -416,7 +436,10 @@ def build_retry_prompt(
     issue_text = "；".join(messages) or "引用不合法"
     return (
         f"上一次输出的引用校验失败：{issue_text}。\n"
-        "请重新生成完整 JSON，并确保所有理由都只引用当前 EvidencePack 中真实存在的 sentence_id。"
+        f"请重新生成完整 JSON，并确保所有理由都只引用当前 EvidencePack 中真实存在的 sentence_id。\n"
+        f"最多只保留 {E9_MAX_RECOMMENDATIONS} 家最有把握的酒店。\n"
+        "不要输出空的 reasons 数组；没有证据就直接省略该酒店。\n"
+        "unsupported_notice 只能放在根级字段。"
     )
 
 
@@ -451,6 +474,7 @@ def coerce_generation_payload(
     candidate_lookup = {hotel.hotel_id: hotel for hotel in unit.candidate_hotels}
     summary = str(payload.get("summary", "") or "").strip()
     unsupported_notice = str(payload.get("unsupported_notice", "") or "").strip()
+    notice_fragments = [unsupported_notice] if unsupported_notice else []
     recommendations_raw = payload.get("recommendations", [])
     schema_valid = True
     if not isinstance(recommendations_raw, list):
@@ -468,6 +492,9 @@ def coerce_generation_payload(
             continue
         hotel = candidate_lookup[hotel_id]
         reasons_raw = raw_item.get("reasons", [])
+        item_notice = str(raw_item.get("unsupported_notice", "") or "").strip()
+        if item_notice:
+            notice_fragments.append(item_notice)
         if not isinstance(reasons_raw, list):
             reasons_raw = []
             schema_valid = False
@@ -501,15 +528,25 @@ def coerce_generation_payload(
                     reasons=reasons,
                 )
             )
+        elif item_notice:
+            continue
         else:
             schema_valid = False
+
+    normalized_notice_parts: list[str] = []
+    seen_notice_parts: set[str] = set()
+    for part in notice_fragments:
+        if not part or part in seen_notice_parts:
+            continue
+        normalized_notice_parts.append(part)
+        seen_notice_parts.add(part)
 
     return RecommendationResponse(
         query_id=unit.query_id,
         group_id=group_id,
         summary=summary,
         recommendations=recommendation_items,
-        unsupported_notice=unsupported_notice,
+        unsupported_notice=" ".join(normalized_notice_parts),
         schema_valid=schema_valid,
         raw_response=raw_response,
     )
@@ -741,6 +778,11 @@ def build_e9_analysis_md(
     lines.append(f"- verifier retry count: {retry_count}")
     lines.append(f"- honest fallback count: {fallback_count}")
 
+    lines.extend(["", "## Schema Failures", ""])
+    for group_id in E9_GROUPS:
+        schema_failures = [row for row in grouped_rows[group_id] if not row["response"].schema_valid]
+        lines.append(f"- {group_id}: {len(schema_failures)}")
+
     for group_id in E9_GROUPS:
         lines.extend(["", f"## {group_id}", ""])
         rep_rows = select_representative_rows(grouped_rows[group_id], kind="top")
@@ -793,6 +835,7 @@ def run_e9_generation_constraints(
     evidence_df = pd.read_pickle("data/intermediate/evidence_index.pkl")
     evidence_lookup = build_evidence_lookup(evidence_df)
     llm_runner = build_behavior_backend(behavior_runtime_config, behavior_api_key)
+    generation_max_new_tokens = E9_GENERATION_MAX_NEW_TOKENS
 
     stable_run_config = {
         "task": "E9",
@@ -805,7 +848,7 @@ def run_e9_generation_constraints(
         "behavior_api_base_url": behavior_runtime_config.api_base_url,
         "behavior_enable_thinking": behavior_runtime_config.enable_thinking,
         "behavior_temperature": behavior_runtime_config.temperature,
-        "behavior_max_new_tokens": behavior_runtime_config.max_new_tokens,
+        "behavior_max_new_tokens": generation_max_new_tokens,
         "official_group_ids": E9_GROUPS,
         "eval_units_hash": stable_hash([unit.config_hash for unit in eval_units]),
         "fallback_enabled": False,
@@ -839,7 +882,7 @@ def run_e9_generation_constraints(
                 llm_runner=llm_runner,
                 unit=unit,
                 group_id=group_id,
-                max_new_tokens=behavior_runtime_config.max_new_tokens,
+                max_new_tokens=generation_max_new_tokens,
                 evidence_lookup=evidence_lookup,
             )
             latency_ms = round((time.perf_counter() - start) * 1000, 3)
