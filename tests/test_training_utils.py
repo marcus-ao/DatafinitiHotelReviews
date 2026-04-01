@@ -43,6 +43,64 @@ class TrainingUtilsTestCase(unittest.TestCase):
         self.assertIn('"query_text_zh": "测试输入"', sample["text"])
         self.assertIn('"city": "Anaheim"', sample["text"])
 
+    def test_build_sft_trainer_kwargs_supports_processing_class_signature(self):
+        class FakeTrainer:
+            def __init__(
+                self,
+                model,
+                args,
+                train_dataset,
+                eval_dataset,
+                peft_config,
+                processing_class=None,
+                dataset_text_field=None,
+                max_length=None,
+            ):
+                pass
+
+        kwargs = training_mod.build_sft_trainer_kwargs(
+            FakeTrainer,
+            model="model",
+            tokenizer="tok",
+            args="args",
+            train_dataset="train",
+            eval_dataset="dev",
+            peft_config="peft",
+            max_seq_length=2048,
+        )
+        self.assertEqual(kwargs["processing_class"], "tok")
+        self.assertEqual(kwargs["dataset_text_field"], "text")
+        self.assertEqual(kwargs["max_length"], 2048)
+
+    def test_build_sft_trainer_kwargs_supports_tokenizer_signature(self):
+        class FakeTrainer:
+            def __init__(
+                self,
+                model,
+                args,
+                train_dataset,
+                eval_dataset,
+                peft_config,
+                tokenizer=None,
+                dataset_text_field=None,
+                max_seq_length=None,
+            ):
+                pass
+
+        kwargs = training_mod.build_sft_trainer_kwargs(
+            FakeTrainer,
+            model="model",
+            tokenizer="tok",
+            args="args",
+            train_dataset="train",
+            eval_dataset="dev",
+            peft_config="peft",
+            max_seq_length=1024,
+        )
+        self.assertEqual(kwargs["tokenizer"], "tok")
+        self.assertEqual(kwargs["dataset_text_field"], "text")
+        self.assertEqual(kwargs["max_seq_length"], 1024)
+
     def test_load_manifest_records_filters_allowed_task_types(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             path = Path(tmp_dir) / "manifest.jsonl"

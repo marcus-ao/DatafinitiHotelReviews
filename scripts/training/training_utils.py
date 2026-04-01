@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -105,6 +106,39 @@ def build_sft_text_sample(row: dict[str, Any]) -> dict[str, str]:
 
 def build_sft_dataset(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
     return [build_sft_text_sample(row) for row in rows]
+
+
+def build_sft_trainer_kwargs(
+    trainer_cls: type,
+    *,
+    model: Any,
+    tokenizer: Any,
+    args: Any,
+    train_dataset: Any,
+    eval_dataset: Any,
+    peft_config: Any,
+    max_seq_length: int,
+) -> dict[str, Any]:
+    sig = inspect.signature(trainer_cls.__init__)
+    kwargs: dict[str, Any] = {
+        "model": model,
+        "args": args,
+        "train_dataset": train_dataset,
+        "eval_dataset": eval_dataset,
+        "peft_config": peft_config,
+    }
+    if "tokenizer" in sig.parameters:
+        kwargs["tokenizer"] = tokenizer
+    elif "processing_class" in sig.parameters:
+        kwargs["processing_class"] = tokenizer
+
+    if "dataset_text_field" in sig.parameters:
+        kwargs["dataset_text_field"] = "text"
+    if "max_seq_length" in sig.parameters:
+        kwargs["max_seq_length"] = max_seq_length
+    elif "max_length" in sig.parameters:
+        kwargs["max_length"] = max_seq_length
+    return kwargs
 
 
 def build_output_paths(config: E10TrainConfig) -> dict[str, Path]:

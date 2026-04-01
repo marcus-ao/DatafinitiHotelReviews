@@ -8,9 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from scripts.training.training_utils import (
-    ALLOWED_E10_TASK_TYPES,
     build_output_paths,
     build_sft_dataset,
+    build_sft_trainer_kwargs,
     ensure_output_dirs,
     load_manifest_records,
     load_train_config,
@@ -121,14 +121,16 @@ def run_training(config_path: str | Path, dry_run: bool = False) -> dict[str, An
         remove_unused_columns=False,
     )
     trainer = SFTTrainer(
-        model=model,
-        tokenizer=tokenizer,
-        args=training_args,
-        train_dataset=train_dataset_hf,
-        eval_dataset=eval_dataset_hf,
-        dataset_text_field="text",
-        max_seq_length=config.max_seq_length,
-        peft_config=peft_config,
+        **build_sft_trainer_kwargs(
+            SFTTrainer,
+            model=model,
+            tokenizer=tokenizer,
+            args=training_args,
+            train_dataset=train_dataset_hf,
+            eval_dataset=eval_dataset_hf,
+            peft_config=peft_config,
+            max_seq_length=config.max_seq_length,
+        )
     )
     trainer.train()
     trainer.model.save_pretrained(str(output_paths["adapter_dir"]))
