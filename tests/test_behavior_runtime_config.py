@@ -1,6 +1,9 @@
 import os
 import unittest
 
+import torch
+
+from scripts.evaluation import evaluate_e3_e5_behavior as behavior_eval_mod
 from scripts.shared import behavior_runtime as behavior_mod
 
 
@@ -75,6 +78,48 @@ class BehaviorRuntimeConfigTestCase(unittest.TestCase):
             {"type": "text", "text": ': "ok"}'},
         ]
         self.assertEqual(behavior_mod.flatten_openai_content(content), '{"status": "ok"}')
+
+    def test_prepare_chat_template_tensors_accepts_batch_encoding_like_output(self):
+        class FakeBatchEncoding(dict):
+            def to(self, device):
+                return self
+
+        class FakeTokenizer:
+            def apply_chat_template(self, messages, add_generation_prompt=True, return_tensors="pt"):
+                return FakeBatchEncoding(
+                    {
+                        "input_ids": torch.tensor([[1, 2, 3]]),
+                        "attention_mask": torch.tensor([[1, 1, 1]]),
+                    }
+                )
+
+        input_ids, attention_mask = behavior_eval_mod.prepare_chat_template_tensors(
+            FakeTokenizer(),
+            [{"role": "user", "content": "hi"}],
+            "cpu",
+        )
+        self.assertTrue(torch.equal(input_ids, torch.tensor([[1, 2, 3]])))
+        self.assertTrue(torch.equal(attention_mask, torch.tensor([[1, 1, 1]])))
+
+    def test_prepare_chat_template_tensors_accepts_tensor_output(self):
+        class FakeTensorWithTo:
+            def __init__(self, tensor):
+                self.tensor = tensor
+
+            def to(self, device):
+                return self.tensor
+
+        class FakeTokenizer:
+            def apply_chat_template(self, messages, add_generation_prompt=True, return_tensors="pt"):
+                return FakeTensorWithTo(torch.tensor([[4, 5]]))
+
+        input_ids, attention_mask = behavior_eval_mod.prepare_chat_template_tensors(
+            FakeTokenizer(),
+            [{"role": "user", "content": "hi"}],
+            "cpu",
+        )
+        self.assertTrue(torch.equal(input_ids, torch.tensor([[4, 5]])))
+        self.assertTrue(torch.equal(attention_mask, torch.tensor([[1, 1]])))
 
 
 if __name__ == "__main__":

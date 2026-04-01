@@ -250,6 +250,26 @@ def build_behavior_backend(
     return LocalBaseModel(runtime_config)
 
 
+def prepare_chat_template_tensors(tokenizer, messages: list[dict[str, str]], device: str):
+    rendered = tokenizer.apply_chat_template(
+        messages,
+        add_generation_prompt=True,
+        return_tensors="pt",
+    )
+    if hasattr(rendered, "to"):
+        rendered = rendered.to(device)
+    if isinstance(rendered, dict):
+        input_ids = rendered["input_ids"]
+        attention_mask = rendered.get("attention_mask")
+        if attention_mask is None:
+            attention_mask = torch.ones_like(input_ids)
+        return input_ids, attention_mask
+
+    input_ids = rendered
+    attention_mask = torch.ones_like(input_ids)
+    return input_ids, attention_mask
+
+
 class LocalBaseModel:
     def __init__(self, runtime_config: BehaviorRuntimeConfig) -> None:
         self.runtime_config = runtime_config
@@ -277,12 +297,11 @@ class LocalBaseModel:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        input_ids = self.tokenizer.apply_chat_template(
+        input_ids, attention_mask = prepare_chat_template_tensors(
+            self.tokenizer,
             messages,
-            add_generation_prompt=True,
-            return_tensors="pt",
-        ).to(self.device)
-        attention_mask = torch.ones_like(input_ids)
+            self.device,
+        )
         target_max_tokens = max_new_tokens or self.runtime_config.max_new_tokens
         generate_kwargs = {
             "input_ids": input_ids,
