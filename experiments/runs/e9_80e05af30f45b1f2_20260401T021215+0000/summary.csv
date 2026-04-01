@@ -1,0 +1,4 @@
+﻿group_id,query_count,citation_precision,evidence_verifiability_mean,unsupported_honesty_rate,schema_valid_rate,avg_latency_ms,retry_trigger_rate,fallback_to_honest_notice_rate,config_hash
+A_free_generation,40,0.3,2.0,1.0,0.25,3725.96,0.0,0.0,ad5e30a7f237149a
+B_grounded_generation,40,0.45,1.98,1.0,0.475,2690.252,0.0,0.0,550582bd131a6c1f
+C_grounded_generation_with_verifier,40,0.55,1.9848,1.0,1.0,3767.469,0.525,0.4,18e242a07bf13b28
