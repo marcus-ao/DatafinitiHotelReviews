@@ -12,8 +12,8 @@
 当前不覆盖：
 
 - 自动提交云端训练任务
-- 仓库内训练脚本
-- bitsandbytes / QLoRA pipeline 的代码实现
+- 多节点 / 多卡训练编排
+- merged model 自动部署脚本
 
 ## 1. 当前固定前提
 
@@ -44,6 +44,8 @@ python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests
 - `experiments/assets/sft_dev_manifest.jsonl`
 - `experiments/assets/e10_train_config_template.json`
 - `experiments/assets/e10_adapter_metadata.template.json`
+- `scripts/training/train_e10_peft.py`
+- `scripts/training/training_utils.py`
 
 ## 3. 云端训练前要固定的输入
 
@@ -63,6 +65,21 @@ python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests
 
 - `grounded_recommendation`
 
+当前推荐训练框架固定为：
+
+- `transformers`
+- `peft`
+- `trl`
+- `bitsandbytes`
+- `accelerate`
+
+当前正式训练入口固定为：
+
+```bash
+accelerate launch -m scripts.training.train_e10_peft \
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v1.json
+```
+
 ## 4. 云端训练后要回传什么
 
 训练完成后，至少回传：
@@ -70,6 +87,8 @@ python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests
 - adapter 导出目录
 - 最终使用的训练配置
 - 一个填写完成的 adapter metadata 文件
+- `adapter_metadata.json`
+- `train_summary.json`
 
 metadata 可从：
 
@@ -84,7 +103,58 @@ metadata 可从：
 - `adapter_path` 指向真实 adapter 导出目录
 - `backend = api`
 
-## 5. 本地如何运行 E10
+## 5. 云端如何正式启动训练
+
+先进入项目目录并激活环境：
+
+```bash
+cd /root/autodl-tmp/workspace/DatafinitiHotelReviews
+source .venv/bin/activate
+```
+
+安装训练依赖：
+
+```bash
+pip install -U accelerate bitsandbytes peft trl datasets
+```
+
+初始化 accelerate：
+
+```bash
+accelerate config default
+```
+
+建议先做 dry-run：
+
+```bash
+accelerate launch -m scripts.training.train_e10_peft \
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v1.json \
+  --dry-run
+```
+
+dry-run 没问题后，再正式训练：
+
+```bash
+accelerate launch -m scripts.training.train_e10_peft \
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v1.json
+```
+
+训练完成后，重点检查：
+
+```bash
+ls -lah /root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp01
+ls -lah /root/autodl-tmp/training/checkpoints/qwen35_4b_qlora_exp01
+ls -lah /root/autodl-tmp/training/logs/qwen35_4b_qlora_exp01
+ls -lah /root/autodl-tmp/training/reports/qwen35_4b_qlora_exp01
+```
+
+其中至少应看到：
+
+- adapter 权重目录
+- `adapter_metadata.json`
+- `train_summary.json`
+
+## 6. 本地如何运行 E10
 
 先准备环境变量：
 
@@ -100,7 +170,7 @@ export BEHAVIOR_ADAPTER_METADATA_PATH=/absolute/path/to/final_adapter_metadata.j
 python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
 ```
 
-## 6. 运行后检查什么
+## 7. 运行后检查什么
 
 成功后会产出：
 
@@ -120,29 +190,38 @@ python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
   - `schema_valid_rate`
   - `avg_latency_ms`
 
-## 7. 常见报错判断
+## 8. 常见报错判断
 
-### 情况 1：缺少 adapter metadata
+### 情况 1：云端训练命令启动失败
+
+说明：
+
+- 缺少 `accelerate / bitsandbytes / peft / trl / datasets`
+- 或 base model 路径不存在
+
+### 情况 2：缺少 adapter metadata
 
 说明：
 
 - `BEHAVIOR_ADAPTER_METADATA_PATH` 没设
 - 或 metadata 文件路径错误
 
-### 情况 2：base model 不匹配
+### 情况 3：base model 不匹配
 
 说明：
 
 - metadata 中的 `base_model_id` 不是 `Qwen/Qwen3.5-4B`
 - 当前 adapter 不属于本主线
 
-### 情况 3：served model 不可用
+### 情况 4：served model 不可用
 
 说明：
 
 - `served_model_id` 与当前 API 实际部署的名称不一致
 - 或 PEFT served model 尚未成功部署
 
-## 8. 一句话版
+## 9. 一句话版
 
-当前 `E10` 的正确推进方式是：固定 `E9` 资产不动，在云端训练 `Qwen/Qwen3.5-4B` 的 PEFT adapter，回传并填写 adapter metadata，然后在本地直接运行 `e10_base_vs_peft` 做正式对照。
+当前 `E10` 的正确推进方式是：固定 `E9` 资产不动，在云端直接运行
+`accelerate launch -m scripts.training.train_e10_peft --config experiments/assets/e10_train_config.qwen35_4b_peft_v1.json`
+训练 `Qwen/Qwen3.5-4B` 的 PEFT adapter，回传并填写 adapter metadata，然后在本地运行 `e10_base_vs_peft` 做正式对照。
