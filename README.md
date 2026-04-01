@@ -1,6 +1,6 @@
 # 基于酒店评论知识库的推荐智能体研究
 
-本科毕业设计主仓库，当前聚焦“评论知识组织 + 检索实验 + 行为实验 + 后续生成与 PEFT 规划”的可复现研究底座。
+本科毕业设计主仓库，当前聚焦“评论知识组织 + 检索实验 + 行为实验 + 后续生成与 PEFT 实现”的可复现研究底座。
 
 ## 当前状态
 
@@ -12,7 +12,9 @@
 - 默认检索配置已冻结为 `aspect_main_no_rerank`
 - 当前正式行为模型默认配置已冻结为 `Qwen/Qwen3.5-4B`
 - `Qwen/Qwen3.5-9B` 当前只作为可选附录模型，不进入主线
-- 当前下一官方阶段是 `E9` 证据约束生成，之后再进入 `E10 / PEFT`
+- `E9 / E10` 的代码入口、数据契约和运行骨架已于 `2026-04-01` 落地到仓库
+- `E10` 的 `SFT manifest` 已可生成
+- `E9` 的正式 full run 尚未完成；当前下一官方阶段仍是先完成 `E9` 正式冻结资产与正式评测，再进入 `E10 / PEFT`
 
 ## 仓库结构
 
@@ -29,6 +31,7 @@ DatafinitiHotelReviews/
 │   ├── labels/
 │   │   ├── e1_aspect_reliability/
 │   │   ├── e4_clarification/
+│   │   ├── e9_generation/
 │   │   └── e6_qrels/
 │   ├── reports/
 │   └── runs/
@@ -92,9 +95,12 @@ python -m scripts.evaluation.run_experiment_suite --task e2_candidates
 python -m scripts.evaluation.run_experiment_suite --task e3_preference
 python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 python -m scripts.evaluation.run_experiment_suite --task e5_query_bridge
+python -m scripts.evaluation.run_experiment_suite --task e9_freeze_assets
+python -m scripts.evaluation.run_experiment_suite --task e9_generation_constraints
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests
 ```
 
-`E3/E4` 当前已经完成 `Qwen3.5-4B` 的全量正式结果，若后续需要复现实验或追加 `Qwen3.5-9B` 附录对比，请按 `docs/deployment/01_autodl_qwen35_behavior_runbook.md` 中的云端流程执行。当前行为章节材料的直接入口是 `experiments/reports/05_behavior_stage_3_chapter_materials.md`，后续 `E9 -> E10 / PEFT` 的官方推进方案见 `docs/plans/03_generation_and_peft_phase_plan.md`。
+`E3/E4` 当前已经完成 `Qwen3.5-4B` 的全量正式结果，若后续需要复现实验或追加 `Qwen3.5-9B` 附录对比，请按 `docs/deployment/01_autodl_qwen35_behavior_runbook.md` 中的云端流程执行。当前行为章节材料的直接入口是 `experiments/reports/05_behavior_stage_3_chapter_materials.md`。自 `2026-04-01` 起，仓库已经提供 `E9` 资产冻结、`E9` 生成评测和 `E10` manifest 预埋入口；当前官方后续方案仍见 `docs/plans/03_generation_and_peft_phase_plan.md`。
 
 ## 文档入口
 
@@ -111,4 +117,6 @@ python -m scripts.evaluation.run_experiment_suite --task e5_query_bridge
 - 默认下游检索模式：`aspect_main_no_rerank`
 - 当前正式行为模型：`Qwen/Qwen3.5-4B`
 - 当前行为章节主结论已经稳定，`9B` 只影响附录强度
+- `E9` 默认输入固定为：`aspect_main_no_rerank` + `fallback=false` + `Qwen/Qwen3.5-4B` + `E2 B_final_aspect_score Top5`
+- `E9` 当前优先使用本地缓存的 embedding 模型冻结资产，不依赖 live PostgreSQL
 - 仓库只保留正式实验资产，以及少量具有长期引用价值的行为基线 / 诊断 run，不保留 bootstrap、冒烟和未完成目录

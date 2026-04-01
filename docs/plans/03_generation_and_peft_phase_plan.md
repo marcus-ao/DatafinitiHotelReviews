@@ -1,6 +1,6 @@
 # 证据约束生成与 PEFT 阶段推进方案
 
-更新时间：2026-03-31
+更新时间：2026-04-01
 
 本文件用于冻结行为章节收口后的后续主线。当前顺序固定为：先做 `E9` 证据约束生成，再做 `E10` Base vs PEFT 行为对照。`Qwen/Qwen3.5-4B` 是当前默认基座模型；`Qwen/Qwen3.5-9B` 只作为可选附录上界，不进入默认训练与实现主线。
 
@@ -44,11 +44,13 @@
 
 ### 2.3 固定资产与实现入口
 
-建议新增：
+当前仓库中已新增：
 
 - `scripts/evaluation/evaluate_e9_e10_generation.py`
 - 在 `scripts/evaluation/run_experiment_suite.py` 中新增：
+  - `e9_freeze_assets`
   - `e9_generation_constraints`
+  - `e10_prepare_manifests`
   - `e10_base_vs_peft`
 
 `E9` 的正式冻结资产固定为：
@@ -70,9 +72,15 @@
 资产生成规则固定为：
 
 - `user_preference_gold` 直接来自 `slot_gold.jsonl`
-- `candidate_hotels` 与 `evidence_packs` 必须由当前默认后端 `aspect_main_no_rerank` 生成
+- `candidate_hotels` 先固定为 `E2 B_final_aspect_score Top5`
+- `evidence_packs` 再由当前默认后端 `aspect_main_no_rerank` 生成
 - 生成一次后立即冻结
 - `E9` 正式评测不得边跑边重新检索
+
+当前实现补充：
+
+- `e9_freeze_assets --limit-queries 2` 已于 `2026-04-01` 通过本地 smoke
+- 当前实现优先只读本地 embedding 缓存，不额外要求 live PostgreSQL
 
 ### 2.4 复用与新增的数据契约
 
@@ -235,6 +243,16 @@ SFT 样本类型固定为四类：
 - `experiments/assets/sft_train_manifest.jsonl`
 - `experiments/assets/sft_dev_manifest.jsonl`
 
+当前实现补充：
+
+- 这两份 manifest 已可由 `e10_prepare_manifests` 自动生成
+- 当前 manifest 只包含四类行为样本：
+  - `preference_parse`
+  - `clarification`
+  - `constraint_honesty`
+  - `feedback_update`
+- 当前不生成 `grounded_recommendation` 训练样本
+
 模型与训练大文件继续只保留在云端或本地忽略目录，不进 Git。需要被纳入版本管理的是：
 
 - `train_config.json`
@@ -260,10 +278,10 @@ SFT 样本类型固定为四类：
 后续顺序固定为：
 
 1. 先根据当前主线生成并冻结 `E9` 评测资产
-2. 实现 `evaluate_e9_e10_generation.py`
+2. 运行 `e10_prepare_manifests`
 3. 跑 `E9` 三组生成约束对照
 4. 收口 `E9` 结果与人工审计
-5. 再构造四类 SFT 数据与训练清单
+5. 再检查并固定 `sft_train_manifest.jsonl / sft_dev_manifest.jsonl`
 6. 完成 `4B` 的 QLoRA / PEFT 训练
 7. 跑 `E10` 的 `Base 4B vs PEFT 4B`
 
@@ -284,6 +302,12 @@ SFT 样本类型固定为四类：
 - `4B` adapter 可被统一推理入口加载
 - `Base 4B` 与 `PEFT 4B` 在同一 `EvidencePack` 上可直接对照
 - `experiments/runs/e10_*/summary.csv` 与 `analysis.md` 成功产出
+
+截至 `2026-04-01` 的中间状态：
+
+- `E9 / E10` 的代码入口、schema 与 runner 骨架已实现
+- `sft_train_manifest.jsonl` 与 `sft_dev_manifest.jsonl` 已生成
+- `E9` full assets 与正式 `e9_*` run 仍待人工执行
 
 ## 6. 当前默认假设
 

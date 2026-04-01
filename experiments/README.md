@@ -14,6 +14,8 @@
   `E1` 的样本、正式 gold、审计说明和正式结果。
 - `labels/e4_clarification/`
   `E4` 的人工问题质量审计资产目录，当前已补齐 `4B` 正式 run 的首轮人工评分。
+- `labels/e9_generation/`
+  `E9` 的 citation / evidence verifiability 审计目录，当前已创建字段模板与说明文件。
 - `labels/e6_qrels/`
   `E6-E8` 共用的 qrels 标注入口、冻结 qrels 和标注说明。
 - `reports/`
@@ -37,6 +39,13 @@
 - `E9`：证据约束生成
 - `E10`：Base vs PEFT 行为对照
 
+当前实现状态：
+
+- `E9 / E10` 的代码入口已于 `2026-04-01` 接入仓库
+- `e9_freeze_assets` 已通过 `limit-queries=2` 的本地 smoke 验证
+- `e10_prepare_manifests` 已成功生成 `sft_train_manifest.jsonl` 与 `sft_dev_manifest.jsonl`
+- `E9` 正式 full assets 与 `e9_*` 正式 run 仍待你按当前手册执行
+
 对应规划文档：
 
 - `../docs/plans/03_generation_and_peft_phase_plan.md`
@@ -54,6 +63,18 @@
 - `assets/slot_gold.jsonl`
 - `assets/clarify_gold.jsonl`
 - `assets/annotation_rubrics.md`
+- `assets/sft_train_manifest.jsonl`
+- `assets/sft_dev_manifest.jsonl`
+
+`E9` 新增冻结资产入口：
+
+- `assets/e9_generation_eval_units.jsonl`
+- `assets/e9_generation_eval_query_ids.json`
+
+说明：
+
+- 这两个 `E9` 资产文件是下一步正式冻结目标
+- 当前仓库已具备生成它们的脚本入口，但正式 full assets 尚未在仓库中冻结提交
 
 ## 正式标注目录
 
@@ -82,6 +103,13 @@
   `Qwen3.5-4B` 全量正式 run 的原始快照。
 - `clarification_question_audit_e4_55c8021e1119fb77_qwen35_4b_reviewed.csv`
   `Qwen3.5-4B` 全量正式 run 的人工 reviewed 冻结副本。
+
+### `labels/e9_generation/`
+
+- `README.md`
+  `E9` 审计口径说明。
+- `citation_verifiability_audit.csv`
+  当前字段模板；正式 `E9` run 后会被最新审计副本覆盖。
 
 ## 当前保留的正式主结果 run
 
@@ -157,6 +185,30 @@ python -m scripts.evaluation.run_experiment_suite --task e3_preference
 python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 ```
 
+### 冻结 E9 评测资产
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e9_freeze_assets
+```
+
+如果只想先做最小 smoke：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e9_freeze_assets --limit-queries 2
+```
+
+### 运行 E9 生成约束评测
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e9_generation_constraints
+```
+
+### 生成 E10 SFT manifests
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests
+```
+
 ### 运行 E3 / E4 诊断子集
 
 ```bash
@@ -175,6 +227,9 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification --quer
   - `E4 = e4_v2_cn_decision_label_fewshot`
 - 当前默认行为模型配置已冻结为 `Qwen/Qwen3.5-4B`
 - `Qwen3.5-9B` 目前只作为可选附录模型，不是当前主线阻塞项
+- `E9` 的 `candidate_hotels` 当前固定使用 `E2 B_final_aspect_score Top5`
+- `E9` 资产冻结当前优先要求本地已有 `BAAI/bge-small-en-v1.5` 缓存；若本地缓存缺失，需先在可联网环境缓存 embedding 模型
+- `e10_base_vs_peft` 当前只做入口预埋，不会在此阶段直接产出正式 `e10_*` run
 - 推荐在 AutoDL 云端 GPU 环境执行，再将正式 run 同步回本仓库
 - 当前行为实验脚本已经支持 OpenAI-compatible API backend，云端配置方式详见 `../docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 

@@ -114,6 +114,7 @@ class EvidencePack(BaseModel):
     hotel_id: str
     query_en: str
     evidence_by_aspect: dict[str, list[SentenceCandidate]]
+    all_sentence_ids: list[str] = Field(default_factory=list)
     retrieval_trace: dict[str, Any]
 
 
@@ -142,3 +143,72 @@ class RunLogEntry(BaseModel):
     config_hash: str
     latency_ms: float
     intermediate_objects: dict[str, Any]
+
+
+class RecommendationReason(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    aspect: ASPECT_NAME
+    reason_text: str
+    sentence_id: str | None = None
+
+
+class RecommendationItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    hotel_id: str
+    hotel_name: str
+    reasons: list[RecommendationReason] = Field(default_factory=list)
+
+
+class RecommendationResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query_id: str
+    group_id: str
+    summary: str = ""
+    recommendations: list[RecommendationItem] = Field(default_factory=list)
+    unsupported_notice: str = ""
+    schema_valid: bool
+    raw_response: str
+
+
+class CitationVerificationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query_id: str
+    group_id: str
+    citation_precision: float
+    invalid_sentence_ids: list[str] = Field(default_factory=list)
+    out_of_pack_sentence_ids: list[str] = Field(default_factory=list)
+    retry_triggered: bool = False
+    fallback_to_honest_notice: bool = False
+
+
+class GenerationEvalUnit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query_id: str
+    query_text_zh: str
+    query_type: str
+    user_preference_gold: UserPreference
+    unsupported_requests: list[UNSUPPORTED_REQUEST] = Field(default_factory=list)
+    candidate_hotels: list[HotelCandidate] = Field(default_factory=list)
+    evidence_packs: list[EvidencePack] = Field(default_factory=list)
+    retrieval_mode: str
+    candidate_policy: str
+    config_hash: str
+
+
+class SFTManifestRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    record_id: str
+    split: Literal["train", "dev"]
+    task_type: Literal["preference_parse", "clarification", "constraint_honesty", "feedback_update"]
+    hotel_id: str | None = None
+    query_id: str
+    source_asset: str
+    input_payload: dict[str, Any]
+    target_payload: dict[str, Any]
+    config_hash: str

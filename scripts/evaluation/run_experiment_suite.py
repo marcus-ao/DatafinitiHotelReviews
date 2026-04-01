@@ -10,6 +10,12 @@ from scripts.evaluation.evaluate_e3_e5_behavior import (
     run_e4_clarification_eval,
     run_e5_query_bridge_eval,
 )
+from scripts.evaluation.evaluate_e9_e10_generation import (
+    freeze_e9_assets,
+    prepare_e10_manifests,
+    run_e10_base_vs_peft,
+    run_e9_generation_constraints,
+)
 from scripts.evaluation.evaluate_e2_candidate_selection import run_e2
 from scripts.evaluation.evaluate_e6_e8_retrieval import (
     build_e6_qrels_pool,
@@ -33,6 +39,10 @@ def main() -> None:
             "e3_preference",
             "e4_clarification",
             "e5_query_bridge",
+            "e9_freeze_assets",
+            "e9_generation_constraints",
+            "e10_prepare_manifests",
+            "e10_base_vs_peft",
         ],
         required=True,
     )
@@ -81,6 +91,20 @@ def main() -> None:
         print(f"[OK] run saved to {run_dir}")
     elif args.task == "e5_query_bridge":
         run_dir = run_e5_query_bridge_eval(output_root=output_root, limit_queries=args.limit_queries)
+        print(f"[OK] run saved to {run_dir}")
+    elif args.task == "e9_freeze_assets":
+        units_path, query_ids_path = freeze_e9_assets(limit_queries=args.limit_queries)
+        print(f"[OK] eval units written to {units_path}")
+        print(f"[OK] query ids written to {query_ids_path}")
+    elif args.task == "e9_generation_constraints":
+        run_dir = run_e9_generation_constraints(output_root=output_root, limit_queries=args.limit_queries)
+        print(f"[OK] run saved to {run_dir}")
+    elif args.task == "e10_prepare_manifests":
+        train_path, dev_path = prepare_e10_manifests()
+        print(f"[OK] train manifest written to {train_path}")
+        print(f"[OK] dev manifest written to {dev_path}")
+    elif args.task == "e10_base_vs_peft":
+        run_dir = run_e10_base_vs_peft(output_root=output_root, limit_queries=args.limit_queries)
         print(f"[OK] run saved to {run_dir}")
 
 

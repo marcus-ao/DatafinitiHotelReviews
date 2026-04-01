@@ -1,6 +1,6 @@
 # 下一步该做什么
 
-更新时间：2026-03-31
+更新时间：2026-04-01
 
 ## 当前推荐推进顺序
 
@@ -11,8 +11,9 @@
 3. 保留已有 baseline、诊断 run 和 `4B` 全量正式 run，不覆盖、不删除
 4. 以 `experiments/reports/05_behavior_stage_3_chapter_materials.md` 为主入口，完成行为章节正文写作
 5. 仅在论文或答辩需要时，追加 `Qwen3.5-9B` 附录对比
-6. 若不先补 `9B`，则按 `docs/plans/03_generation_and_peft_phase_plan.md` 进入 `E9`
-7. `E9` 稳定后，再进入 `E10 / PEFT`
+6. 若不先补 `9B`，则先按当前仓库已实现入口冻结 `E9` full assets
+7. 再跑 `E9` 三组生成约束对照与人工审计
+8. `E9` 稳定后，再进入 `E10 / PEFT`
 
 ## 第一优先级：立即要做
 
@@ -99,6 +100,33 @@
 - 不让 retrieval 波动混入 `E9`
 - 默认基座模型固定为 `Qwen/Qwen3.5-4B`
 
+截至 `2026-04-01`，当前仓库中已经可直接执行的顺序为：
+
+1. 先确认本地 `venv` 可用，并优先从仓库根目录执行命令
+2. 先跑：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests
+```
+
+3. 再跑：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e9_freeze_assets
+```
+
+4. `E9` full assets 成功冻结后，再跑：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e9_generation_constraints
+```
+
+5. 生成完 run 后，立刻打开并审计：
+   - `experiments/runs/e9_*/summary.csv`
+   - `experiments/runs/e9_*/analysis.md`
+   - `experiments/runs/e9_*/citation_verifiability_audit.csv`
+   - `experiments/labels/e9_generation/citation_verifiability_audit.csv`
+
 ### 任务 5：`E9` 稳定后再进入 `E10 / PEFT`
 
 目标：
@@ -128,4 +156,4 @@
 
 ## 一句话版本
 
-你现在最该做的，是用已经完成的 `E3 / E4 / E5` 汇总材料把行为章节写进论文；`9B` 默认只做附录选项，而项目主线应在此之后按既定方案进入 `E9`，再进入 `E10 / PEFT`。
+你现在最该做的，是先保留已冻结的行为主线不动，然后按仓库已经实现的入口依次执行 `e10_prepare_manifests -> e9_freeze_assets -> e9_generation_constraints`，把 `E9` 正式跑通并完成人工审计，之后再进入 `E10 / PEFT`。

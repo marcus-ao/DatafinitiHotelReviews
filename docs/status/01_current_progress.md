@@ -1,10 +1,10 @@
 # 当前工作进度
 
-更新时间：2026-03-31
+更新时间：2026-04-01
 
 ## 总体阶段判断
 
-当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进入“行为章节写作收口 + `E9 -> E10 / PEFT` 规划就绪”阶段。
+当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进入“行为章节写作收口 + `E9 -> E10 / PEFT` 首轮工程实现已落地”阶段。
 
 目前整体处于：
 
@@ -20,7 +20,7 @@
 - 最新 `E4` 审计：已完成首轮人工评分并冻结 reviewed 快照
 - 行为章节材料：已形成 `E3 / E4 / E5` 汇总初稿
 - `Qwen3.5-9B`：可作为附录或扩展对比，当前不是主线阻塞项
-- `E9 / E10 / PEFT`：已有明确推进方案，但尚未实现
+- `E9 / E10 / PEFT`：主线方案已冻结，其中 `E9 / E10` 的代码入口、schema 和 runner 骨架已实现，但 `E9` 正式 full run 尚未完成
 
 ## 已完成的核心内容
 
@@ -227,10 +227,58 @@
 ## 当前明确尚未完成的内容
 
 - 决定是否需要追加 `Qwen3.5-9B` 附录对比
-- `E9` 证据约束生成实现与正式评测
-- `E10` Base vs PEFT 行为对照
+- `E9` 正式 full assets 冻结与正式评测
+- `E10` Base vs PEFT 正式行为对照
 - QLoRA / PEFT 训练基础设施
 - `G1-G4` 主实验矩阵
+
+## 5. `E9 / E10` 当前实现进展
+
+截至 `2026-04-01`，仓库内已经新增并接通：
+
+- `scripts/evaluation/evaluate_e9_e10_generation.py`
+- `scripts/evaluation/run_experiment_suite.py` 中的：
+  - `e9_freeze_assets`
+  - `e9_generation_constraints`
+  - `e10_prepare_manifests`
+  - `e10_base_vs_peft`
+- `scripts/shared/experiment_schemas.py` 中的：
+  - `RecommendationReason`
+  - `RecommendationItem`
+  - `RecommendationResponse`
+  - `CitationVerificationResult`
+  - `GenerationEvalUnit`
+  - `SFTManifestRecord`
+- `experiments/labels/e9_generation/README.md`
+- `experiments/labels/e9_generation/citation_verifiability_audit.csv`
+- `experiments/assets/sft_train_manifest.jsonl`
+- `experiments/assets/sft_dev_manifest.jsonl`
+- `tests/test_e9_e10_generation.py`
+
+当前已经完成的验证：
+
+- `E9` query 选择逻辑已由单元测试确认仍对应 `40` 条可执行 query
+- citation verifier 的合法 / 不存在 / 越权三类情况已由单元测试覆盖
+- verifier 二次失败后的 honest fallback 已由单元测试覆盖
+- `e10_prepare_manifests` 已成功生成 `train/dev` 两份 manifest
+- `e9_freeze_assets --limit-queries 2` 已成功跑通本地 smoke
+
+当前仍未完成的部分：
+
+- `experiments/assets/e9_generation_eval_units.jsonl`
+  的全量正式冻结尚未执行
+- `experiments/assets/e9_generation_eval_query_ids.json`
+  的全量正式冻结尚未执行
+- `e9_generation_constraints` 的正式 full run 尚未执行
+- `e9_*` 的正式 `summary.csv / analysis.md / citation_verifiability_audit.csv` 尚未产出
+
+当前新增实现的固定口径：
+
+- `E9` 检索模式固定为 `aspect_main_no_rerank`
+- `fallback=false`
+- 行为基座固定为 `Qwen/Qwen3.5-4B`
+- `candidate_hotels` 固定使用 `E2 B_final_aspect_score Top5`
+- `E9` 资产冻结当前优先只读本地 embedding 缓存，不新增 live PostgreSQL 依赖
 
 ## 当前最值得关注的事实
 
@@ -238,4 +286,4 @@
 2. 默认检索后端仍固定为 `aspect_main_no_rerank`，`reranker` 与 `fallback` 不回到主流程。
 3. 行为实验当前正式主模型已经切换为 `Qwen/Qwen3.5-4B`，`2B` 保留为弱基线。
 4. 最新 `E4` 审计已经补齐，行为章节材料已经具备写论文的基本条件。
-5. 当前阶段更像“行为章节写作 + 后续生成与 PEFT 准备阶段”，而不是“继续追着行为 prompt 调参阶段”。
+5. 当前阶段更像“行为章节写作 + `E9` 正式执行前准备阶段”，而不是“继续追着行为 prompt 调参阶段”。
