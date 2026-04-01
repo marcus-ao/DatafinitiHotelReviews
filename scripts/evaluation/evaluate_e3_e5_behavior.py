@@ -258,7 +258,7 @@ def prepare_chat_template_tensors(tokenizer, messages: list[dict[str, str]], dev
     )
     if hasattr(rendered, "to"):
         rendered = rendered.to(device)
-    if isinstance(rendered, dict):
+    if hasattr(rendered, "__getitem__") and hasattr(rendered, "get") and "input_ids" in rendered:
         input_ids = rendered["input_ids"]
         attention_mask = rendered.get("attention_mask")
         if attention_mask is None:

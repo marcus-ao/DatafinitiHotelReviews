@@ -121,6 +121,38 @@ class BehaviorRuntimeConfigTestCase(unittest.TestCase):
         self.assertTrue(torch.equal(input_ids, torch.tensor([[4, 5]])))
         self.assertTrue(torch.equal(attention_mask, torch.tensor([[1, 1]])))
 
+    def test_prepare_chat_template_tensors_accepts_mapping_like_batch_encoding(self):
+        class FakeBatchEncodingLike:
+            def __init__(self):
+                self.payload = {
+                    "input_ids": torch.tensor([[7, 8, 9]]),
+                    "attention_mask": torch.tensor([[1, 1, 1]]),
+                }
+
+            def to(self, device):
+                return self
+
+            def __getitem__(self, key):
+                return self.payload[key]
+
+            def get(self, key, default=None):
+                return self.payload.get(key, default)
+
+            def __contains__(self, key):
+                return key in self.payload
+
+        class FakeTokenizer:
+            def apply_chat_template(self, messages, add_generation_prompt=True, return_tensors="pt"):
+                return FakeBatchEncodingLike()
+
+        input_ids, attention_mask = behavior_eval_mod.prepare_chat_template_tensors(
+            FakeTokenizer(),
+            [{"role": "user", "content": "hi"}],
+            "cpu",
+        )
+        self.assertTrue(torch.equal(input_ids, torch.tensor([[7, 8, 9]])))
+        self.assertTrue(torch.equal(attention_mask, torch.tensor([[1, 1, 1]])))
+
 
 if __name__ == "__main__":
     unittest.main()
