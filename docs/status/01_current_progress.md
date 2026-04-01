@@ -4,7 +4,7 @@
 
 ## 总体阶段判断
 
-当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进入“行为章节写作收口 + `E9 -> E10 / PEFT` 首轮工程实现已落地”阶段。
+当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进入“`E9` 第二轮正式结果已冻结 + `E10 / PEFT` 评测骨架推进”阶段。
 
 目前整体处于：
 
@@ -20,7 +20,7 @@
 - 最新 `E4` 审计：已完成首轮人工评分并冻结 reviewed 快照
 - 行为章节材料：已形成 `E3 / E4 / E5` 汇总初稿
 - `Qwen3.5-9B`：可作为附录或扩展对比，当前不是主线阻塞项
-- `E9 / E10 / PEFT`：主线方案已冻结，其中 `E9 / E10` 的代码入口、schema 和 runner 骨架已实现，但 `E9` 正式 full run 尚未完成
+- `E9 / E10 / PEFT`：主线方案已冻结，其中 `E9` 第二轮正式结果已完成，`E10` 进入 adapter-ready 评测骨架阶段
 
 ## 已完成的核心内容
 
@@ -227,7 +227,6 @@
 ## 当前明确尚未完成的内容
 
 - 决定是否需要追加 `Qwen3.5-9B` 附录对比
-- `E9` 正式 full assets 冻结与正式评测
 - `E10` Base vs PEFT 正式行为对照
 - QLoRA / PEFT 训练基础设施
 - `G1-G4` 主实验矩阵
@@ -263,14 +262,19 @@
 - `e10_prepare_manifests` 已成功生成 `train/dev` 两份 manifest
 - `e9_freeze_assets --limit-queries 2` 已成功跑通本地 smoke
 
-当前仍未完成的部分：
+当前已经完成并冻结的部分：
 
 - `experiments/assets/e9_generation_eval_units.jsonl`
-  的全量正式冻结尚未执行
 - `experiments/assets/e9_generation_eval_query_ids.json`
-  的全量正式冻结尚未执行
-- `e9_generation_constraints` 的正式 full run 尚未执行
-- `e9_*` 的正式 `summary.csv / analysis.md / citation_verifiability_audit.csv` 尚未产出
+- `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- `experiments/labels/e9_generation/citation_verifiability_audit.csv`
+
+当前仍未完成的部分：
+
+- `citation_verifiability_audit_e9_ecbcdbab690dc503_qwen35_4b_reviewed.csv`
+  以外的更多人工复核扩展
+- `E10` 的正式 Base vs PEFT 行为对照
+- PEFT 训练、adapter 导出与云端执行
 
 当前新增实现的固定口径：
 
@@ -280,10 +284,44 @@
 - `candidate_hotels` 固定使用 `E2 B_final_aspect_score Top5`
 - `E9` 资产冻结当前优先只读本地 embedding 缓存，不新增 live PostgreSQL 依赖
 
+## 6. `E9` 第二轮正式结果
+
+当前正式 `E9` run 固定为：
+
+- `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+
+第一轮 run 保留为历史诊断对照：
+
+- `experiments/runs/e9_80e05af30f45b1f2_20260401T021215+0000/`
+
+第二轮正式指标：
+
+- `A_free_generation`
+  - `Citation Precision = 0.9437`
+  - `Evidence Verifiability Mean = 1.9697`
+  - `Schema Valid Rate = 1.0000`
+- `B_grounded_generation`
+  - `Citation Precision = 0.9437`
+  - `Evidence Verifiability Mean = 1.9773`
+  - `Schema Valid Rate = 1.0000`
+- `C_grounded_generation_with_verifier`
+  - `Citation Precision = 0.9250`
+  - `Evidence Verifiability Mean = 1.9922`
+  - `Schema Valid Rate = 1.0000`
+  - `retry_trigger_rate = 0.025`
+  - `fallback_to_honest_notice_rate = 0.025`
+
+当前正式解读固定为：
+
+- 第二轮 `E9` 已经解决第一轮的主要格式稳定性问题
+- `q021 / q023` 属于证据覆盖边界的诚实空输出，不视为系统失败
+- `q079` 是 verifier 过严的单点残留边界，应保留到误差分析
+- 当前 `E9` 已达到可审计、可复现、可冻结的稳定度
+
 ## 当前最值得关注的事实
 
 1. Aspect-KB 章节已经完成两轮核心收口，主结论已经稳定。
 2. 默认检索后端仍固定为 `aspect_main_no_rerank`，`reranker` 与 `fallback` 不回到主流程。
 3. 行为实验当前正式主模型已经切换为 `Qwen/Qwen3.5-4B`，`2B` 保留为弱基线。
 4. 最新 `E4` 审计已经补齐，行为章节材料已经具备写论文的基本条件。
-5. 当前阶段更像“行为章节写作 + `E9` 正式执行前准备阶段”，而不是“继续追着行为 prompt 调参阶段”。
+5. 当前阶段更像“冻结 `E9` 正式结果并进入 `E10 / PEFT` 评测骨架阶段”，而不是“继续追着 retrieval 或 `E9` prompt 大改阶段”。

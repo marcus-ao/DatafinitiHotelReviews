@@ -1,5 +1,8 @@
 import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 from scripts.evaluation import evaluate_e9_e10_generation as generation_mod
 from scripts.shared.experiment_schemas import (
@@ -225,6 +228,75 @@ class E9E10GenerationTestCase(unittest.TestCase):
         task_types = {row["task_type"] for row in train_records + dev_records}
         self.assertTrue(task_types.issubset(allowed))
         self.assertTrue(all(row["hotel_id"] is None for row in train_records + dev_records))
+
+    def test_load_adapter_metadata_validates_required_fields(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            metadata_path = Path(tmp_dir) / "adapter_metadata.json"
+            metadata_path.write_text(
+                json.dumps(
+                    {
+                        "adapter_name": "peft_v1",
+                        "base_model_id": "Qwen/Qwen3.5-4B",
+                        "served_model_id": "Qwen/Qwen3.5-4B-PEFT",
+                        "adapter_path": "/tmp/adapter",
+                        "backend": "api",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            payload = generation_mod.load_adapter_metadata(metadata_path)
+        self.assertEqual(payload["adapter_name"], "peft_v1")
+        self.assertEqual(payload["_resolved_adapter_path"], "/tmp/adapter")
+
+    def test_build_peft_runtime_config_requires_matching_backend(self):
+        runtime_config = generation_mod.BehaviorRuntimeConfig(
+            llm_backend="api",
+            model_id="Qwen/Qwen3.5-4B",
+            api_base_url="http://127.0.0.1:8000/v1",
+            api_key_env="OPENAI_API_KEY",
+            api_key_present=True,
+            enable_thinking=False,
+            temperature=0.0,
+            max_new_tokens=512,
+            api_timeout_seconds=120,
+        )
+        peft_runtime = generation_mod.build_peft_runtime_config(
+            runtime_config,
+            {
+                "adapter_name": "peft_v1",
+                "base_model_id": "Qwen/Qwen3.5-4B",
+                "served_model_id": "Qwen/Qwen3.5-4B-PEFT",
+                "adapter_path": "/tmp/adapter",
+                "backend": "api",
+                "_metadata_path": "/tmp/adapter_metadata.json",
+                "_resolved_adapter_path": "/tmp/adapter",
+            },
+        )
+        self.assertTrue(peft_runtime.use_peft_adapter)
+        self.assertEqual(peft_runtime.model_id, "Qwen/Qwen3.5-4B-PEFT")
+        self.assertEqual(peft_runtime.adapter_path, "/tmp/adapter")
+        self.assertEqual(peft_runtime.adapter_metadata_path, "/tmp/adapter_metadata.json")
+
+    def test_run_e10_base_vs_peft_requires_adapter_metadata_path(self):
+        runtime_config = generation_mod.BehaviorRuntimeConfig(
+            llm_backend="api",
+            model_id="Qwen/Qwen3.5-4B",
+            api_base_url="http://127.0.0.1:8000/v1",
+            api_key_env="OPENAI_API_KEY",
+            api_key_present=True,
+            enable_thinking=False,
+            temperature=0.0,
+            max_new_tokens=256,
+            api_timeout_seconds=120,
+        )
+        with mock.patch.object(
+            generation_mod,
+            "resolve_behavior_runtime_config",
+            return_value=(runtime_config, "EMPTY"),
+        ):
+            with self.assertRaises(ValueError):
+                generation_mod.run_e10_base_vs_peft(Path("/tmp/e10_missing_adapter"), limit_queries=1)
 
 
 if __name__ == "__main__":

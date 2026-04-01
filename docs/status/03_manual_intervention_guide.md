@@ -6,7 +6,7 @@
 
 ## 当前结论
 
-当前最可能的人工阻塞点，已经从“补跑行为实验”切换成了“按新实现入口执行 `E9`、完成 `E9` 审计，并决定是否还要追加 `Qwen3.5-9B` 附录对比”。
+当前最可能的人工阻塞点，已经从“补跑行为实验”切换成了“冻结 `E9` 第二轮正式结果、准备 adapter metadata，并进入 `E10 / PEFT` 骨架评测”。
 
 也就是说：
 
@@ -18,7 +18,9 @@
 - `E9 / E10` 的代码入口、schema 和 runner 骨架已于 `2026-04-01` 实现
 - `e10_prepare_manifests` 已成功生成 `sft_train_manifest.jsonl` 与 `sft_dev_manifest.jsonl`
 - `e9_freeze_assets --limit-queries 2` 已通过本地 smoke
-- 现在最需要你做的是：按固定顺序执行 `E9` full assets 冻结与 `E9` 正式评测
+- `E9` 第二轮正式结果已完成并冻结为：
+  - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- 现在最需要你做的是：准备 `E10` 的 adapter metadata、云端训练产物，并运行 `e10_base_vs_peft`
 
 ## 手册 A：你现在最该先做什么
 
@@ -36,14 +38,16 @@
   - `experiments/reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
   - `experiments/reports/05_behavior_stage_3_chapter_materials.md`
 
-### 第二步：优先把 `E9` 的执行入口按顺序跑起来
+### 第二步：优先把 `E10 / PEFT` 的执行入口按顺序跑起来
 
 你现在最值得亲自打开和执行的是：
 
 - `scripts/evaluation/evaluate_e9_e10_generation.py`
 - `experiments/assets/sft_train_manifest.jsonl`
 - `experiments/assets/sft_dev_manifest.jsonl`
-- `experiments/labels/e9_generation/README.md`
+- `experiments/assets/e10_train_config_template.json`
+- `experiments/assets/e10_adapter_metadata.template.json`
+- `docs/deployment/02_e10_peft_runbook.md`
 - `docs/plans/03_generation_and_peft_phase_plan.md`
 
 你当前要按下面顺序执行：
@@ -60,25 +64,21 @@ source venv/bin/activate
 python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests
 ```
 
-3. 再正式冻结 `E9` full assets：
+3. 按 `docs/deployment/02_e10_peft_runbook.md` 在云端准备 adapter 训练与导出
+4. 回传 adapter 后，填写：
+   - `experiments/assets/e10_adapter_metadata.template.json`
+5. 然后运行：
 
 ```bash
-python -m scripts.evaluation.run_experiment_suite --task e9_freeze_assets
+python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
 ```
 
-4. full assets 成功后，再执行 `E9` 正式 run：
-
-```bash
-python -m scripts.evaluation.run_experiment_suite --task e9_generation_constraints
-```
-
-### 第三步：`E9` 跑完后，按固定步骤做人工审计
+### 第三步：`E10` 跑完后，按固定步骤做人工审计
 
 1. 打开：
-   - `experiments/runs/e9_*/summary.csv`
-   - `experiments/runs/e9_*/analysis.md`
-   - `experiments/runs/e9_*/citation_verifiability_audit.csv`
-   - `experiments/labels/e9_generation/citation_verifiability_audit.csv`
+   - `experiments/runs/e10_*/summary.csv`
+   - `experiments/runs/e10_*/analysis.md`
+   - `experiments/runs/e10_*/citation_verifiability_audit.csv`
 2. 逐行查看：
    - `query_id`
    - `group_id`
@@ -89,9 +89,8 @@ python -m scripts.evaluation.run_experiment_suite --task e9_generation_constrain
    - `in_current_evidence_pack`
    - `support_score`
    - `notes`
-3. 如果你决定补人工 reviewed 结果，只改：
-   - `experiments/labels/e9_generation/citation_verifiability_audit.csv`
-4. 不要覆盖 run 内原始文件；run 内原始文件保留为当轮自动导出快照
+3. 如需补人工 reviewed 结果，可在 `E10` 的 labels 目录中新增 reviewed 副本，不覆盖 run 内原始文件
+4. 不要改动 `E9` 冻结资产与第二轮正式 run
 
 打分标准固定为：
 
@@ -106,26 +105,28 @@ python -m scripts.evaluation.run_experiment_suite --task e9_generation_constrain
   - `1`：基本相关但支持偏弱
   - `0`：证据不支持或明显越权
 
-### 第四步：执行 `E9` 前后，你最该注意什么
+### 第四步：执行 `E10 / PEFT` 时，你最该注意什么
 
 你现在最该记住的固定约束是：
 
 - 不要改 `aspect_main_no_rerank`
 - 不要把 `fallback` 接回默认主流程
 - 不要把 `candidate_hotels` 改成 `city_test_all`
-- `E9` 当前固定使用 `E2 B_final_aspect_score Top5`
-- `E9` 当前正式基座模型固定为 `Qwen/Qwen3.5-4B`
-- `E9` 当前优先只读本地 embedding 缓存；若本地没有 `BAAI/bge-small-en-v1.5` 缓存，会导致 `e9_freeze_assets` 失败
+- `E9` 当前正式冻结输入继续固定使用 `E2 B_final_aspect_score Top5`
+- `E10` 当前 base 组固定为 `Qwen/Qwen3.5-4B`
+- `E10` 当前默认只支持通过 API backend 加载已部署好的 PEFT served model
 
-如果 `e9_freeze_assets` 报错，优先按下面方式判断：
+如果 `e10_base_vs_peft` 报错，优先按下面方式判断：
 
-1. 如果报 embedding 模型离线加载失败：
-   - 说明本地没有缓存 `BAAI/bge-small-en-v1.5`
-   - 先在可联网环境把该模型缓存好，再回到当前仓库重跑
-2. 如果 assets 冻结成功，但 `e9_generation_constraints` 失败：
+1. 如果报缺少 adapter metadata：
+   - 说明你还没准备好 `BEHAVIOR_ADAPTER_METADATA_PATH`
+   - 先填写模板并确认 `served_model_id`、`adapter_path`、`base_model_id`
+2. 如果报 base_model_id 不匹配：
+   - 说明 adapter 不是从当前主线 `Qwen/Qwen3.5-4B` 训练出来的
+3. 如果 API 访问失败：
    - 优先检查 `OPENAI_BASE_URL`
    - 检查 `OPENAI_API_KEY`
-   - 检查当前推理端点是否确实提供 `Qwen/Qwen3.5-4B`
+   - 检查当前推理端点是否同时提供 base 和 PEFT 的 served model id
 
 ## 手册 B：如果你确实要补 `9B` 附录，该怎么做
 
@@ -164,8 +165,8 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 
 1. 用 `05_behavior_stage_3_chapter_materials.md` 把行为章节写进论文
 2. 运行 `e10_prepare_manifests`
-3. 运行 `e9_freeze_assets`
-4. 运行 `e9_generation_constraints` 并完成 `E9` 审计
+3. 按 `02_e10_peft_runbook.md` 准备 adapter metadata 与云端训练产物
+4. 运行 `e10_base_vs_peft`
 
 在进入 `E9` 之前，你当前不需要再手动做：
 
@@ -207,4 +208,4 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 
 ## 手册 E：一句话版
 
-当前行为主线已经完成并审计完毕；你现在最该做的是保持已冻结主线不动，然后按已经实现的入口依次执行 `e10_prepare_manifests -> e9_freeze_assets -> e9_generation_constraints`。若不补 `9B`，项目主线就应先把 `E9` 正式跑通并完成审计，而不是立刻跳进 PEFT。
+当前行为主线与 `E9` 第二轮正式结果都已经完成并冻结；你现在最该做的是保持已冻结主线不动，准备 adapter metadata 与云端训练产物，然后在固定 `E9` eval units 上运行 `e10_base_vs_peft`，而不是再回头改 retrieval 主线。

@@ -98,6 +98,15 @@ def resolve_behavior_runtime_config(
         os.environ.get("BEHAVIOR_API_TIMEOUT_SECONDS"),
         int(merged_behavior.get("api_timeout_seconds", 120)),
     )
+    use_peft_adapter = parse_env_bool(
+        os.environ.get("BEHAVIOR_USE_PEFT_ADAPTER"),
+        bool(merged_behavior.get("use_peft_adapter", False)),
+    )
+    adapter_path = os.environ.get("BEHAVIOR_ADAPTER_PATH") or merged_behavior.get("adapter_path")
+    adapter_metadata_path = (
+        os.environ.get("BEHAVIOR_ADAPTER_METADATA_PATH")
+        or merged_behavior.get("adapter_metadata_path")
+    )
 
     if llm_backend not in {"local", "api"}:
         raise ValueError(f"不支持的 behavior.llm_backend: {llm_backend}")
@@ -116,5 +125,8 @@ def resolve_behavior_runtime_config(
         temperature=temperature,
         max_new_tokens=max_new_tokens,
         api_timeout_seconds=api_timeout_seconds,
+        use_peft_adapter=use_peft_adapter,
+        adapter_path=str(adapter_path) if adapter_path else None,
+        adapter_metadata_path=str(adapter_metadata_path) if adapter_metadata_path else None,
     )
     return runtime_config, api_key

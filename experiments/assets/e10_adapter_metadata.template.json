@@ -1,0 +1,12 @@
+{
+  "adapter_name": "qwen35_4b_peft_v1",
+  "base_model_id": "Qwen/Qwen3.5-4B",
+  "served_model_id": "Qwen/Qwen3.5-4B-PEFT",
+  "adapter_path": "/absolute/path/to/exported_adapter",
+  "backend": "api",
+  "adapter_type": "qlora",
+  "train_config_path": "experiments/assets/e10_train_config_template.json",
+  "train_manifest_path": "experiments/assets/sft_train_manifest.jsonl",
+  "dev_manifest_path": "experiments/assets/sft_dev_manifest.jsonl",
+  "notes": "Fill this after cloud training. Then point BEHAVIOR_ADAPTER_METADATA_PATH to the finalized copy."
+}

@@ -32,6 +32,9 @@ class BehaviorRuntimeConfigTestCase(unittest.TestCase):
             "BEHAVIOR_TEMPERATURE",
             "BEHAVIOR_MAX_NEW_TOKENS",
             "BEHAVIOR_API_TIMEOUT_SECONDS",
+            "BEHAVIOR_USE_PEFT_ADAPTER",
+            "BEHAVIOR_ADAPTER_PATH",
+            "BEHAVIOR_ADAPTER_METADATA_PATH",
         ]}
         os.environ["BEHAVIOR_LLM_BACKEND"] = "api"
         os.environ["BEHAVIOR_MODEL_ID"] = "Qwen/Qwen3.5-9B"
@@ -41,6 +44,9 @@ class BehaviorRuntimeConfigTestCase(unittest.TestCase):
         os.environ["BEHAVIOR_TEMPERATURE"] = "0"
         os.environ["BEHAVIOR_MAX_NEW_TOKENS"] = "256"
         os.environ["BEHAVIOR_API_TIMEOUT_SECONDS"] = "120"
+        os.environ["BEHAVIOR_USE_PEFT_ADAPTER"] = "true"
+        os.environ["BEHAVIOR_ADAPTER_PATH"] = "/tmp/fake_adapter"
+        os.environ["BEHAVIOR_ADAPTER_METADATA_PATH"] = "/tmp/fake_adapter_metadata.json"
         try:
             runtime_config, api_key = behavior_mod.resolve_behavior_runtime_config(cfg, frozen_config)
         finally:
@@ -57,6 +63,9 @@ class BehaviorRuntimeConfigTestCase(unittest.TestCase):
         self.assertEqual(runtime_config.temperature, 0.0)
         self.assertEqual(runtime_config.max_new_tokens, 256)
         self.assertEqual(runtime_config.api_timeout_seconds, 120)
+        self.assertTrue(runtime_config.use_peft_adapter)
+        self.assertEqual(runtime_config.adapter_path, "/tmp/fake_adapter")
+        self.assertEqual(runtime_config.adapter_metadata_path, "/tmp/fake_adapter_metadata.json")
         self.assertEqual(api_key, "EMPTY")
 
     def test_flatten_openai_content_handles_mixed_text_blocks(self):

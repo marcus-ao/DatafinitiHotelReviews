@@ -59,6 +59,9 @@ class BehaviorRuntimeConfig(BaseModel):
     temperature: float = 0.0
     max_new_tokens: int = 256
     api_timeout_seconds: int = 120
+    use_peft_adapter: bool = False
+    adapter_path: str | None = None
+    adapter_metadata_path: str | None = None
 
 
 class ClarificationDecision(BaseModel):

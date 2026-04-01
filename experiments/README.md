@@ -44,7 +44,9 @@
 - `E9 / E10` 的代码入口已于 `2026-04-01` 接入仓库
 - `e9_freeze_assets` 已通过 `limit-queries=2` 的本地 smoke 验证
 - `e10_prepare_manifests` 已成功生成 `sft_train_manifest.jsonl` 与 `sft_dev_manifest.jsonl`
-- `E9` 正式 full assets 与 `e9_*` 正式 run 仍待你按当前手册执行
+- `E9` 第二轮正式结果已冻结为：
+  - `runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- `E10` 当前下一步是 adapter-ready 评测骨架，不是立即启动正式训练
 
 对应规划文档：
 
@@ -73,8 +75,8 @@
 
 说明：
 
-- 这两个 `E9` 资产文件是下一步正式冻结目标
-- 当前仓库已具备生成它们的脚本入口，但正式 full assets 尚未在仓库中冻结提交
+- 这两个 `E9` 资产文件已经作为正式冻结评测资产使用
+- 当前 `E9` 正式 run 固定复用这份 assets，不再边跑边重新检索
 
 ## 正式标注目录
 
@@ -109,7 +111,9 @@
 - `README.md`
   `E9` 审计口径说明。
 - `citation_verifiability_audit.csv`
-  当前字段模板；正式 `E9` run 后会被最新审计副本覆盖。
+  当前最新 `E9` 审计副本。
+- `citation_verifiability_audit_e9_ecbcdbab690dc503_qwen35_4b_reviewed.csv`
+  `E9` 第二轮正式结果的 reviewed 冻结快照。
 
 ## 当前保留的正式主结果 run
 
@@ -120,6 +124,7 @@
 - `runs/e6_a98d0773422d5f2f_20260330T150721+0000/`
 - `runs/e7_4511a1b33877007a_20260330T151015+0000/`
 - `runs/e8_b610a6c12fd1195d_20260330T151133+0000/`
+- `runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
 
 ## 当前保留的历史 / 诊断行为 run
 
@@ -129,6 +134,7 @@
 - `runs/e4_4a15a89128a90d11_20260331T073016+0000/`
 - `runs/e4_96e0e4afb24dab2d_20260331T091021+0000/`
 - `runs/e4_f928a37444c1bf52_20260331T121012+0000/`
+- `runs/e9_80e05af30f45b1f2_20260401T021215+0000/`
 
 ## 当前论文材料入口
 
@@ -137,6 +143,7 @@
 - `reports/03_behavior_stage_1_qwen35_2b_baseline.md`
 - `reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
 - `reports/05_behavior_stage_3_chapter_materials.md`
+- `reports/06_generation_stage_1_e9_formal_summary.md`
 
 ## 最小运行入口
 
@@ -209,6 +216,12 @@ python -m scripts.evaluation.run_experiment_suite --task e9_generation_constrain
 python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests
 ```
 
+### 运行 E10 Base vs PEFT 骨架评测
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
+```
+
 ### 运行 E3 / E4 诊断子集
 
 ```bash
@@ -229,7 +242,8 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification --quer
 - `Qwen3.5-9B` 目前只作为可选附录模型，不是当前主线阻塞项
 - `E9` 的 `candidate_hotels` 当前固定使用 `E2 B_final_aspect_score Top5`
 - `E9` 资产冻结当前优先要求本地已有 `BAAI/bge-small-en-v1.5` 缓存；若本地缓存缺失，需先在可联网环境缓存 embedding 模型
-- `e10_base_vs_peft` 当前只做入口预埋，不会在此阶段直接产出正式 `e10_*` run
+- `E9` 第二轮正式结果已冻结；第一轮 `e9_80e05af30f45b1f2_20260401T021215+0000/` 仅保留为诊断对照
+- `e10_base_vs_peft` 当前已实现 adapter-ready 评测骨架，但默认要求你先提供 adapter metadata
 - 推荐在 AutoDL 云端 GPU 环境执行，再将正式 run 同步回本仓库
 - 当前行为实验脚本已经支持 OpenAI-compatible API backend，云端配置方式详见 `../docs/deployment/01_autodl_qwen35_behavior_runbook.md`
 

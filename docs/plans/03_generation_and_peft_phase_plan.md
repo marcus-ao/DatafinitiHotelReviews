@@ -2,7 +2,7 @@
 
 更新时间：2026-04-01
 
-本文件用于冻结行为章节收口后的后续主线。当前顺序固定为：先做 `E9` 证据约束生成，再做 `E10` Base vs PEFT 行为对照。`Qwen/Qwen3.5-4B` 是当前默认基座模型；`Qwen/Qwen3.5-9B` 只作为可选附录上界，不进入默认训练与实现主线。
+本文件用于冻结行为章节收口后的后续主线。当前顺序固定为：`E9` 第二轮正式结果冻结后，进入 `E10` Base vs PEFT 行为对照。`Qwen/Qwen3.5-4B` 是当前默认基座模型；`Qwen/Qwen3.5-9B` 只作为可选附录上界，不进入默认训练与实现主线。
 
 ## 1. 当前阶段判断
 
@@ -16,8 +16,8 @@
 
 因此后续主线不再是“继续救 `2B`”或“先跑满三模型横评”，而是：
 
-1. 先让生成层真正受证据约束
-2. 再用 `4B base vs 4B PEFT` 去回答 `RQ2`
+1. `E9` 第二轮结果已证明当前生成层已经达到可审计、可冻结状态
+2. 下一步用 `4B base vs 4B PEFT` 去回答 `RQ2`
 
 ## 2. E9：证据约束生成
 
@@ -77,10 +77,16 @@
 - 生成一次后立即冻结
 - `E9` 正式评测不得边跑边重新检索
 
-当前实现补充：
+当前正式状态补充：
 
-- `e9_freeze_assets --limit-queries 2` 已于 `2026-04-01` 通过本地 smoke
-- 当前实现优先只读本地 embedding 缓存，不额外要求 live PostgreSQL
+- 第二轮正式 run 已冻结为：
+  - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- 第一轮 run 保留为诊断对照：
+  - `experiments/runs/e9_80e05af30f45b1f2_20260401T021215+0000/`
+- 当前正式结论固定为：
+  - `q021 / q023` 是 evidence gap honesty
+  - `q079` 是 verifier 过严残留边界
+  - retrieval 主线不再继续调整
 
 ### 2.4 复用与新增的数据契约
 
@@ -252,6 +258,7 @@ SFT 样本类型固定为四类：
   - `constraint_honesty`
   - `feedback_update`
 - 当前不生成 `grounded_recommendation` 训练样本
+- `e10_base_vs_peft` 当前已实现 adapter-ready 评测骨架，默认要求提供 adapter metadata
 
 模型与训练大文件继续只保留在云端或本地忽略目录，不进 Git。需要被纳入版本管理的是：
 
@@ -277,15 +284,14 @@ SFT 样本类型固定为四类：
 
 后续顺序固定为：
 
-1. 先根据当前主线生成并冻结 `E9` 评测资产
-2. 运行 `e10_prepare_manifests`
-3. 跑 `E9` 三组生成约束对照
-4. 收口 `E9` 结果与人工审计
-5. 再检查并固定 `sft_train_manifest.jsonl / sft_dev_manifest.jsonl`
-6. 完成 `4B` 的 QLoRA / PEFT 训练
-7. 跑 `E10` 的 `Base 4B vs PEFT 4B`
+1. 冻结 `E9` 第二轮正式结果与审计快照
+2. 固定 `sft_train_manifest.jsonl / sft_dev_manifest.jsonl`
+3. 准备 `e10_train_config_template.json` 与 adapter metadata
+4. 在云端完成 `4B` 的 QLoRA / PEFT 训练
+5. 回传 adapter 与 metadata
+6. 跑 `E10` 的 `Base 4B vs PEFT 4B`
 
-在 `E9` 没稳定前，不启动 `E10 / PEFT` 正式结果。
+当前不再回到 `E9` 主线继续修改 retrieval 配置。
 
 ## 5. 验收标准
 
@@ -303,11 +309,12 @@ SFT 样本类型固定为四类：
 - `Base 4B` 与 `PEFT 4B` 在同一 `EvidencePack` 上可直接对照
 - `experiments/runs/e10_*/summary.csv` 与 `analysis.md` 成功产出
 
-截至 `2026-04-01` 的中间状态：
+截至 `2026-04-01` 的当前状态：
 
 - `E9 / E10` 的代码入口、schema 与 runner 骨架已实现
 - `sft_train_manifest.jsonl` 与 `sft_dev_manifest.jsonl` 已生成
-- `E9` full assets 与正式 `e9_*` run 仍待人工执行
+- `E9` 第二轮正式结果已完成并冻结
+- 下一步主线切换为 `E10 / PEFT`
 
 ## 6. 当前默认假设
 
