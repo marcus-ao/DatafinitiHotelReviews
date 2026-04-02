@@ -455,6 +455,84 @@ class E9E10GenerationTestCase(unittest.TestCase):
                     group_ids=["A_base_4b_grounded"],
                 )
 
+    def test_run_e10_base_group_writes_reasoning_diagnostics_without_name_error(self):
+        runtime_config = generation_mod.BehaviorRuntimeConfig(
+            llm_backend="local",
+            model_id="Qwen/Qwen3.5-4B",
+            api_base_url=None,
+            api_key_env="OPENAI_API_KEY",
+            api_key_present=False,
+            enable_thinking=False,
+            temperature=0.0,
+            max_new_tokens=256,
+            api_timeout_seconds=120,
+        )
+        unit = _build_eval_unit()
+        response = RecommendationResponse(
+            query_id="q001",
+            group_id="A_base_4b_grounded",
+            summary="ok",
+            recommendations=[],
+            unsupported_notice="",
+            schema_valid=True,
+            raw_response="{}",
+        )
+        verification = CitationVerificationResult(
+            query_id="q001",
+            group_id="A_base_4b_grounded",
+            citation_precision=1.0,
+            invalid_sentence_ids=[],
+            out_of_pack_sentence_ids=[],
+            retry_triggered=False,
+            fallback_to_honest_notice=False,
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir, mock.patch.object(
+            generation_mod,
+            "resolve_behavior_runtime_config",
+            return_value=(runtime_config, None),
+        ), mock.patch.object(
+            generation_mod,
+            "load_generation_eval_units",
+            return_value=[unit],
+        ), mock.patch.object(
+            generation_mod.pd,
+            "read_pickle",
+            return_value=object(),
+        ), mock.patch.object(
+            generation_mod,
+            "build_evidence_lookup",
+            return_value={},
+        ), mock.patch.object(
+            generation_mod,
+            "build_behavior_backend",
+            return_value=object(),
+        ), mock.patch.object(
+            generation_mod,
+            "generate_group_response",
+            return_value=(
+                response,
+                verification,
+                [],
+                {
+                    "raw_response_initial": "{}",
+                    "retry_raw_response": "",
+                    "response_error_type": None,
+                    "thinking_control_supported": True,
+                    "raw_response_prefix": "{}",
+                },
+            ),
+        ):
+            run_dir = generation_mod.run_e10_base_vs_peft(
+                Path(tmp_dir),
+                limit_queries=1,
+                group_ids=["A_base_4b_grounded"],
+            )
+            self.assertTrue((run_dir / "results.jsonl").exists())
+            with (run_dir / "results.jsonl").open(encoding="utf-8") as handle:
+                rows = [json.loads(line) for line in handle]
+            self.assertEqual(rows[0]["intermediate_objects"]["response_error_type"], None)
+            self.assertFalse(rows[0]["intermediate_objects"]["reasoning_leak_detected"])
+
     def test_run_e10_multiple_groups_now_rejected(self):
         runtime_config = generation_mod.BehaviorRuntimeConfig(
             llm_backend="api",

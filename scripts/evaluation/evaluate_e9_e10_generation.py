@@ -1788,6 +1788,8 @@ def run_e10_base_vs_peft_with_groups(
             unsupported_honesty = None
             if unit.unsupported_requests:
                 unsupported_honesty = int(bool(response.unsupported_notice.strip()))
+            response_error_type = debug_payload.get("response_error_type")
+            reasoning_leak_detected = response_error_type == "reasoning_leak"
 
             grouped_entry = {
                 "query_id": unit.query_id,
@@ -1796,6 +1798,8 @@ def run_e10_base_vs_peft_with_groups(
                 "verification": verification,
                 "audit_rows": response_audit_rows,
                 "unsupported_honesty": unsupported_honesty,
+                "response_error_type": response_error_type,
+                "reasoning_leak_detected": reasoning_leak_detected,
             }
             grouped_rows[group_id].append(grouped_entry)
             audit_rows.extend(response_audit_rows)
