@@ -283,14 +283,274 @@ accelerate launch -m scripts.training.train_e10_peft \
 - 当前 run 只能视为诊断结果，不能进入正式 compare
 - 或 PEFT served model 尚未成功部署
 
-## 9. 一句话版
+## 9. E10 v2 完整云端执行手册
 
-当前 `E10` 的正确推进方式是：固定 `E9` 资产不动，在云端直接运行
-`accelerate launch -m scripts.training.train_e10_peft --config experiments/assets/e10_train_config.qwen35_4b_peft_v1.json`
-训练 `Qwen/Qwen3.5-4B` 的 PEFT adapter，回传并填写 adapter metadata。由于当前单卡显存和 `merged PEFT + vLLM` 兼容性限制，`E10` 正式对照改为：
+### 9.0 v2 与 v1 的唯一差异
 
-- `Base` 组：云端 `vLLM` 服务 + 本地评测
-- `PEFT` 组：云端本地直载 merged 模型直接评测
+v2 只变数据，不变训练配方：
+
+| 项目 | v1 (exp01) | v2 (exp02) |
+| --- | --- | --- |
+| 训练任务 | 4 类 (无 grounded) | 5 类 (加 grounded_recommendation) |
+| 训练 manifest | `sft_train_manifest.jsonl` | `sft_train_manifest_v2.jsonl` |
+| QLoRA 配方 | r=16, α=32, lr=2e-4 | 完全相同 |
+| 评测资产 | 40 条冻结 E9 query | 完全相同 |
+| 正式 base 对照组 | `e10_0dc5c2e6f867c66f` | 直接复用，不重跑 |
+
+### 9.1 v2 本地验证状态（已完成）
+
+以下内容已在本地验证通过：
+
+- v2 grounded query pool：40 条可用 query，覆盖 10 城市、6 方面
+- quiet_sleep 覆盖：6 条
+- focus+avoid 覆盖：10 条
+- 80 个 query-split pair 全部有候选酒店
+- train 平均 4.8 候选/query，dev 平均 2.9 候选/query
+- 51 个单元测试全部通过
+
+### 9.2 第一步：云端同步仓库
+
+```bash
+cd /root/autodl-tmp/workspace/DatafinitiHotelReviews
+git pull origin main
+```
+
+确认以下文件存在：
+
+- `experiments/assets/e10_train_config.qwen35_4b_peft_v2.json`
+- `scripts/evaluation/evaluate_e9_e10_generation.py`（含 `prepare_e10_manifests_v2`）
+- `scripts/evaluation/run_experiment_suite.py`（含 `e10_prepare_manifests_v2` task）
+- `experiments/assets/e9_generation_eval_units.jsonl`（冻结 E9 资产）
+- `experiments/assets/e9_generation_eval_query_ids.json`
+
+### 9.3 第二步：生成 v2 manifest
+
+v2 manifest 生成需要 LLM 推理（用 base 模型为每条 query 生成 silver grounded_recommendation target），因此必须在 GPU 环境中运行。
+
+```bash
+source .venv-train/bin/activate
+export BEHAVIOR_LLM_BACKEND=local
+export BEHAVIOR_MODEL_ID=/root/autodl-tmp/models/base/Qwen3.5-4B
+export BEHAVIOR_ENABLE_THINKING=false
+unset BEHAVIOR_ADAPTER_METADATA_PATH
+unset OPENAI_BASE_URL
+unset OPENAI_API_KEY
+
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v2
+```
+
+成功后会生成三个文件：
+
+- `experiments/assets/sft_train_manifest_v2.jsonl`
+- `experiments/assets/sft_dev_manifest_v2.jsonl`
+- `experiments/assets/sft_manifest_v2_report.json`
+
+**检查要点：**
+
+```bash
+python3 -c "
+import json
+report = json.loads(open('experiments/assets/sft_manifest_v2_report.json').read())
+print(json.dumps(report, indent=2, ensure_ascii=False))
+"
+```
+
+确认：
+
+- `train_grounded_record_count_raw > 0`（grounded 原始样本非空）
+- `train_grounded_share_of_final_manifest >= 0.40`（grounded 占比达标）
+- `dropped_reason_counts` 中无异常大量丢弃
+- `train_grounded_slice_distribution` 中 `quiet_sleep`、`focus_avoid`、`partial_abstain` 均有覆盖
+
+**如果 grounded pool 为空或过少：**
+
+- 检查 `BEHAVIOR_MODEL_ID` 是否正确
+- 检查 `BEHAVIOR_ENABLE_THINKING=false` 是否已设置
+- 检查 base 模型是否能正常推理
+
+### 9.4 第三步：训练 exp02
+
+先做 dry-run：
+
+```bash
+accelerate launch -m scripts.training.train_e10_peft \
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v2.json \
+  --dry-run
+```
+
+确认输出中：
+
+- `train_sample_count` 大于 v1 的 234（因为新增了 grounded 样本）
+- `dev_sample_count` 大于 v1 的 54
+- `output_paths` 指向 `exp02` 而不是 `exp01`
+
+正式训练：
+
+```bash
+accelerate launch -m scripts.training.train_e10_peft \
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v2.json
+```
+
+训练完成后检查：
+
+```bash
+ls -lah /root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp02/
+ls -lah /root/autodl-tmp/training/reports/qwen35_4b_qlora_exp02/
+```
+
+至少应看到：
+
+- `adapter_config.json`、`adapter_model.safetensors`（adapter 权重）
+- `adapter_metadata.json`（adapter 元信息）
+- `train_summary.json`（训练汇总）
+
+### 9.5 第四步：Merge adapter 并验证
+
+```bash
+python3 -c "
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+import torch
+
+base_path = '/root/autodl-tmp/models/base/Qwen3.5-4B'
+adapter_path = '/root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp02'
+merged_path = '/root/autodl-tmp/models/merged/qwen35_4b_merged_exp02'
+
+tokenizer = AutoTokenizer.from_pretrained(base_path, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(base_path, trust_remote_code=True, torch_dtype=torch.bfloat16, device_map='cpu')
+model = PeftModel.from_pretrained(model, adapter_path)
+model = model.merge_and_unload()
+model.save_pretrained(merged_path)
+tokenizer.save_pretrained(merged_path)
+print(f'[OK] Merged model saved to {merged_path}')
+"
+```
+
+验证 merged 模型可加载：
+
+```bash
+python3 -c "
+from transformers import AutoModelForCausalLM, AutoTokenizer
+path = '/root/autodl-tmp/models/merged/qwen35_4b_merged_exp02'
+tokenizer = AutoTokenizer.from_pretrained(path, trust_remote_code=True)
+model = AutoModelForCausalLM.from_pretrained(path, trust_remote_code=True, torch_dtype='auto', device_map='auto')
+print(f'[OK] Merged model loaded: {model.device}')
+"
+```
+
+### 9.6 第五步：准备 v2 adapter metadata
+
+从训练报告中获取 metadata 路径：
+
+```bash
+cat /root/autodl-tmp/training/reports/qwen35_4b_qlora_exp02/adapter_metadata.json
+```
+
+将该文件复制到仓库实验资产目录：
+
+```bash
+cp /root/autodl-tmp/training/reports/qwen35_4b_qlora_exp02/adapter_metadata.json \
+   experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v2.json
+```
+
+确认 metadata 中以下字段正确：
+
+- `base_model_id` 包含 `Qwen3.5-4B`
+- `task_types` 包含 `grounded_recommendation`
+- `adapter_path` 指向 `exp02`
+
+### 9.7 第六步：运行 PEFT v2 评测（只跑 B 组）
+
+```bash
+export BEHAVIOR_LLM_BACKEND=local
+export BEHAVIOR_MODEL_ID=/root/autodl-tmp/models/merged/qwen35_4b_merged_exp02
+export BEHAVIOR_ADAPTER_METADATA_PATH=experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v2.json
+export BEHAVIOR_ENABLE_THINKING=false
+unset OPENAI_BASE_URL
+unset OPENAI_API_KEY
+
+python -m scripts.evaluation.run_experiment_suite \
+  --task e10_base_vs_peft \
+  --group-id B_peft_4b_grounded
+```
+
+成功后记录新的 run 目录路径：
+
+```bash
+NEW_PEFT_RUN=$(ls -td experiments/runs/e10_* | head -1)
+echo "New PEFT v2 run: $NEW_PEFT_RUN"
+```
+
+### 9.8 第七步：生成 v2 compare 报告
+
+复用 v1 已冻结的 base formal run：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite \
+  --task e10_compare_runs \
+  --base-run-dir experiments/runs/e10_0dc5c2e6f867c66f_20260402T015230+0000 \
+  --peft-run-dir "$NEW_PEFT_RUN"
+```
+
+### 9.9 第八步：检查 v2 compare 结果
+
+```bash
+NEW_CMP=$(ls -td experiments/runs/e10cmp_* | head -1)
+cat "$NEW_CMP/analysis.md"
+cat "$NEW_CMP/summary.csv"
+```
+
+重点关注：
+
+| 指标 | 期望方向 |
+| --- | --- |
+| `citation_precision` | v2 PEFT >= base（或差距 <= 0.01） |
+| `evidence_verifiability_mean` | v2 PEFT >= v1 PEFT |
+| `schema_valid_rate` | 保持 1.0 |
+| `reasoning_leak_rate` | 保持 0.0 |
+| `auditable_query_rate` | >= 0.975 |
+
+### 9.10 第九步：同步结果回本地
+
+```bash
+# 在云端打包新增结果
+tar czf e10_v2_results.tar.gz \
+  experiments/assets/sft_train_manifest_v2.jsonl \
+  experiments/assets/sft_dev_manifest_v2.jsonl \
+  experiments/assets/sft_manifest_v2_report.json \
+  experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v2.json \
+  "$NEW_PEFT_RUN" \
+  "$NEW_CMP"
+```
+
+在本地：
+
+```bash
+# 解压到仓库根目录
+tar xzf e10_v2_results.tar.gz -C /path/to/DatafinitiHotelReviews/
+```
+
+### 9.11 v2 结果解读决策树
+
+```text
+v2 compare 结果
+  ├── citation_precision 提升 >= +0.01
+  │     → 正结果：v2 grounded data 有效
+  │     → 写入论文：PEFT + grounded supervision 提升了引用准确性
+  │
+  ├── citation_precision 在 base ±0.01 范围内
+  │     → 边界结果：v2 未明显退化也未明显提升
+  │     → 写入论文：grounded supervision 消除了 v1 的退化，但提升有限
+  │
+  └── citation_precision 仍低于 base > 0.01
+        → 第二轮负结果
+        → 写入论文：当前 SFT 数据规模和质量不足以通过 PEFT 提升 grounded recommendation
+        → 不再继续迭代训练，转入论文写作
+```
+
+## 10. 一句话版
+
+当前 `E10 v2` 的正确推进方式是：在云端生成含 `grounded_recommendation` 的 v2 manifest，训练 `exp02`，merge 后只重跑 PEFT 组，复用已冻结的 base run 做 compare。
 
 ## 10. E10 单服务分时运行
 
