@@ -1,0 +1,83 @@
+{
+  "version": 2,
+  "source_query_count": 40,
+  "source_query_ids": [
+    "q004",
+    "q005",
+    "q009",
+    "q010",
+    "q014",
+    "q015",
+    "q019",
+    "q020",
+    "q024",
+    "q025",
+    "q029",
+    "q030",
+    "q034",
+    "q035",
+    "q039",
+    "q040",
+    "q044",
+    "q045",
+    "q049",
+    "q050",
+    "q057",
+    "q058",
+    "q059",
+    "q060",
+    "q061",
+    "q062",
+    "q063",
+    "q064",
+    "q065",
+    "q066",
+    "q067",
+    "q068",
+    "q069",
+    "q070",
+    "q071",
+    "q072",
+    "q073",
+    "q074",
+    "q075",
+    "q076"
+  ],
+  "clarify_needed_source_count": 10,
+  "train_base_record_count": 234,
+  "dev_base_record_count": 54,
+  "train_grounded_record_count_raw": 38,
+  "dev_grounded_record_count_raw": 36,
+  "train_grounded_record_count_final": 156,
+  "train_grounded_share_of_final_manifest": 0.4,
+  "train_task_distribution": {
+    "clarification": 70,
+    "constraint_honesty": 24,
+    "feedback_update": 70,
+    "grounded_recommendation": 156,
+    "preference_parse": 70
+  },
+  "dev_task_distribution": {
+    "clarification": 16,
+    "constraint_honesty": 6,
+    "feedback_update": 16,
+    "grounded_recommendation": 36,
+    "preference_parse": 16
+  },
+  "train_grounded_slice_distribution": {
+    "focus_avoid": 42,
+    "partial_abstain": 34,
+    "quiet_sleep": 30
+  },
+  "dev_grounded_slice_distribution": {
+    "focus_avoid": 9,
+    "partial_abstain": 8,
+    "quiet_sleep": 5,
+    "zero_recommendation": 1
+  },
+  "dropped_reason_counts": {
+    "dev:english_long_span": 3,
+    "dev:unsupported_driven_abstain": 1,
+    "train:english_long_span": 2
+  }
+}
