@@ -85,7 +85,7 @@ class BehaviorRuntimeConfigTestCase(unittest.TestCase):
                 return self
 
         class FakeTokenizer:
-            def apply_chat_template(self, messages, add_generation_prompt=True, return_tensors="pt"):
+            def apply_chat_template(self, messages, add_generation_prompt=True, return_tensors="pt", enable_thinking=None):
                 return FakeBatchEncoding(
                     {
                         "input_ids": torch.tensor([[1, 2, 3]]),
@@ -93,13 +93,15 @@ class BehaviorRuntimeConfigTestCase(unittest.TestCase):
                     }
                 )
 
-        input_ids, attention_mask = behavior_eval_mod.prepare_chat_template_tensors(
+        input_ids, attention_mask, thinking_control_supported = behavior_eval_mod.prepare_chat_template_tensors(
             FakeTokenizer(),
             [{"role": "user", "content": "hi"}],
             "cpu",
+            enable_thinking=False,
         )
         self.assertTrue(torch.equal(input_ids, torch.tensor([[1, 2, 3]])))
         self.assertTrue(torch.equal(attention_mask, torch.tensor([[1, 1, 1]])))
+        self.assertTrue(thinking_control_supported)
 
     def test_prepare_chat_template_tensors_accepts_tensor_output(self):
         class FakeTensorWithTo:
@@ -113,13 +115,15 @@ class BehaviorRuntimeConfigTestCase(unittest.TestCase):
             def apply_chat_template(self, messages, add_generation_prompt=True, return_tensors="pt"):
                 return FakeTensorWithTo(torch.tensor([[4, 5]]))
 
-        input_ids, attention_mask = behavior_eval_mod.prepare_chat_template_tensors(
+        input_ids, attention_mask, thinking_control_supported = behavior_eval_mod.prepare_chat_template_tensors(
             FakeTokenizer(),
             [{"role": "user", "content": "hi"}],
             "cpu",
+            enable_thinking=False,
         )
         self.assertTrue(torch.equal(input_ids, torch.tensor([[4, 5]])))
         self.assertTrue(torch.equal(attention_mask, torch.tensor([[1, 1]])))
+        self.assertFalse(thinking_control_supported)
 
     def test_prepare_chat_template_tensors_accepts_mapping_like_batch_encoding(self):
         class FakeBatchEncodingLike:
@@ -145,13 +149,37 @@ class BehaviorRuntimeConfigTestCase(unittest.TestCase):
             def apply_chat_template(self, messages, add_generation_prompt=True, return_tensors="pt"):
                 return FakeBatchEncodingLike()
 
-        input_ids, attention_mask = behavior_eval_mod.prepare_chat_template_tensors(
+        input_ids, attention_mask, thinking_control_supported = behavior_eval_mod.prepare_chat_template_tensors(
             FakeTokenizer(),
             [{"role": "user", "content": "hi"}],
             "cpu",
+            enable_thinking=False,
         )
         self.assertTrue(torch.equal(input_ids, torch.tensor([[7, 8, 9]])))
         self.assertTrue(torch.equal(attention_mask, torch.tensor([[1, 1, 1]])))
+        self.assertFalse(thinking_control_supported)
+
+    def test_prepare_chat_template_tensors_falls_back_when_enable_thinking_is_unsupported(self):
+        class FakeTokenizer:
+            def apply_chat_template(self, messages, add_generation_prompt=True, return_tensors="pt"):
+                return torch.tensor([[9, 9]])
+
+        input_ids, attention_mask, thinking_control_supported = behavior_eval_mod.prepare_chat_template_tensors(
+            FakeTokenizer(),
+            [{"role": "user", "content": "hi"}],
+            "cpu",
+            enable_thinking=False,
+        )
+        self.assertTrue(torch.equal(input_ids, torch.tensor([[9, 9]])))
+        self.assertTrue(torch.equal(attention_mask, torch.tensor([[1, 1]])))
+        self.assertFalse(thinking_control_supported)
+
+    def test_detect_reasoning_leak_marks_thinking_prefix(self):
+        self.assertEqual(
+            behavior_eval_mod.detect_reasoning_leak("Thinking Process:\n1. step"),
+            "reasoning_leak",
+        )
+        self.assertIsNone(behavior_eval_mod.detect_reasoning_leak('{"summary":"ok"}'))
 
 
 if __name__ == "__main__":

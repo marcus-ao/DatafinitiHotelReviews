@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 import re
 import time
@@ -73,6 +74,13 @@ UNSUPPORTED_PATTERNS = {
     "distance_to_landmark": [r"离景点", r"步行\s*\d+\s*分钟", r"景点", r"地标", r"附近"],
     "checkin_date": [r"入住", r"下周", r"周[一二三四五六日天]", r"\d+月\d+日"],
 }
+
+REASONING_LEAK_PREFIXES = (
+    "Thinking Process:",
+    "Reasoning:",
+    "Thought Process:",
+    "Chain of Thought:",
+)
 
 
 class BehaviorLLMBackend(Protocol):
@@ -250,12 +258,49 @@ def build_behavior_backend(
     return LocalBaseModel(runtime_config)
 
 
-def prepare_chat_template_tensors(tokenizer, messages: list[dict[str, str]], device: str):
-    rendered = tokenizer.apply_chat_template(
-        messages,
-        add_generation_prompt=True,
-        return_tensors="pt",
-    )
+def detect_reasoning_leak(raw_text: str) -> str | None:
+    stripped = (raw_text or "").lstrip()
+    for prefix in REASONING_LEAK_PREFIXES:
+        if stripped.startswith(prefix):
+            return "reasoning_leak"
+    return None
+
+
+def prepare_chat_template_tensors(
+    tokenizer,
+    messages: list[dict[str, str]],
+    device: str,
+    enable_thinking: bool | None = None,
+):
+    apply_kwargs = {
+        "add_generation_prompt": True,
+        "return_tensors": "pt",
+    }
+    thinking_control_supported = False
+    if enable_thinking is not None:
+        try:
+            signature = inspect.signature(tokenizer.apply_chat_template)
+            accepts_enable_thinking = "enable_thinking" in signature.parameters or any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in signature.parameters.values()
+            )
+        except (TypeError, ValueError):
+            accepts_enable_thinking = True
+
+        if accepts_enable_thinking:
+            try:
+                rendered = tokenizer.apply_chat_template(
+                    messages,
+                    **apply_kwargs,
+                    enable_thinking=enable_thinking,
+                )
+                thinking_control_supported = True
+            except TypeError:
+                rendered = tokenizer.apply_chat_template(messages, **apply_kwargs)
+        else:
+            rendered = tokenizer.apply_chat_template(messages, **apply_kwargs)
+    else:
+        rendered = tokenizer.apply_chat_template(messages, **apply_kwargs)
     if hasattr(rendered, "to"):
         rendered = rendered.to(device)
     if hasattr(rendered, "__getitem__") and hasattr(rendered, "get") and "input_ids" in rendered:
@@ -263,17 +308,18 @@ def prepare_chat_template_tensors(tokenizer, messages: list[dict[str, str]], dev
         attention_mask = rendered.get("attention_mask")
         if attention_mask is None:
             attention_mask = torch.ones_like(input_ids)
-        return input_ids, attention_mask
+        return input_ids, attention_mask, thinking_control_supported
 
     input_ids = rendered
     attention_mask = torch.ones_like(input_ids)
-    return input_ids, attention_mask
+    return input_ids, attention_mask, thinking_control_supported
 
 
 class LocalBaseModel:
     def __init__(self, runtime_config: BehaviorRuntimeConfig) -> None:
         self.runtime_config = runtime_config
         self.model_id = runtime_config.model_id
+        self.last_generation_debug: dict[str, Any] = {}
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
@@ -297,10 +343,11 @@ class LocalBaseModel:
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
-        input_ids, attention_mask = prepare_chat_template_tensors(
+        input_ids, attention_mask, thinking_control_supported = prepare_chat_template_tensors(
             self.tokenizer,
             messages,
             self.device,
+            enable_thinking=self.runtime_config.enable_thinking,
         )
         target_max_tokens = max_new_tokens or self.runtime_config.max_new_tokens
         generate_kwargs = {
@@ -318,7 +365,14 @@ class LocalBaseModel:
         with torch.inference_mode():
             output = self.model.generate(**generate_kwargs)
         generated = output[0][input_ids.shape[-1] :]
-        return self.tokenizer.decode(generated, skip_special_tokens=True).strip()
+        decoded = self.tokenizer.decode(generated, skip_special_tokens=True).strip()
+        response_error_type = detect_reasoning_leak(decoded)
+        self.last_generation_debug = {
+            "response_error_type": response_error_type,
+            "thinking_control_supported": thinking_control_supported,
+            "raw_response_prefix": decoded[:80],
+        }
+        return decoded
 
 
 class OpenAICompatibleModel:
@@ -332,6 +386,7 @@ class OpenAICompatibleModel:
 
         self.runtime_config = runtime_config
         self.model_id = runtime_config.model_id
+        self.last_generation_debug: dict[str, Any] = {}
         self.client = OpenAI(
             api_key=api_key or "EMPTY",
             base_url=runtime_config.api_base_url,
@@ -353,7 +408,13 @@ class OpenAICompatibleModel:
                 }
             },
         )
-        return flatten_openai_content(response.choices[0].message.content)
+        flattened = flatten_openai_content(response.choices[0].message.content)
+        self.last_generation_debug = {
+            "response_error_type": detect_reasoning_leak(flattened),
+            "thinking_control_supported": True,
+            "raw_response_prefix": flattened[:80],
+        }
+        return flattened
 
 
 def select_query_rows(

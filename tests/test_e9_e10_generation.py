@@ -79,6 +79,93 @@ def _build_eval_unit() -> GenerationEvalUnit:
     )
 
 
+def _build_generation_log_row(
+    run_id: str,
+    group_id: str,
+    query_id: str = "q001",
+    *,
+    schema_valid: bool = True,
+    citation_precision: float = 1.0,
+    support_scores: list[int] | None = None,
+    unsupported_notice: str = "",
+    unsupported_honesty: int | None = None,
+    response_error_type: str | None = None,
+    latency_ms: float = 100.0,
+    llm_backend: str = "local",
+    model_id: str = "/tmp/model",
+) -> dict[str, object]:
+    support_scores = support_scores or []
+    reasons = []
+    audit_rows = []
+    if support_scores:
+        reasons.append(
+            {
+                "aspect": "location_transport",
+                "reason_text": "位置方便。",
+                "sentence_id": "s_valid",
+            }
+        )
+        audit_rows = [
+            {
+                "query_id": query_id,
+                "group_id": group_id,
+                "hotel_id": "hotel_1",
+                "sentence_id": f"s_valid_{idx}",
+                "reason_text": "位置方便。",
+                "citation_exists": 1,
+                "in_current_evidence_pack": 1,
+                "support_score": score,
+                "notes": "",
+            }
+            for idx, score in enumerate(support_scores, start=1)
+        ]
+    response = RecommendationResponse(
+        query_id=query_id,
+        group_id=group_id,
+        summary="测试摘要" if schema_valid and (reasons or unsupported_notice) else "",
+        recommendations=(
+            [RecommendationItem(hotel_id="hotel_1", hotel_name="Hotel One", reasons=[
+                RecommendationReason(**reason) for reason in reasons
+            ])]
+            if reasons
+            else []
+        ),
+        unsupported_notice=unsupported_notice,
+        schema_valid=schema_valid,
+        raw_response='{"summary":"测试摘要"}' if schema_valid else "Thinking Process:\n1. test",
+    )
+    verification = CitationVerificationResult(
+        query_id=query_id,
+        group_id=group_id,
+        citation_precision=citation_precision,
+        invalid_sentence_ids=[],
+        out_of_pack_sentence_ids=[],
+        retry_triggered=False,
+        fallback_to_honest_notice=False,
+    )
+    return {
+        "run_id": run_id,
+        "group_id": group_id,
+        "query_id": query_id,
+        "retrieval_mode": "aspect_main_no_rerank",
+        "candidate_mode": "e10_frozen_assets",
+        "config_hash": "cfg",
+        "latency_ms": latency_ms,
+        "intermediate_objects": {
+            "response": response.model_dump(),
+            "citation_verification": verification.model_dump(),
+            "audit_rows": audit_rows,
+            "unsupported_honesty": unsupported_honesty,
+            "response_error_type": response_error_type,
+            "reasoning_leak_detected": response_error_type == "reasoning_leak",
+            "behavior_runtime_config": {
+                "llm_backend": llm_backend,
+                "model_id": model_id,
+            },
+        },
+    }
+
+
 class E9E10GenerationTestCase(unittest.TestCase):
     def test_build_e9_query_rows_matches_frozen_query_count(self):
         rows = generation_mod.build_e9_query_rows(limit_queries=None)
@@ -385,6 +472,154 @@ class E9E10GenerationTestCase(unittest.TestCase):
                     limit_queries=1,
                     group_ids=["A_base_4b_grounded", "B_peft_4b_grounded"],
                 )
+
+    def test_build_e10_metric_row_uses_na_for_unsupported_when_not_applicable(self):
+        row = {
+            "query_id": "q001",
+            "latency_ms": 100.0,
+            "response": RecommendationResponse(
+                query_id="q001",
+                group_id="A_base_4b_grounded",
+                summary="ok",
+                recommendations=[],
+                unsupported_notice="",
+                schema_valid=True,
+                raw_response="{}",
+            ),
+            "verification": CitationVerificationResult(
+                query_id="q001",
+                group_id="A_base_4b_grounded",
+                citation_precision=1.0,
+                invalid_sentence_ids=[],
+                out_of_pack_sentence_ids=[],
+                retry_triggered=False,
+                fallback_to_honest_notice=False,
+            ),
+            "audit_rows": [],
+            "unsupported_honesty": None,
+            "response_error_type": "reasoning_leak",
+        }
+        metric_row = generation_mod.build_e10_metric_row(
+            "A_base_4b_grounded",
+            [row],
+            {"task": "E10"},
+        )
+        self.assertIsNone(metric_row["unsupported_honesty_rate"])
+        self.assertEqual(metric_row["reasoning_leak_rate"], 1.0)
+        self.assertEqual(metric_row["auditable_query_rate"], 0.0)
+
+    def test_build_e10_analysis_md_marks_single_group_sections_as_not_applicable(self):
+        grouped_rows = {
+            "A_base_4b_grounded": [
+                {
+                    "query_id": "q001",
+                    "latency_ms": 10.0,
+                    "response": RecommendationResponse(
+                        query_id="q001",
+                        group_id="A_base_4b_grounded",
+                        summary="ok",
+                        recommendations=[],
+                        unsupported_notice="",
+                        schema_valid=True,
+                        raw_response="{}",
+                    ),
+                    "verification": CitationVerificationResult(
+                        query_id="q001",
+                        group_id="A_base_4b_grounded",
+                        citation_precision=1.0,
+                        invalid_sentence_ids=[],
+                        out_of_pack_sentence_ids=[],
+                        retry_triggered=False,
+                        fallback_to_honest_notice=False,
+                    ),
+                    "audit_rows": [],
+                    "unsupported_honesty": None,
+                    "response_error_type": None,
+                }
+            ]
+        }
+        summary_rows = [
+            {
+                "group_id": "A_base_4b_grounded",
+                "query_count": 1,
+                "citation_precision": 1.0,
+                "evidence_verifiability_mean": 0.0,
+                "unsupported_honesty_rate": None,
+                "schema_valid_rate": 1.0,
+                "reasoning_leak_rate": 0.0,
+                "auditable_query_rate": 0.0,
+                "avg_latency_ms": 10.0,
+                "config_hash": "cfg",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            run_dir = Path(tmp_dir)
+            generation_mod.build_e10_analysis_md(run_dir, summary_rows, grouped_rows, adapter_metadata=None)
+            analysis_text = (run_dir / "analysis.md").read_text(encoding="utf-8")
+        self.assertIn("E10 Single-Group Diagnostic Result", analysis_text)
+        self.assertIn("not applicable in base-only run", analysis_text)
+        self.assertIn("not available in single-group run", analysis_text)
+        self.assertIn("n/a (no applicable unsupported-request queries)", analysis_text)
+
+    def test_run_e10_compare_runs_generates_comparison_report(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            base_run_dir = tmp_path / "base_run"
+            peft_run_dir = tmp_path / "peft_run"
+            base_run_dir.mkdir()
+            peft_run_dir.mkdir()
+
+            base_log_rows = [
+                _build_generation_log_row(
+                    "base_run",
+                    "A_base_4b_grounded",
+                    query_id="q001",
+                    citation_precision=0.5,
+                    support_scores=[1],
+                    latency_ms=100.0,
+                )
+            ]
+            peft_log_rows = [
+                _build_generation_log_row(
+                    "peft_run",
+                    "B_peft_4b_grounded",
+                    query_id="q001",
+                    citation_precision=1.0,
+                    support_scores=[2],
+                    latency_ms=120.0,
+                )
+            ]
+
+            (base_run_dir / "run_meta.json").write_text(
+                json.dumps({"run_id": "base_run", "stable_run_config": {"task": "E10"}}),
+                encoding="utf-8",
+            )
+            (peft_run_dir / "run_meta.json").write_text(
+                json.dumps({"run_id": "peft_run", "stable_run_config": {"task": "E10"}}),
+                encoding="utf-8",
+            )
+            (base_run_dir / "results.jsonl").write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in base_log_rows),
+                encoding="utf-8",
+            )
+            (peft_run_dir / "results.jsonl").write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in peft_log_rows),
+                encoding="utf-8",
+            )
+
+            compare_dir = generation_mod.run_e10_compare_runs(
+                output_root=tmp_path,
+                base_run_dir=base_run_dir,
+                peft_run_dir=peft_run_dir,
+            )
+
+            self.assertTrue((compare_dir / "summary.csv").exists())
+            self.assertTrue((compare_dir / "analysis.md").exists())
+            self.assertTrue((compare_dir / "comparison.jsonl").exists())
+            analysis_text = (compare_dir / "analysis.md").read_text(encoding="utf-8")
+            self.assertIn("E10 Base vs PEFT Compare Result", analysis_text)
+            self.assertIn("base_run", analysis_text)
+            self.assertIn("peft_run", analysis_text)
 
 
 if __name__ == "__main__":

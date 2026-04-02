@@ -7,7 +7,8 @@
 1. 准备 `SFT manifest`
 2. 在云端训练 `Qwen/Qwen3.5-4B` 的 PEFT adapter
 3. 回传 adapter 与 metadata
-4. 在本地运行 `e10_base_vs_peft`
+4. 在云端按同后端协议分别运行 base / peft
+5. 在本地或云端生成正式 compare 报告
 
 当前不覆盖：
 
@@ -99,9 +100,9 @@ metadata 可从：
 必须保证：
 
 - `base_model_id = Qwen/Qwen3.5-4B`
-- `served_model_id` 为当前推理端点实际可调用的 PEFT model id
+- `served_model_id` 为当前 PEFT 实验标识
 - `adapter_path` 指向真实 adapter 导出目录
-- `backend = api`
+- metadata 仅用于标识 adapter，不再要求正式结果通过 API serving 路径完成
 
 ## 5. 云端如何正式启动训练
 
@@ -154,25 +155,52 @@ ls -lah /root/autodl-tmp/training/reports/qwen35_4b_qlora_exp01
 - `adapter_metadata.json`
 - `train_summary.json`
 
-## 6. 本地如何运行 E10
+## 6. 正式 E10 如何运行
 
-先准备环境变量：
+正式论文结果只接受同后端协议：
+
+- 两组都在云端 `.venv-train` 中执行
+- 两组都使用 `BEHAVIOR_LLM_BACKEND=local`
+- 两组都使用同一套冻结 `E9` eval units
+
+### Base formal
 
 ```bash
-export OPENAI_BASE_URL=http://127.0.0.1:8000/v1
-export OPENAI_API_KEY=EMPTY
-export BEHAVIOR_ADAPTER_METADATA_PATH=/absolute/path/to/final_adapter_metadata.json
+cd /root/autodl-tmp/workspace/DatafinitiHotelReviews
+source .venv-train/bin/activate
+export BEHAVIOR_LLM_BACKEND=local
+export BEHAVIOR_MODEL_ID=/root/autodl-tmp/models/base/Qwen3.5-4B
+unset BEHAVIOR_ADAPTER_METADATA_PATH
+unset OPENAI_BASE_URL
+unset OPENAI_API_KEY
+python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --group-id A_base_4b_grounded
 ```
 
-然后运行：
+### PEFT formal
 
 ```bash
-python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
+cd /root/autodl-tmp/workspace/DatafinitiHotelReviews
+source .venv-train/bin/activate
+export BEHAVIOR_LLM_BACKEND=local
+export BEHAVIOR_MODEL_ID=/root/autodl-tmp/models/merged/qwen35_4b_merged_exp01
+export BEHAVIOR_ADAPTER_METADATA_PATH=experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v1.json
+unset OPENAI_BASE_URL
+unset OPENAI_API_KEY
+python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --group-id B_peft_4b_grounded
+```
+
+### Compare 报告
+
+```bash
+python -m scripts.evaluation.run_experiment_suite \
+  --task e10_compare_runs \
+  --base-run-dir /abs/path/to/base_run \
+  --peft-run-dir /abs/path/to/peft_run
 ```
 
 ## 7. 运行后检查什么
 
-成功后会产出：
+单组运行成功后会产出：
 
 - `experiments/runs/e10_*/run_meta.json`
 - `experiments/runs/e10_*/results.jsonl`
@@ -180,15 +208,23 @@ python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
 - `experiments/runs/e10_*/analysis.md`
 - `experiments/runs/e10_*/citation_verifiability_audit.csv`
 
+正式 compare 成功后会新增：
+
+- `experiments/runs/e10cmp_*/run_meta.json`
+- `experiments/runs/e10cmp_*/comparison.jsonl`
+- `experiments/runs/e10cmp_*/summary.csv`
+- `experiments/runs/e10cmp_*/analysis.md`
+
 重点检查：
 
-- `A_base_4b_grounded` 与 `B_peft_4b_grounded` 是否都产出完整结果
-- `summary.csv` 中五项主指标是否可直接对照：
+- 两个单组 run 是否都完成且 `schema_valid_rate > 0`
+- `reasoning_leak_rate` 是否为 `0.0`
+- compare 报告中以下主指标是否可直接对照：
   - `citation_precision`
   - `evidence_verifiability_mean`
   - `unsupported_honesty_rate`
   - `schema_valid_rate`
-  - `avg_latency_ms`
+  - `avg_latency_ms` 仅在 compare 报告明确标记 `latency_formally_comparable=yes` 时才纳入正式结论
 
 ## 8. 常见报错判断
 
@@ -213,11 +249,12 @@ python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
 - metadata 中的 `base_model_id` 不是 `Qwen/Qwen3.5-4B`
 - 当前 adapter 不属于本主线
 
-### 情况 4：served model 不可用
+### 情况 4：PEFT 本地直载输出 Thinking Process
 
 说明：
 
-- `served_model_id` 与当前 API 实际部署的名称不一致
+- 本地 backend 没有正确关闭 thinking / reasoning 输出
+- 当前 run 只能视为诊断结果，不能进入正式 compare
 - 或 PEFT served model 尚未成功部署
 
 ## 9. 一句话版

@@ -13,6 +13,7 @@ from scripts.evaluation.evaluate_e3_e5_behavior import (
 from scripts.evaluation.evaluate_e9_e10_generation import (
     freeze_e9_assets,
     prepare_e10_manifests,
+    run_e10_compare_runs,
     run_e10_base_vs_peft,
     run_e9_generation_constraints,
 )
@@ -43,6 +44,7 @@ def main() -> None:
             "e9_generation_constraints",
             "e10_prepare_manifests",
             "e10_base_vs_peft",
+            "e10_compare_runs",
         ],
         required=True,
     )
@@ -50,6 +52,8 @@ def main() -> None:
     parser.add_argument("--limit-queries", type=int, default=None)
     parser.add_argument("--query-id-file", default=None)
     parser.add_argument("--group-id", action="append", default=None)
+    parser.add_argument("--base-run-dir", default=None)
+    parser.add_argument("--peft-run-dir", default=None)
     parser.add_argument("--include-ablation", action="store_true")
     args = parser.parse_args()
 
@@ -109,6 +113,15 @@ def main() -> None:
             output_root=output_root,
             limit_queries=args.limit_queries,
             group_ids=args.group_id,
+        )
+        print(f"[OK] run saved to {run_dir}")
+    elif args.task == "e10_compare_runs":
+        if not args.base_run_dir or not args.peft_run_dir:
+            raise ValueError("e10_compare_runs 需要同时提供 --base-run-dir 和 --peft-run-dir。")
+        run_dir = run_e10_compare_runs(
+            output_root=output_root,
+            base_run_dir=args.base_run_dir,
+            peft_run_dir=args.peft_run_dir,
         )
         print(f"[OK] run saved to {run_dir}")
 

@@ -199,6 +199,30 @@ def build_peft_runtime_config(
     )
 
 
+def compute_query_evidence_mean(row: dict[str, Any]) -> float:
+    support_scores = [audit_row["support_score"] for audit_row in row["audit_rows"]]
+    if not support_scores:
+        return 0.0
+    return round(sum(support_scores) / len(support_scores), 4)
+
+
+def is_auditable_generation_row(row: dict[str, Any]) -> bool:
+    if row["audit_rows"]:
+        return True
+    return bool(row["response"].schema_valid and row["response"].unsupported_notice.strip())
+
+
+def format_analysis_value(value: Any, none_text: str = "n/a") -> str:
+    if value is None:
+        return none_text
+    try:
+        if pd.isna(value):
+            return none_text
+    except TypeError:
+        pass
+    return str(value)
+
+
 def build_e10_metric_row(
     group_id: str,
     rows: list[dict[str, Any]],
@@ -218,11 +242,18 @@ def build_e10_metric_row(
             4,
         ),
         "evidence_verifiability_mean": round(sum(support_scores) / max(len(support_scores), 1), 4),
-        "unsupported_honesty_rate": round(
-            1.0 if not unsupported_rows else sum(unsupported_rows) / len(unsupported_rows),
-            4,
+        "unsupported_honesty_rate": (
+            round(sum(unsupported_rows) / len(unsupported_rows), 4) if unsupported_rows else None
         ),
         "schema_valid_rate": round(sum(int(row["response"].schema_valid) for row in rows) / max(len(rows), 1), 4),
+        "reasoning_leak_rate": round(
+            sum(int(row.get("response_error_type") == "reasoning_leak") for row in rows) / max(len(rows), 1),
+            4,
+        ),
+        "auditable_query_rate": round(
+            sum(int(is_auditable_generation_row(row)) for row in rows) / max(len(rows), 1),
+            4,
+        ),
         "avg_latency_ms": round(sum(row["latency_ms"] for row in rows) / max(len(rows), 1), 3),
         "config_hash": stable_hash(stable_run_config | {"group_id": group_id}),
     }
@@ -234,10 +265,12 @@ def build_e10_analysis_md(
     grouped_rows: dict[str, list[dict[str, Any]]],
     adapter_metadata: dict[str, Any] | None,
 ) -> None:
+    selected_group_ids = sorted(grouped_rows)
     base_rows = {row["query_id"]: row for row in grouped_rows.get("A_base_4b_grounded", [])}
     peft_rows = {row["query_id"]: row for row in grouped_rows.get("B_peft_4b_grounded", [])}
     improved: list[dict[str, Any]] = []
     regressed: list[dict[str, Any]] = []
+    is_single_group = len(selected_group_ids) == 1
     if base_rows and peft_rows:
         for query_id in sorted(base_rows):
             if query_id not in peft_rows:
@@ -261,28 +294,78 @@ def build_e10_analysis_md(
             elif delta < 0:
                 regressed.append(payload)
 
+    summary_rows_for_md: list[dict[str, Any]] = []
+    for row in summary_rows:
+        summary_rows_for_md.append(
+            {
+                key: (
+                    format_analysis_value(
+                        value,
+                        none_text="n/a (no applicable unsupported-request queries)",
+                    )
+                    if key == "unsupported_honesty_rate"
+                    else format_analysis_value(value)
+                )
+                for key, value in row.items()
+            }
+        )
+
     lines = [
-        "# E10 Base vs PEFT Result",
+        "# E10 Single-Group Diagnostic Result" if is_single_group else "# E10 Base vs PEFT Result",
         "",
         "## Summary Table",
         "",
     ]
-    lines.extend(markdown_table(summary_rows))
+    lines.extend(markdown_table(summary_rows_for_md))
     lines.extend(
         [
             "",
             "## Adapter Metadata",
             "",
-            f"- adapter_name: {adapter_metadata['adapter_name']}" if adapter_metadata else "- adapter_name: n/a",
-            f"- base_model_id: {adapter_metadata['base_model_id']}" if adapter_metadata else "- base_model_id: n/a",
-            f"- served_model_id: {adapter_metadata['served_model_id']}" if adapter_metadata else "- served_model_id: n/a",
-            f"- adapter_path: {adapter_metadata['_resolved_adapter_path']}" if adapter_metadata else "- adapter_path: n/a",
+            (
+                "- adapter_name: not applicable in base-only run"
+                if is_single_group and selected_group_ids == ["A_base_4b_grounded"]
+                else (
+                    f"- adapter_name: {adapter_metadata['adapter_name']}"
+                    if adapter_metadata
+                    else "- adapter_name: n/a"
+                )
+            ),
+            (
+                "- base_model_id: not applicable in base-only run"
+                if is_single_group and selected_group_ids == ["A_base_4b_grounded"]
+                else (
+                    f"- base_model_id: {adapter_metadata['base_model_id']}"
+                    if adapter_metadata
+                    else "- base_model_id: n/a"
+                )
+            ),
+            (
+                "- served_model_id: not applicable in base-only run"
+                if is_single_group and selected_group_ids == ["A_base_4b_grounded"]
+                else (
+                    f"- served_model_id: {adapter_metadata['served_model_id']}"
+                    if adapter_metadata
+                    else "- served_model_id: n/a"
+                )
+            ),
+            (
+                "- adapter_path: not applicable in base-only run"
+                if is_single_group and selected_group_ids == ["A_base_4b_grounded"]
+                else (
+                    f"- adapter_path: {adapter_metadata['_resolved_adapter_path']}"
+                    if adapter_metadata
+                    else "- adapter_path: n/a"
+                )
+            ),
             "",
             "## Representative Improvements",
             "",
         ]
     )
-    if improved:
+    if is_single_group:
+        lines.append("- not available in single-group run")
+    elif improved:
         for row in improved[:5]:
             lines.append(
                 f"- `{row['query_id']}` | Δcitation_precision={row['delta_citation_precision']} | base_recs={row['base_recommendations']} | peft_recs={row['peft_recommendations']}"
@@ -291,7 +374,9 @@ def build_e10_analysis_md(
         lines.append("- none")
 
     lines.extend(["", "## Representative Regressions", ""])
-    if regressed:
+    if is_single_group:
+        lines.append("- not available in single-group run")
+    elif regressed:
         for row in regressed[:5]:
             lines.append(
                 f"- `{row['query_id']}` | Δcitation_precision={row['delta_citation_precision']} | base_recs={row['base_recommendations']} | peft_recs={row['peft_recommendations']}"
@@ -300,6 +385,259 @@ def build_e10_analysis_md(
         lines.append("- none")
 
     (run_dir / "analysis.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def load_e10_run_artifacts(run_dir: str | Path) -> tuple[Path, dict[str, Any], list[dict[str, Any]]]:
+    resolved_run_dir = Path(run_dir)
+    run_meta_path = resolved_run_dir / "run_meta.json"
+    results_path = resolved_run_dir / "results.jsonl"
+    if not run_meta_path.exists():
+        raise FileNotFoundError(f"Missing E10 run_meta.json: {run_meta_path}")
+    if not results_path.exists():
+        raise FileNotFoundError(f"Missing E10 results.jsonl: {results_path}")
+    run_meta = load_json(run_meta_path)
+    log_rows = load_jsonl(results_path)
+    if not log_rows:
+        raise ValueError(f"E10 运行目录为空，无法比较：{resolved_run_dir}")
+    return resolved_run_dir, run_meta, log_rows
+
+
+def reconstruct_e10_group_rows(log_rows: list[dict[str, Any]]) -> tuple[str, list[dict[str, Any]]]:
+    group_ids = sorted({row["group_id"] for row in log_rows})
+    if len(group_ids) != 1:
+        raise ValueError(
+            "e10_compare_runs 只接受单组运行目录。"
+            f"当前目录包含 group_ids={group_ids}"
+        )
+    group_id = group_ids[0]
+    grouped_rows: list[dict[str, Any]] = []
+    for row in log_rows:
+        intermediate = row["intermediate_objects"]
+        grouped_rows.append(
+            {
+                "query_id": row["query_id"],
+                "latency_ms": row["latency_ms"],
+                "response": RecommendationResponse.model_validate(intermediate["response"]),
+                "verification": CitationVerificationResult.model_validate(intermediate["citation_verification"]),
+                "audit_rows": intermediate.get("audit_rows", []),
+                "unsupported_honesty": intermediate.get("unsupported_honesty"),
+                "response_error_type": intermediate.get("response_error_type")
+                or intermediate.get("debug_payload", {}).get("response_error_type"),
+                "reasoning_leak_detected": bool(intermediate.get("reasoning_leak_detected", False)),
+                "behavior_runtime_config": intermediate.get("behavior_runtime_config", {}),
+            }
+        )
+    return group_id, grouped_rows
+
+
+def build_e10_compare_analysis_md(
+    run_dir: Path,
+    summary_rows: list[dict[str, Any]],
+    comparison_rows: list[dict[str, Any]],
+    base_run_meta: dict[str, Any],
+    peft_run_meta: dict[str, Any],
+    latency_formally_comparable: bool,
+) -> None:
+    summary_rows_for_md: list[dict[str, Any]] = []
+    for row in summary_rows:
+        summary_rows_for_md.append(
+            {
+                key: (
+                    format_analysis_value(
+                        value,
+                        none_text="n/a (no applicable unsupported-request queries)",
+                    )
+                    if key == "unsupported_honesty_rate"
+                    else format_analysis_value(value)
+                )
+                for key, value in row.items()
+            }
+        )
+
+    improved = []
+    regressed = []
+    for row in comparison_rows:
+        delta_key = (
+            row["delta_schema_valid"],
+            row["delta_citation_precision"],
+            row["delta_evidence_verifiability"],
+        )
+        if delta_key > (0, 0.0, 0.0):
+            improved.append(row)
+        elif delta_key < (0, 0.0, 0.0):
+            regressed.append(row)
+
+    improved.sort(
+        key=lambda row: (
+            row["delta_schema_valid"],
+            row["delta_citation_precision"],
+            row["delta_evidence_verifiability"],
+        ),
+        reverse=True,
+    )
+    regressed.sort(
+        key=lambda row: (
+            row["delta_schema_valid"],
+            row["delta_citation_precision"],
+            row["delta_evidence_verifiability"],
+        )
+    )
+
+    lines = [
+        "# E10 Base vs PEFT Compare Result",
+        "",
+        "## Summary Table",
+        "",
+    ]
+    lines.extend(markdown_table(summary_rows_for_md))
+    lines.extend(
+        [
+            "",
+            "## Source Runs",
+            "",
+            f"- base_run_id: {base_run_meta['run_id']}",
+            f"- peft_run_id: {peft_run_meta['run_id']}",
+            f"- latency_formally_comparable: {'yes' if latency_formally_comparable else 'no'}",
+            (
+                "- latency_note: 两组使用相同 local backend，可纳入正式时延对照。"
+                if latency_formally_comparable
+                else "- latency_note: 两组推理栈不同或不满足同后端条件，不纳入正式结论。"
+            ),
+            "",
+            "## Representative Improvements",
+            "",
+        ]
+    )
+    if improved:
+        for row in improved[:5]:
+            lines.append(
+                f"- `{row['query_id']}` | Δschema_valid={row['delta_schema_valid']} | "
+                f"Δcitation_precision={row['delta_citation_precision']} | "
+                f"Δevidence={row['delta_evidence_verifiability']} | "
+                f"base_recs={row['base_recommendations']} | peft_recs={row['peft_recommendations']}"
+            )
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Representative Regressions", ""])
+    if regressed:
+        for row in regressed[:5]:
+            lines.append(
+                f"- `{row['query_id']}` | Δschema_valid={row['delta_schema_valid']} | "
+                f"Δcitation_precision={row['delta_citation_precision']} | "
+                f"Δevidence={row['delta_evidence_verifiability']} | "
+                f"base_recs={row['base_recommendations']} | peft_recs={row['peft_recommendations']}"
+            )
+    else:
+        lines.append("- none")
+
+    (run_dir / "analysis.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def run_e10_compare_runs(
+    output_root: Path,
+    base_run_dir: str | Path,
+    peft_run_dir: str | Path,
+) -> Path:
+    base_run_path, base_run_meta, base_log_rows = load_e10_run_artifacts(base_run_dir)
+    peft_run_path, peft_run_meta, peft_log_rows = load_e10_run_artifacts(peft_run_dir)
+    base_group_id, base_rows = reconstruct_e10_group_rows(base_log_rows)
+    peft_group_id, peft_rows = reconstruct_e10_group_rows(peft_log_rows)
+    if base_group_id != "A_base_4b_grounded":
+        raise ValueError(
+            "base_run_dir 必须是仅包含 A_base_4b_grounded 的单组运行目录。"
+        )
+    if peft_group_id != "B_peft_4b_grounded":
+        raise ValueError(
+            "peft_run_dir 必须是仅包含 B_peft_4b_grounded 的单组运行目录。"
+        )
+
+    base_by_query = {row["query_id"]: row for row in base_rows}
+    peft_by_query = {row["query_id"]: row for row in peft_rows}
+    if set(base_by_query) != set(peft_by_query):
+        raise ValueError("base 与 peft 的 query_id 集合不一致，无法做正式对照。")
+
+    base_backend = base_rows[0]["behavior_runtime_config"].get("llm_backend")
+    peft_backend = peft_rows[0]["behavior_runtime_config"].get("llm_backend")
+    latency_formally_comparable = base_backend == peft_backend == "local"
+
+    stable_run_config = {
+        "task": "E10_COMPARE",
+        "base_run_id": base_run_meta["run_id"],
+        "peft_run_id": peft_run_meta["run_id"],
+        "base_group_id": base_group_id,
+        "peft_group_id": peft_group_id,
+        "query_count": len(base_by_query),
+        "latency_formally_comparable": latency_formally_comparable,
+    }
+    run_started_at = utc_now_iso()
+    run_id = f"e10cmp_{stable_hash(stable_run_config)}_{run_started_at.replace(':', '').replace('-', '')}"
+    run_dir = ensure_dir(output_root / run_id)
+
+    summary_rows = []
+    for group_id, rows, run_meta, source_run_path in [
+        (base_group_id, base_rows, base_run_meta, base_run_path),
+        (peft_group_id, peft_rows, peft_run_meta, peft_run_path),
+    ]:
+        summary_row = build_e10_metric_row(group_id, rows, run_meta["stable_run_config"])
+        summary_row["source_run_id"] = run_meta["run_id"]
+        summary_row["source_run_dir"] = str(source_run_path)
+        summary_row["latency_formally_comparable"] = latency_formally_comparable
+        summary_rows.append(summary_row)
+
+    comparison_rows: list[dict[str, Any]] = []
+    for query_id in sorted(base_by_query):
+        base_row = base_by_query[query_id]
+        peft_row = peft_by_query[query_id]
+        base_evidence_mean = compute_query_evidence_mean(base_row)
+        peft_evidence_mean = compute_query_evidence_mean(peft_row)
+        comparison_rows.append(
+            {
+                "query_id": query_id,
+                "delta_schema_valid": int(peft_row["response"].schema_valid) - int(base_row["response"].schema_valid),
+                "delta_citation_precision": round(
+                    peft_row["verification"].citation_precision - base_row["verification"].citation_precision,
+                    4,
+                ),
+                "delta_evidence_verifiability": round(peft_evidence_mean - base_evidence_mean, 4),
+                "delta_latency_ms": round(peft_row["latency_ms"] - base_row["latency_ms"], 3),
+                "latency_formally_comparable": latency_formally_comparable,
+                "base_schema_valid": bool(base_row["response"].schema_valid),
+                "peft_schema_valid": bool(peft_row["response"].schema_valid),
+                "base_citation_precision": base_row["verification"].citation_precision,
+                "peft_citation_precision": peft_row["verification"].citation_precision,
+                "base_evidence_verifiability": base_evidence_mean,
+                "peft_evidence_verifiability": peft_evidence_mean,
+                "base_recommendations": len(base_row["response"].recommendations),
+                "peft_recommendations": len(peft_row["response"].recommendations),
+                "base_response_error_type": base_row.get("response_error_type"),
+                "peft_response_error_type": peft_row.get("response_error_type"),
+                "base_summary": base_row["response"].summary or "",
+                "peft_summary": peft_row["response"].summary or "",
+            }
+        )
+
+    write_jsonl(run_dir / "comparison.jsonl", comparison_rows)
+    pd.DataFrame(summary_rows).to_csv(run_dir / "summary.csv", index=False, encoding="utf-8-sig")
+    write_json(
+        run_dir / "run_meta.json",
+        {
+            "run_id": run_id,
+            "generated_at": run_started_at,
+            "base_run_id": base_run_meta["run_id"],
+            "peft_run_id": peft_run_meta["run_id"],
+            "latency_formally_comparable": latency_formally_comparable,
+        },
+    )
+    build_e10_compare_analysis_md(
+        run_dir,
+        summary_rows,
+        comparison_rows,
+        base_run_meta,
+        peft_run_meta,
+        latency_formally_comparable,
+    )
+    return run_dir
 
 
 def build_e9_query_rows(limit_queries: int | None = None) -> list[tuple[dict[str, Any], dict[str, Any]]]:
@@ -824,15 +1162,25 @@ def generate_group_response(
 ) -> tuple[RecommendationResponse, CitationVerificationResult, list[dict[str, Any]], dict[str, Any]]:
     system_prompt, user_prompt = build_generation_prompts(unit, group_id)
     raw_response = llm_runner.generate_json(system_prompt, user_prompt, max_new_tokens=max_new_tokens)
+    generation_debug = dict(getattr(llm_runner, "last_generation_debug", {}) or {})
     payload, repaired = parse_json_with_repair(raw_response)
     response = coerce_generation_payload(payload, unit, group_id, raw_response)
     if repaired:
         response.schema_valid = False
 
+    response_error_type = generation_debug.get("response_error_type")
+    if response_error_type is None and payload is None:
+        response_error_type = "invalid_json"
+    elif response_error_type is None and not response.schema_valid:
+        response_error_type = "schema_invalid"
+
     verification, audit_rows = verify_response_citations(response, unit, evidence_lookup)
     debug_payload: dict[str, Any] = {
         "raw_response_initial": raw_response,
         "retry_raw_response": "",
+        "response_error_type": response_error_type,
+        "thinking_control_supported": generation_debug.get("thinking_control_supported"),
+        "raw_response_prefix": generation_debug.get("raw_response_prefix", raw_response[:80]),
     }
 
     if group_id != "C_grounded_generation_with_verifier":
@@ -1075,6 +1423,8 @@ def run_e9_generation_constraints(
             unsupported_honesty = None
             if unit.unsupported_requests:
                 unsupported_honesty = int(bool(response.unsupported_notice.strip()))
+            response_error_type = debug_payload.get("response_error_type")
+            reasoning_leak_detected = response_error_type == "reasoning_leak"
 
             grouped_entry = {
                 "query_id": unit.query_id,
@@ -1083,6 +1433,8 @@ def run_e9_generation_constraints(
                 "verification": verification,
                 "audit_rows": response_audit_rows,
                 "unsupported_honesty": unsupported_honesty,
+                "response_error_type": response_error_type,
+                "reasoning_leak_detected": reasoning_leak_detected,
             }
             grouped_rows[group_id].append(grouped_entry)
             audit_rows.extend(response_audit_rows)
@@ -1451,6 +1803,8 @@ def run_e10_base_vs_peft_with_groups(
                         "audit_rows": response_audit_rows,
                         "debug_payload": debug_payload,
                         "unsupported_honesty": unsupported_honesty,
+                        "response_error_type": response_error_type,
+                        "reasoning_leak_detected": reasoning_leak_detected,
                         "behavior_runtime_config": runtime_config.model_dump(),
                     },
                 ).model_dump()
