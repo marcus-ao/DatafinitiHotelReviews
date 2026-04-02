@@ -49,6 +49,33 @@ class TrainingUtilsTestCase(unittest.TestCase):
             config = training_mod.load_train_config(path)
         self.assertEqual(config.task_types, ["preference_parse", "grounded_recommendation"])
 
+    def test_load_train_config_reads_gradient_checkpointing_fields(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "good_config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "base_model_id": "/root/autodl-tmp/models/base/Qwen3.5-4B",
+                        "adapter_type": "qlora",
+                        "train_manifest_path": "train_v2.jsonl",
+                        "dev_manifest_path": "dev_v2.jsonl",
+                        "task_types": ["grounded_recommendation"],
+                        "per_device_train_batch_size": 1,
+                        "gradient_accumulation_steps": 32,
+                        "gradient_checkpointing": True,
+                        "gradient_checkpointing_use_reentrant": False,
+                        "output_adapter_dir": "/root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp02",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            config = training_mod.load_train_config(path)
+        self.assertTrue(config.gradient_checkpointing)
+        self.assertFalse(config.gradient_checkpointing_use_reentrant)
+        self.assertEqual(config.per_device_train_batch_size, 1)
+        self.assertEqual(config.gradient_accumulation_steps, 32)
+
     def test_build_sft_text_sample_contains_task_and_json(self):
         row = {
             "record_id": "rec01",

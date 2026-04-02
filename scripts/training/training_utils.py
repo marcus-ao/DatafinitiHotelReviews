@@ -34,6 +34,8 @@ class E10TrainConfig(BaseModel):
     gradient_accumulation_steps: int = 8
     num_train_epochs: int = 2
     learning_rate: float = 2e-4
+    gradient_checkpointing: bool = True
+    gradient_checkpointing_use_reentrant: bool = False
     lora_r: int = 16
     lora_alpha: int = 32
     lora_dropout: float = 0.05

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import inspect
 import json
 from pathlib import Path
 from typing import Any
@@ -65,7 +66,7 @@ def run_training(config_path: str | Path, dry_run: bool = False) -> dict[str, An
     check_training_dependencies()
 
     from datasets import Dataset
-    from peft import LoraConfig
+    from peft import LoraConfig, prepare_model_for_kbit_training
     from transformers import (
         AutoModelForCausalLM,
         AutoTokenizer,
@@ -105,6 +106,22 @@ def run_training(config_path: str | Path, dry_run: bool = False) -> dict[str, An
         quantization_config=bnb_config,
         device_map="auto",
     )
+    if hasattr(model.config, "use_cache"):
+        model.config.use_cache = False
+    if config.load_in_4bit:
+        model = prepare_model_for_kbit_training(
+            model,
+            use_gradient_checkpointing=config.gradient_checkpointing,
+        )
+    elif config.gradient_checkpointing:
+        try:
+            model.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs={
+                    "use_reentrant": config.gradient_checkpointing_use_reentrant,
+                }
+            )
+        except TypeError:
+            model.gradient_checkpointing_enable()
 
     peft_config = LoraConfig(
         r=config.lora_r,
@@ -117,22 +134,31 @@ def run_training(config_path: str | Path, dry_run: bool = False) -> dict[str, An
 
     train_dataset_hf = Dataset.from_list(train_dataset)
     eval_dataset_hf = Dataset.from_list(dev_dataset)
-    training_args = TrainingArguments(
-        output_dir=str(output_paths["checkpoint_dir"]),
-        per_device_train_batch_size=config.per_device_train_batch_size,
-        gradient_accumulation_steps=config.gradient_accumulation_steps,
-        num_train_epochs=config.num_train_epochs,
-        learning_rate=config.learning_rate,
-        logging_dir=str(output_paths["log_dir"]),
-        logging_steps=10,
-        save_strategy="epoch",
-        eval_strategy="epoch",
-        bf16=config.bf16,
-        fp16=not config.bf16,
-        report_to=[],
-        save_total_limit=2,
-        remove_unused_columns=False,
-    )
+    training_args_kwargs: dict[str, Any] = {
+        "output_dir": str(output_paths["checkpoint_dir"]),
+        "per_device_train_batch_size": config.per_device_train_batch_size,
+        "gradient_accumulation_steps": config.gradient_accumulation_steps,
+        "num_train_epochs": config.num_train_epochs,
+        "learning_rate": config.learning_rate,
+        "logging_dir": str(output_paths["log_dir"]),
+        "logging_steps": 10,
+        "save_strategy": "epoch",
+        "eval_strategy": "epoch",
+        "bf16": config.bf16,
+        "fp16": not config.bf16,
+        "report_to": [],
+        "save_total_limit": 2,
+        "remove_unused_columns": False,
+        "gradient_checkpointing": config.gradient_checkpointing,
+    }
+    training_args_sig = inspect.signature(TrainingArguments.__init__)
+    if "gradient_checkpointing_kwargs" in training_args_sig.parameters:
+        training_args_kwargs["gradient_checkpointing_kwargs"] = {
+            "use_reentrant": config.gradient_checkpointing_use_reentrant,
+        }
+    if "torch_empty_cache_steps" in training_args_sig.parameters:
+        training_args_kwargs["torch_empty_cache_steps"] = 1
+    training_args = TrainingArguments(**training_args_kwargs)
     trainer = SFTTrainer(
         **build_sft_trainer_kwargs(
             SFTTrainer,
