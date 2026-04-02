@@ -25,6 +25,8 @@
   当前行为章节最值得直接拿来写论文的汇总文档。
 - `../../experiments/reports/06_generation_stage_1_e9_formal_summary.md`
   当前生成章节最值得直接复用到论文正文的 `E9` 汇总文档。
+- `../../experiments/reports/07_generation_stage_2_e10_formal_summary.md`
+  当前 `E10 v1` 正式对照的冻结结论与 `v2` 数据方案动机。
 - `02_next_steps.md`
   再看接下来按什么顺序推进，当前主线已经从“E9 正式冻结”转向“进入 E10 / PEFT 评测骨架”。
 - `03_manual_intervention_guide.md`
@@ -42,4 +44,4 @@
 
 ## 最近更新时间
 
-- 2026-04-01
+- 2026-04-02

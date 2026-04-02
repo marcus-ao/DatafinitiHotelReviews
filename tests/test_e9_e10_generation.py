@@ -705,6 +705,178 @@ class E9E10GenerationTestCase(unittest.TestCase):
             self.assertIn("base_run", analysis_text)
             self.assertIn("peft_run", analysis_text)
 
+    def test_build_e10_v2_grounded_query_rows_excludes_official_e9_ids(self):
+        rows = generation_mod.build_e10_v2_grounded_query_rows()
+        official_ids = set(generation_mod.load_json(generation_mod.E9_QUERY_IDS_PATH))
+        self.assertTrue(rows)
+        self.assertTrue(all(query_row["query_id"] not in official_ids for query_row, _, _ in rows))
+        self.assertTrue(all(slot_row["city"] for _, slot_row, _ in rows))
+        self.assertTrue(all(slot_row["focus_aspects"] or slot_row["avoid_aspects"] for _, slot_row, _ in rows))
+
+    def test_validate_grounded_recommendation_example_rejects_english_reason(self):
+        unit = _build_eval_unit()
+        response = RecommendationResponse(
+            query_id="q001",
+            group_id="C_grounded_generation_with_verifier",
+            summary="推荐 Anaheim 酒店。",
+            recommendations=[
+                RecommendationItem(
+                    hotel_id="hotel_1",
+                    hotel_name="Hotel One",
+                    reasons=[
+                        RecommendationReason(
+                            aspect="location_transport",
+                            reason_text="Great location for stadium access.",
+                            sentence_id="s_valid",
+                        )
+                    ],
+                )
+            ],
+            unsupported_notice="",
+            schema_valid=True,
+            raw_response="{}",
+        )
+        verification = CitationVerificationResult(
+            query_id="q001",
+            group_id="C_grounded_generation_with_verifier",
+            citation_precision=1.0,
+            invalid_sentence_ids=[],
+            out_of_pack_sentence_ids=[],
+            retry_triggered=False,
+            fallback_to_honest_notice=False,
+        )
+        is_valid, reason = generation_mod.validate_grounded_recommendation_example(
+            unit,
+            response,
+            verification,
+            {"response_error_type": None},
+        )
+        self.assertFalse(is_valid)
+        self.assertEqual(reason, "english_long_span")
+
+    def test_validate_grounded_recommendation_example_allows_english_city_in_summary(self):
+        unit = _build_eval_unit()
+        response = RecommendationResponse(
+            query_id="q001",
+            group_id="C_grounded_generation_with_verifier",
+            summary="推荐 Anaheim 交通便利的酒店。",
+            recommendations=[
+                RecommendationItem(
+                    hotel_id="hotel_1",
+                    hotel_name="Hotel One",
+                    reasons=[
+                        RecommendationReason(
+                            aspect="location_transport",
+                            reason_text="位置交通方便。",
+                            sentence_id="s_valid",
+                        )
+                    ],
+                )
+            ],
+            unsupported_notice="",
+            schema_valid=True,
+            raw_response="{}",
+        )
+        verification = CitationVerificationResult(
+            query_id="q001",
+            group_id="C_grounded_generation_with_verifier",
+            citation_precision=1.0,
+            invalid_sentence_ids=[],
+            out_of_pack_sentence_ids=[],
+            retry_triggered=False,
+            fallback_to_honest_notice=False,
+        )
+        is_valid, reason = generation_mod.validate_grounded_recommendation_example(
+            unit,
+            response,
+            verification,
+            {"response_error_type": None},
+        )
+        self.assertTrue(is_valid)
+        self.assertEqual(reason, "ok")
+
+    def test_validate_grounded_recommendation_example_rejects_zero_rec_from_unsupported(self):
+        unit = _build_eval_unit().model_copy(update={"unsupported_requests": ["budget"]})
+        response = RecommendationResponse(
+            query_id="q001",
+            group_id="C_grounded_generation_with_verifier",
+            summary="预算条件无法满足。",
+            recommendations=[],
+            unsupported_notice="预算条件当前不支持，无法给出 grounded 推荐。",
+            schema_valid=True,
+            raw_response="{}",
+        )
+        verification = CitationVerificationResult(
+            query_id="q001",
+            group_id="C_grounded_generation_with_verifier",
+            citation_precision=0.0,
+            invalid_sentence_ids=[],
+            out_of_pack_sentence_ids=[],
+            retry_triggered=False,
+            fallback_to_honest_notice=False,
+        )
+        is_valid, reason = generation_mod.validate_grounded_recommendation_example(
+            unit,
+            response,
+            verification,
+            {"response_error_type": None},
+        )
+        self.assertFalse(is_valid)
+        self.assertEqual(reason, "unsupported_driven_abstain")
+
+    def test_rebalance_grounded_train_records_enforces_minimum_grounded_share(self):
+        def make_row(record_id, focus_aspects, avoid_aspects, recommendations):
+            return {
+                "record_id": record_id,
+                "task_type": "grounded_recommendation",
+                "query_id": record_id,
+                "source_asset": "synthetic",
+                "input_payload": {
+                    "user_preference_gold": {
+                        "focus_aspects": focus_aspects,
+                        "avoid_aspects": avoid_aspects,
+                    },
+                    "candidate_hotels": [{"hotel_id": "hotel_1"}, {"hotel_id": "hotel_2"}],
+                },
+                "target_payload": {
+                    "summary": "测试",
+                    "recommendations": recommendations,
+                    "unsupported_notice": "证据不足" if not recommendations else "",
+                },
+            }
+
+        rows = [
+            make_row("r1", ["quiet_sleep"], ["service"], []),
+            make_row("r2", ["quiet_sleep"], [], [{"hotel_id": "hotel_1"}]),
+            make_row("r3", ["location_transport"], ["cleanliness"], [{"hotel_id": "hotel_1"}]),
+            make_row("r4", ["service"], [], [{"hotel_id": "hotel_1"}]),
+        ]
+        rebalanced = generation_mod.rebalance_grounded_train_records(rows, base_record_count=12)
+        grounded_share = len(rebalanced) / (12 + len(rebalanced))
+        self.assertGreaterEqual(grounded_share, 0.4)
+        quiet_sleep_share = sum(
+            int("quiet_sleep" in generation_mod.classify_grounded_record_slices(row))
+            for row in rebalanced
+        ) / len(rebalanced)
+        self.assertGreaterEqual(quiet_sleep_share, 0.3)
+
+    def test_build_grounded_recommendation_input_payload_is_compact(self):
+        unit = _build_eval_unit()
+        payload = generation_mod.build_grounded_recommendation_input_payload(unit)
+        self.assertEqual(sorted(payload.keys()), [
+            "candidate_hotels",
+            "evidence_packs",
+            "query_id",
+            "query_text_zh",
+            "unsupported_requests",
+            "user_preference_gold",
+        ])
+        self.assertEqual(sorted(payload["candidate_hotels"][0].keys()), ["hotel_id", "hotel_name"])
+        self.assertEqual(
+            sorted(payload["evidence_packs"][0].keys()),
+            ["allowed_sentence_ids", "evidence_by_aspect", "hotel_id"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

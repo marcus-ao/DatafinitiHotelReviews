@@ -1,8 +1,8 @@
 # 证据约束生成与 PEFT 阶段推进方案
 
-更新时间：2026-04-01
+更新时间：2026-04-02
 
-本文件用于冻结行为章节收口后的后续主线。当前顺序固定为：`E9` 第二轮正式结果冻结后，进入 `E10` Base vs PEFT 行为对照。`Qwen/Qwen3.5-4B` 是当前默认基座模型；`Qwen/Qwen3.5-9B` 只作为可选附录上界，不进入默认训练与实现主线。
+本文件用于冻结行为章节收口后的后续主线。当前顺序固定为：`E9` 第二轮正式结果冻结后，完成 `E10 v1` Base vs PEFT 正式对照，再进入 `E10 v2` 数据方案。`Qwen/Qwen3.5-4B` 是当前默认基座模型；`Qwen/Qwen3.5-9B` 只作为可选附录上界，不进入默认训练与实现主线。
 
 ## 1. 当前阶段判断
 
@@ -17,7 +17,8 @@
 因此后续主线不再是“继续救 `2B`”或“先跑满三模型横评”，而是：
 
 1. `E9` 第二轮结果已证明当前生成层已经达到可审计、可冻结状态
-2. 下一步用 `4B base vs 4B PEFT` 去回答 `RQ2`
+2. `E10 v1` 已经用 `4B base vs 4B PEFT` 回答了 `RQ2` 的首轮问题
+3. `E10 v2` 的目标固定为：只改训练数据，不改训练配方与评测协议
 
 ## 2. E9：证据约束生成
 
@@ -252,12 +253,62 @@ SFT 样本类型固定为四类：
 当前实现补充：
 
 - 这两份 manifest 已可由 `e10_prepare_manifests` 自动生成
-- 当前 manifest 只包含四类行为样本：
+- `v1` manifest 只包含四类行为样本：
   - `preference_parse`
   - `clarification`
   - `constraint_honesty`
   - `feedback_update`
-- 当前不生成 `grounded_recommendation` 训练样本
+- `v2` 将新增：
+  - `grounded_recommendation`
+- `E10 v1` 正式 compare 已完成并冻结为：
+  - `experiments/runs/e10cmp_28598dfb8434c1ba_20260402T020734+0000/`
+
+### 3.6 E10 v1 正式结论
+
+当前正式结论固定为：
+
+- `PEFT exp01` 在同后端、同冻结资产下未优于 base
+- 主要退化集中在：
+  - `quiet_sleep`
+  - `focus + avoid`
+- 该负结果说明：
+  - 当前 v1 训练目标与最终 grounded recommendation 任务不匹配
+
+推荐直接引用：
+
+- `experiments/reports/07_generation_stage_2_e10_formal_summary.md`
+
+### 3.7 E10 v2 固定路线
+
+`E10 v2` 的原则固定为：
+
+- 保持 `Qwen3.5-4B + QLoRA + 同一 compare 协议`
+- 不改 retrieval
+- 不改 `E9` eval units
+- 不改正式 base baseline
+- 仅扩展训练数据，新增：
+  - `grounded_recommendation`
+
+`v2` 的 grounded 数据池固定来自：
+
+- 非官方 `E9` query pool
+- `judged_queries.jsonl + slot_gold.jsonl + clarify_gold.jsonl`
+- train/dev 酒店 split 上各自生成的候选酒店与 evidence pack
+
+当前实现说明：
+
+- 仓库内“非官方 `E9` 且无需澄清的可直接执行 query”数量为 `0`
+- 因此 `v2` grounded pool 实际采用：
+  - 非官方 `E9` query 中，所有已经具备 `city + focus/avoid aspects` gold slot 的 query
+  - 并在训练输入中显式提供 `user_preference_gold`
+- 这样可以避免与官方 `E9` eval units 重叠，同时不牺牲 grounded supervision 的可执行性
+
+`v2` 的重点 slice 固定为：
+
+- `quiet_sleep`
+- `focus + avoid`
+- `partial-abstain / 0-recommendation`
+- 多方面均衡推荐
 - `e10_base_vs_peft` 当前已实现 adapter-ready 评测骨架，默认要求提供 adapter metadata
 
 模型与训练大文件继续只保留在云端或本地忽略目录，不进 Git。需要被纳入版本管理的是：

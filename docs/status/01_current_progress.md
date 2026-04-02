@@ -1,10 +1,10 @@
 # 当前工作进度
 
-更新时间：2026-04-01
+更新时间：2026-04-02
 
 ## 总体阶段判断
 
-当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进入“`E9` 第二轮正式结果已冻结 + `E10 / PEFT` 评测骨架推进”阶段。
+当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进入“`E9` 第二轮正式结果已冻结 + `E10 v1` 正式对照已完成 + `E10 v2` 数据方案推进”阶段。
 
 目前整体处于：
 
@@ -20,7 +20,7 @@
 - 最新 `E4` 审计：已完成首轮人工评分并冻结 reviewed 快照
 - 行为章节材料：已形成 `E3 / E4 / E5` 汇总初稿
 - `Qwen3.5-9B`：可作为附录或扩展对比，当前不是主线阻塞项
-- `E9 / E10 / PEFT`：主线方案已冻结，其中 `E9` 第二轮正式结果已完成，`E10` 进入 adapter-ready 评测骨架阶段
+- `E9 / E10 / PEFT`：`E9` 第二轮正式结果已完成并冻结，`E10 v1` 正式 compare 已完成，`E10 v2` 进入数据方案迭代阶段
 
 ## 已完成的核心内容
 
@@ -227,8 +227,7 @@
 ## 当前明确尚未完成的内容
 
 - 决定是否需要追加 `Qwen3.5-9B` 附录对比
-- `E10` Base vs PEFT 正式行为对照
-- QLoRA / PEFT 训练基础设施
+- `E10 v2` 的 grounded recommendation 数据构建、复训与复评
 - `G1-G4` 主实验矩阵
 
 ## 5. `E9 / E10` 当前实现进展
@@ -273,8 +272,8 @@
 
 - `citation_verifiability_audit_e9_ecbcdbab690dc503_qwen35_4b_reviewed.csv`
   以外的更多人工复核扩展
-- `E10` 的正式 Base vs PEFT 行为对照
-- PEFT 训练、adapter 导出与云端执行
+- `E10 v1` 的正式 Base vs PEFT 行为对照已完成
+- 下一步转为 `E10 v2` 的数据方案、manifest 生成、PEFT `exp02` 训练与复评
 
 当前新增实现的固定口径：
 
@@ -324,4 +323,43 @@
 2. 默认检索后端仍固定为 `aspect_main_no_rerank`，`reranker` 与 `fallback` 不回到主流程。
 3. 行为实验当前正式主模型已经切换为 `Qwen/Qwen3.5-4B`，`2B` 保留为弱基线。
 4. 最新 `E4` 审计已经补齐，行为章节材料已经具备写论文的基本条件。
-5. 当前阶段更像“冻结 `E9` 正式结果并进入 `E10 / PEFT` 评测骨架阶段”，而不是“继续追着 retrieval 或 `E9` prompt 大改阶段”。
+5. 当前阶段更像“冻结 `E9` 与 `E10 v1` 正式结果，并进入 `E10 v2` 数据方案阶段”，而不是“继续追着 retrieval 或 `E9` prompt 大改阶段”。
+
+## 7. `E10 v1` 正式结果
+
+当前正式 run 固定为：
+
+- base formal：
+  - `experiments/runs/e10_0dc5c2e6f867c66f_20260402T015230+0000/`
+- peft formal：
+  - `experiments/runs/e10_0ef381420c1bd19a_20260402T020120+0000/`
+- compare formal：
+  - `experiments/runs/e10cmp_28598dfb8434c1ba_20260402T020734+0000/`
+
+当前正式指标：
+
+- base
+  - `citation_precision = 0.9688`
+  - `evidence_verifiability_mean = 1.9704`
+  - `schema_valid_rate = 1.0000`
+  - `reasoning_leak_rate = 0.0000`
+- peft
+  - `citation_precision = 0.9250`
+  - `evidence_verifiability_mean = 1.9915`
+  - `schema_valid_rate = 1.0000`
+  - `reasoning_leak_rate = 0.0000`
+
+当前正式解读固定为：
+
+- `E10 v1` 的 compare 结果可信，可直接写入论文。
+- `PEFT exp01` 在同后端、同冻结资产下没有优于 base。
+- 主退化集中在：
+  - `quiet_sleep`
+  - `focus + avoid`
+- 该负结果说明：
+  - 仅强化 `preference_parse / clarification / constraint_honesty / feedback_update`
+  - 不足以自动提升最终 grounded recommendation
+
+推荐直接引用：
+
+- `experiments/reports/07_generation_stage_2_e10_formal_summary.md`

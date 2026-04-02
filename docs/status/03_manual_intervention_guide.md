@@ -1,12 +1,12 @@
 # 人工介入详细指南手册
 
-更新时间：2026-04-01
+更新时间：2026-04-02
 
 本手册只写“现在仍然需要你亲自处理”的内容，并尽量细到可以一步一步照着做。
 
 ## 当前结论
 
-当前最可能的人工阻塞点，已经从“补跑行为实验”切换成了“冻结 `E9` 第二轮正式结果、准备 adapter metadata，并进入 `E10 / PEFT` 骨架评测”。
+当前最可能的人工阻塞点，已经从“补跑行为实验”切换成了“冻结 `E10 v1` 正式结论，并开始执行 `E10 v2` 的数据方案、云端训练与复评”。
 
 也就是说：
 
@@ -15,12 +15,15 @@
 - `Qwen3.5-4B` 的全量 `E3/E4` 正式结果已经完成
 - 最新 `E4` 审计已经补齐，并生成了 reviewed 冻结副本
 - `E3 / E4 / E5` 的章节材料已经整理完第一版
-- `E9 / E10` 的代码入口、schema 和 runner 骨架已于 `2026-04-01` 实现
-- `e10_prepare_manifests` 已成功生成 `sft_train_manifest.jsonl` 与 `sft_dev_manifest.jsonl`
-- `e9_freeze_assets --limit-queries 2` 已通过本地 smoke
+- `E9 / E10` 的代码入口、schema、runner 与 compare 入口已经接通
+- `E10 v1` 正式 compare 已完成并冻结
 - `E9` 第二轮正式结果已完成并冻结为：
   - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
-- 现在最需要你做的是：准备 `E10` 的 adapter metadata、云端训练产物，并运行 `e10_base_vs_peft`
+- `E10 v1` 正式 run 已完成并冻结为：
+  - `experiments/runs/e10_0dc5c2e6f867c66f_20260402T015230+0000/`
+  - `experiments/runs/e10_0ef381420c1bd19a_20260402T020120+0000/`
+  - `experiments/runs/e10cmp_28598dfb8434c1ba_20260402T020734+0000/`
+- 现在最需要你做的是：准备 `E10 v2` 的 grounded manifest、训练 `exp02`、重跑 PEFT v2 并生成新的 compare
 
 ## 手册 A：你现在最该先做什么
 
@@ -38,15 +41,13 @@
   - `experiments/reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
   - `experiments/reports/05_behavior_stage_3_chapter_materials.md`
 
-### 第二步：优先把 `E10 / PEFT` 的执行入口按顺序跑起来
+### 第二步：优先把 `E10 v2` 的执行入口按顺序跑起来
 
 你现在最值得亲自打开和执行的是：
 
+- `experiments/reports/07_generation_stage_2_e10_formal_summary.md`
 - `scripts/evaluation/evaluate_e9_e10_generation.py`
-- `experiments/assets/sft_train_manifest.jsonl`
-- `experiments/assets/sft_dev_manifest.jsonl`
-- `experiments/assets/e10_train_config_template.json`
-- `experiments/assets/e10_adapter_metadata.template.json`
+- `experiments/assets/e10_train_config.qwen35_4b_peft_v2.json`
 - `docs/deployment/02_e10_peft_runbook.md`
 - `docs/plans/03_generation_and_peft_phase_plan.md`
 
@@ -58,36 +59,50 @@
 source venv/bin/activate
 ```
 
-2. 先确认 `E10` 的 SFT manifest 已可重生成：
+2. 在云端 strongest base 环境下生成 `v2` manifest：
 
 ```bash
-python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v2
 ```
 
-3. 按 `docs/deployment/02_e10_peft_runbook.md` 在云端准备 adapter 训练与导出
-4. 回传 adapter 后，填写：
-   - `experiments/assets/e10_adapter_metadata.template.json`
-5. 当前 `E10` 采用“分组分环境运行”：
-   - `A_base_4b_grounded`：云端 Base 服务 + 本地评测
-   - `B_peft_4b_grounded`：云端 `.venv-train` 本地直载 merged 模型评测
-6. 然后分别运行：
+补充说明：
+
+- 当前仓库里“非官方 `E9` 且无需澄清的可直接执行 query”实际上为 `0`
+- 因此 `v2` grounded manifest 会使用：
+  - 非官方 `E9`
+  - 但已具备 `city + focus/avoid aspects` gold slot 的 query
+  - 并在输入中显式提供 `user_preference_gold`
+- 这属于当前最严谨、同时避免官方 `E9` 泄漏的实现方式
+
+3. 用 `v2` config 训练 `exp02`：
 
 ```bash
-python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --group-id A_base_4b_grounded
+accelerate launch -m scripts.training.train_e10_peft \
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v2.json
 ```
 
-PEFT 组在云端执行：
+4. merge `exp02` 后，只重跑 PEFT：
 
 ```bash
 python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --group-id B_peft_4b_grounded
 ```
 
-### 第三步：`E10` 跑完后，按固定步骤做人工审计
+5. 最后复用已冻结的 base formal run，生成 compare：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite \
+  --task e10_compare_runs \
+  --base-run-dir /abs/path/to/e10_0dc5c2e6f867c66f_20260402T015230+0000 \
+  --peft-run-dir /abs/path/to/new_peft_v2_run
+```
+
+### 第三步：`E10 v2` 跑完后，按固定步骤做人工审计
 
 1. 打开：
-   - `experiments/runs/e10_*/summary.csv`
-   - `experiments/runs/e10_*/analysis.md`
-   - `experiments/runs/e10_*/citation_verifiability_audit.csv`
+   - 新的 `experiments/runs/e10_*/summary.csv`
+   - 新的 `experiments/runs/e10_*/analysis.md`
+   - 新的 `experiments/runs/e10_*/citation_verifiability_audit.csv`
+   - 新的 `experiments/runs/e10cmp_*/analysis.md`
 2. 逐行查看：
    - `query_id`
    - `group_id`
@@ -114,7 +129,7 @@ python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --grou
   - `1`：基本相关但支持偏弱
   - `0`：证据不支持或明显越权
 
-### 第四步：执行 `E10 / PEFT` 时，你最该注意什么
+### 第四步：执行 `E10 v2` 时，你最该注意什么
 
 你现在最该记住的固定约束是：
 
@@ -122,23 +137,29 @@ python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --grou
 - 不要把 `fallback` 接回默认主流程
 - 不要把 `candidate_hotels` 改成 `city_test_all`
 - `E9` 当前正式冻结输入继续固定使用 `E2 B_final_aspect_score Top5`
-- `E10` 当前 base 组固定为 `Qwen/Qwen3.5-4B`
-- `E10` 当前默认只支持通过 API backend 加载已部署好的 PEFT served model
+- `E10 v2` 当前 base 组直接复用：
+  - `e10_0dc5c2e6f867c66f_20260402T015230+0000`
+- `E10 v2` 当前只重跑：
+  - `B_peft_4b_grounded`
+- `E10 v2` 当前新增训练任务：
+  - `grounded_recommendation`
 
 如果 `e10_base_vs_peft` 报错，优先按下面方式判断：
 
-1. 如果报缺少 adapter metadata：
-   - 说明你还没准备好 `BEHAVIOR_ADAPTER_METADATA_PATH`
-   - 先填写模板并确认 `served_model_id`、`adapter_path`、`base_model_id`
+1. 如果 `e10_prepare_manifests_v2` 报 `grounded pool` 为空：
+   - 说明当前生成器未能在非官方 E9 query 池中产生合格 silver target
+   - 先检查：
+     - `BEHAVIOR_MODEL_ID`
+     - `BEHAVIOR_ENABLE_THINKING=false`
+     - strongest base 是否已经就绪
 2. 如果报 base_model_id 不匹配：
    - 说明 adapter 不是从当前主线 `Qwen/Qwen3.5-4B` 训练出来的
-3. 如果 API 访问失败：
-   - 优先检查 `OPENAI_BASE_URL`
-   - 检查 `OPENAI_API_KEY`
-   - 检查当前推理端点是否同时提供 base 和 PEFT 的 served model id
-4. 如果 merged PEFT 的 `vLLM` 服务起不来：
-   - 不要继续在服务环境里硬修
-   - 当前主线已经切换为“PEFT 组在云端训练环境本地直载 merged 模型评测”
+3. 如果 `grounded_recommendation` 样本里继续出现英文长串：
+   - 当前 v2 设计会自动过滤
+   - 若过滤后样本过少，再回头扩充 slice，而不是放宽语言约束
+4. 如果 `PEFT v2` compare 仍落后于 base 超过 `0.01`：
+   - 将 `v2` 记为第二轮负结果
+   - 这时再考虑进入“数据+训练配方”路线，而不是在同一轮里继续混改
 
 ## 手册 B：如果你确实要补 `9B` 附录，该怎么做
 
@@ -175,10 +196,10 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 
 如果你决定不先补 `9B`，那么下一步人工动作固定是下面四件：
 
-1. 用 `05_behavior_stage_3_chapter_materials.md` 把行为章节写进论文
-2. 运行 `e10_prepare_manifests`
-3. 按 `02_e10_peft_runbook.md` 准备 adapter metadata 与云端训练产物
-4. 运行 `e10_base_vs_peft`
+1. 用 `07_generation_stage_2_e10_formal_summary.md` 把 `E10 v1` 结论写进论文
+2. 运行 `e10_prepare_manifests_v2`
+3. 按 `02_e10_peft_runbook.md` 训练 `exp02`
+4. 重跑 `B_peft_4b_grounded` 并生成 compare
 
 在进入 `E9` 之前，你当前不需要再手动做：
 
@@ -220,4 +241,4 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 
 ## 手册 E：一句话版
 
-当前行为主线与 `E9` 第二轮正式结果都已经完成并冻结；你现在最该做的是保持已冻结主线不动，准备 adapter metadata 与云端训练产物，然后在固定 `E9` eval units 上运行 `e10_base_vs_peft`，而不是再回头改 retrieval 主线。
+当前行为主线、`E9` 第二轮正式结果与 `E10 v1` 正式 compare 都已经完成并冻结；你现在最该做的是保持这些冻结资产不动，生成 `v2` grounded manifest、训练 `exp02` 并复评，而不是再回头改 retrieval 主线。

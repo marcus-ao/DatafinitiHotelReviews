@@ -208,7 +208,13 @@ class SFTManifestRecord(BaseModel):
 
     record_id: str
     split: Literal["train", "dev"]
-    task_type: Literal["preference_parse", "clarification", "constraint_honesty", "feedback_update"]
+    task_type: Literal[
+        "preference_parse",
+        "clarification",
+        "constraint_honesty",
+        "feedback_update",
+        "grounded_recommendation",
+    ]
     hotel_id: str | None = None
     query_id: str
     source_asset: str

@@ -1,6 +1,6 @@
 # E10 / PEFT 执行手册
 
-更新时间：2026-04-01
+更新时间：2026-04-02
 
 本手册只覆盖 `E10` 当前需要的最小执行闭环：
 
@@ -9,12 +9,21 @@
 3. 回传 adapter 与 metadata
 4. 在云端按同后端协议分别运行 base / peft
 5. 在本地或云端生成正式 compare 报告
+6. 在 `E10 v1` 正式负结果基础上，准备 `E10 v2` grounded manifest 并训练 `exp02`
 
 当前不覆盖：
 
 - 自动提交云端训练任务
 - 多节点 / 多卡训练编排
 - merged model 自动部署脚本
+
+当前正式状态补充：
+
+- `E10 v1` 正式 compare 已冻结为：
+  - `experiments/runs/e10cmp_28598dfb8434c1ba_20260402T020734+0000/`
+- 当前正式结论：
+  - `PEFT exp01` 未优于 base
+  - 下一步进入 `E10 v2` 的数据方案，而不是直接改训练超参
 
 ## 1. 当前固定前提
 
@@ -197,6 +206,23 @@ python -m scripts.evaluation.run_experiment_suite \
   --base-run-dir /abs/path/to/base_run \
   --peft-run-dir /abs/path/to/peft_run
 ```
+
+## 6.1 E10 v2 如何开始
+
+先在 strongest base 环境下生成 `v2` manifest：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v2
+```
+
+然后在云端训练：
+
+```bash
+accelerate launch -m scripts.training.train_e10_peft \
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v2.json
+```
+
+训练完成并 merge 后，只重跑 PEFT 组，再复用当前 base formal run 做 compare。
 
 ## 7. 运行后检查什么
 

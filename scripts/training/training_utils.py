@@ -17,6 +17,7 @@ ALLOWED_E10_TASK_TYPES = {
     "clarification",
     "constraint_honesty",
     "feedback_update",
+    "grounded_recommendation",
 }
 
 
@@ -106,6 +107,36 @@ def build_sft_text_sample(row: dict[str, Any]) -> dict[str, str]:
 
 def build_sft_dataset(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
     return [build_sft_text_sample(row) for row in rows]
+
+
+def assert_sft_samples_within_max_seq_length(
+    samples: list[dict[str, str]],
+    tokenizer: Any,
+    max_seq_length: int,
+    *,
+    dataset_name: str,
+) -> None:
+    overflow_rows: list[tuple[str, str, int]] = []
+    for row in samples:
+        token_count = len(
+            tokenizer(
+                row["text"],
+                add_special_tokens=True,
+                truncation=False,
+            )["input_ids"]
+        )
+        if token_count > max_seq_length:
+            overflow_rows.append((row["record_id"], row["task_type"], token_count))
+
+    if overflow_rows:
+        preview = ", ".join(
+            f"{record_id}:{task_type}:{token_count}"
+            for record_id, task_type, token_count in overflow_rows[:5]
+        )
+        raise ValueError(
+            f"{dataset_name} 中存在超过 max_seq_length={max_seq_length} 的样本，"
+            f"请先缩减 grounded payload 或调整样本构造。样本预览：{preview}"
+        )
 
 
 def build_sft_trainer_kwargs(

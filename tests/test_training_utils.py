@@ -29,6 +29,26 @@ class TrainingUtilsTestCase(unittest.TestCase):
             with self.assertRaises(ValueError):
                 training_mod.load_train_config(path)
 
+    def test_load_train_config_accepts_grounded_recommendation(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "good_config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "base_model_id": "/root/autodl-tmp/models/base/Qwen3.5-4B",
+                        "adapter_type": "qlora",
+                        "train_manifest_path": "train_v2.jsonl",
+                        "dev_manifest_path": "dev_v2.jsonl",
+                        "task_types": ["preference_parse", "grounded_recommendation"],
+                        "output_adapter_dir": "/root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp02",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            config = training_mod.load_train_config(path)
+        self.assertEqual(config.task_types, ["preference_parse", "grounded_recommendation"])
+
     def test_build_sft_text_sample_contains_task_and_json(self):
         row = {
             "record_id": "rec01",
@@ -137,6 +157,27 @@ class TrainingUtilsTestCase(unittest.TestCase):
             )
             self.assertTrue(metadata_path.exists())
             self.assertTrue(summary_path.exists())
+
+    def test_assert_sft_samples_within_max_seq_length_raises_for_overflow(self):
+        class FakeTokenizer:
+            def __call__(self, text, add_special_tokens=True, truncation=False):
+                return {"input_ids": list(range(len(text)))}
+
+        samples = [
+            {
+                "record_id": "r_overflow",
+                "query_id": "q001",
+                "task_type": "grounded_recommendation",
+                "text": "x" * 3000,
+            }
+        ]
+        with self.assertRaises(ValueError):
+            training_mod.assert_sft_samples_within_max_seq_length(
+                samples,
+                FakeTokenizer(),
+                2048,
+                dataset_name="train_dataset",
+            )
 
     def test_train_dry_run_does_not_create_cloud_root_paths(self):
         fake_train_rows = [

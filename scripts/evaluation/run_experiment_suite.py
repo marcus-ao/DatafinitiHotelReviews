@@ -13,6 +13,7 @@ from scripts.evaluation.evaluate_e3_e5_behavior import (
 from scripts.evaluation.evaluate_e9_e10_generation import (
     freeze_e9_assets,
     prepare_e10_manifests,
+    prepare_e10_manifests_v2,
     run_e10_compare_runs,
     run_e10_base_vs_peft,
     run_e9_generation_constraints,
@@ -43,6 +44,7 @@ def main() -> None:
             "e9_freeze_assets",
             "e9_generation_constraints",
             "e10_prepare_manifests",
+            "e10_prepare_manifests_v2",
             "e10_base_vs_peft",
             "e10_compare_runs",
         ],
@@ -108,6 +110,11 @@ def main() -> None:
         train_path, dev_path = prepare_e10_manifests()
         print(f"[OK] train manifest written to {train_path}")
         print(f"[OK] dev manifest written to {dev_path}")
+    elif args.task == "e10_prepare_manifests_v2":
+        train_path, dev_path, report_path = prepare_e10_manifests_v2()
+        print(f"[OK] train manifest written to {train_path}")
+        print(f"[OK] dev manifest written to {dev_path}")
+        print(f"[OK] manifest report written to {report_path}")
     elif args.task == "e10_base_vs_peft":
         run_dir = run_e10_base_vs_peft(
             output_root=output_root,

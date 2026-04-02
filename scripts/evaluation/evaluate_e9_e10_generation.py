@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import json
+import re
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -80,8 +82,13 @@ E9_QUERY_IDS_PATH = EXPERIMENT_ASSETS_DIR / "e9_generation_eval_query_ids.json"
 E9_UNITS_PATH = EXPERIMENT_ASSETS_DIR / "e9_generation_eval_units.jsonl"
 SFT_TRAIN_MANIFEST_PATH = EXPERIMENT_ASSETS_DIR / "sft_train_manifest.jsonl"
 SFT_DEV_MANIFEST_PATH = EXPERIMENT_ASSETS_DIR / "sft_dev_manifest.jsonl"
+SFT_TRAIN_MANIFEST_V2_PATH = EXPERIMENT_ASSETS_DIR / "sft_train_manifest_v2.jsonl"
+SFT_DEV_MANIFEST_V2_PATH = EXPERIMENT_ASSETS_DIR / "sft_dev_manifest_v2.jsonl"
+E10_V2_MANIFEST_REPORT_PATH = EXPERIMENT_ASSETS_DIR / "sft_manifest_v2_report.json"
 E10_TRAIN_CONFIG_TEMPLATE_PATH = EXPERIMENT_ASSETS_DIR / "e10_train_config_template.json"
 E10_ADAPTER_METADATA_TEMPLATE_PATH = EXPERIMENT_ASSETS_DIR / "e10_adapter_metadata.template.json"
+E10_V2_MANIFEST_CONFIG_VERSION = 2
+ENGLISH_LONG_SPAN_PATTERN = re.compile(r"[A-Za-z]{4,}")
 
 ASPECT_ZH_LABELS = {
     "location_transport": "位置交通",
@@ -1528,6 +1535,336 @@ def build_feedback_update_pair(slot_row: dict[str, Any]) -> tuple[dict[str, Any]
     }
 
 
+def build_preference_from_slot_row(slot_row: dict[str, Any]) -> UserPreference:
+    return UserPreference(
+        city=slot_row["city"],
+        state=slot_row["state"],
+        hotel_category=slot_row["hotel_category"],
+        focus_aspects=slot_row["focus_aspects"],
+        avoid_aspects=slot_row["avoid_aspects"],
+        unsupported_requests=slot_row["unsupported_requests"],
+        query_en=slot_row["query_en"],
+    )
+
+
+def contains_english_long_span(text: str) -> bool:
+    return bool(ENGLISH_LONG_SPAN_PATTERN.search(text or ""))
+
+
+def response_has_english_reason_text(response: RecommendationResponse) -> bool:
+    for item in response.recommendations:
+        for reason in item.reasons:
+            if contains_english_long_span(reason.reason_text):
+                return True
+    return False
+
+
+def build_e10_v2_grounded_query_rows() -> list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]]:
+    judged_queries = load_jsonl(EXPERIMENT_ASSETS_DIR / "judged_queries.jsonl")
+    slot_gold = {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "slot_gold.jsonl")}
+    clarify_gold = {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "clarify_gold.jsonl")}
+    official_e9_query_ids = set(load_json(E9_QUERY_IDS_PATH))
+
+    rows: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]] = []
+    for query_row in judged_queries:
+        query_id = query_row["query_id"]
+        if query_id in official_e9_query_ids:
+            continue
+        slot_row = slot_gold[query_id]
+        if not slot_row["city"] or not (slot_row["focus_aspects"] or slot_row["avoid_aspects"]):
+            continue
+        rows.append((query_row, slot_row, clarify_gold[query_id]))
+    return rows
+
+
+def build_candidate_hotels_for_slot(
+    hotel_summary: pd.DataFrame,
+    profile_current: pd.DataFrame,
+    slot_row: dict[str, Any],
+    allowed_hotel_ids: set[str],
+) -> list[HotelCandidate]:
+    city_hotels = hotel_summary[
+        (hotel_summary["city"] == slot_row["city"])
+        & (hotel_summary["hotel_id"].astype(str).isin(allowed_hotel_ids))
+    ].copy()
+    if city_hotels.empty:
+        return []
+    ranked = candidate_rank(
+        city_hotels=city_hotels,
+        profile_current=profile_current,
+        profile_alt=profile_current,
+        focus_aspects=slot_row["focus_aspects"],
+        avoid_aspects=slot_row["avoid_aspects"],
+        mode="B_final_aspect_score",
+    ).head(5)
+    candidate_hotels: list[HotelCandidate] = []
+    for _, hotel_row in ranked.iterrows():
+        candidate_hotels.append(
+            HotelCandidate(
+                hotel_id=str(hotel_row["hotel_id"]),
+                hotel_name=str(hotel_row["hotel_name"]),
+                score_total=round(float(hotel_row["score_total"]), 4),
+                score_breakdown={k: float(v) for k, v in dict(hotel_row["score_breakdown"]).items()},
+            )
+        )
+    return candidate_hotels
+
+
+def build_generation_eval_unit_for_slot(
+    *,
+    query_row: dict[str, Any],
+    slot_row: dict[str, Any],
+    candidate_hotels: list[HotelCandidate],
+    collection: Any,
+    bi_encoder: Any,
+    normalize_embeddings: bool,
+    evidence_lookup: dict[str, dict[str, Any]],
+    dense_top_k: int,
+    final_top_k: int,
+    stable_asset_config: dict[str, Any],
+) -> GenerationEvalUnit:
+    preference = build_preference_from_slot_row(slot_row)
+    evidence_packs = [
+        build_evidence_pack_for_candidate(
+            collection=collection,
+            bi_encoder=bi_encoder,
+            normalize_embeddings=normalize_embeddings,
+            evidence_lookup=evidence_lookup,
+            preference=preference,
+            hotel=hotel,
+            dense_top_k=dense_top_k,
+            final_top_k=final_top_k,
+        )
+        for hotel in candidate_hotels
+    ]
+    return GenerationEvalUnit(
+        query_id=query_row["query_id"],
+        query_text_zh=query_row["query_text_zh"],
+        query_type=query_row["query_type"],
+        user_preference_gold=preference,
+        unsupported_requests=preference.unsupported_requests,
+        candidate_hotels=candidate_hotels,
+        evidence_packs=evidence_packs,
+        retrieval_mode=E9_RETRIEVAL_MODE,
+        candidate_policy=E9_CANDIDATE_POLICY,
+        config_hash=stable_hash(
+            stable_asset_config
+            | {
+                "query_id": query_row["query_id"],
+                "candidate_hotel_ids": [hotel.hotel_id for hotel in candidate_hotels],
+                "all_sentence_ids": [pack.all_sentence_ids for pack in evidence_packs],
+            }
+        ),
+    )
+
+
+def build_grounded_recommendation_target_payload(response: RecommendationResponse) -> dict[str, Any]:
+    return {
+        "summary": response.summary,
+        "recommendations": [item.model_dump() for item in response.recommendations],
+        "unsupported_notice": response.unsupported_notice,
+    }
+
+
+def build_grounded_recommendation_input_payload(unit: GenerationEvalUnit) -> dict[str, Any]:
+    compact_candidate_hotels = [
+        {
+            "hotel_id": hotel.hotel_id,
+            "hotel_name": hotel.hotel_name,
+        }
+        for hotel in unit.candidate_hotels[:E9_MAX_RECOMMENDATIONS]
+    ]
+    compact_evidence_packs = []
+    for pack in unit.evidence_packs[:E9_MAX_RECOMMENDATIONS]:
+        compact_aspects: dict[str, list[dict[str, str]]] = {}
+        allowed_sentence_ids: list[str] = []
+        for aspect in sorted(pack.evidence_by_aspect):
+            compact_rows = []
+            for sentence in pack.evidence_by_aspect[aspect][:E9_PROMPT_SENTENCE_LIMIT_GROUNDED]:
+                compact_rows.append(
+                    {
+                        "sentence_id": sentence.sentence_id,
+                        "sentence_text": sentence.sentence_text,
+                    }
+                )
+                allowed_sentence_ids.append(sentence.sentence_id)
+            compact_aspects[aspect] = compact_rows
+        compact_evidence_packs.append(
+            {
+                "hotel_id": pack.hotel_id,
+                "evidence_by_aspect": compact_aspects,
+                "allowed_sentence_ids": allowed_sentence_ids,
+            }
+        )
+
+    return {
+        "query_id": unit.query_id,
+        "query_text_zh": unit.query_text_zh,
+        "user_preference_gold": unit.user_preference_gold.model_dump(),
+        "unsupported_requests": unit.unsupported_requests,
+        "candidate_hotels": compact_candidate_hotels,
+        "evidence_packs": compact_evidence_packs,
+    }
+
+
+def validate_grounded_recommendation_example(
+    unit: GenerationEvalUnit,
+    response: RecommendationResponse,
+    verification: CitationVerificationResult,
+    debug_payload: dict[str, Any],
+) -> tuple[bool, str]:
+    if debug_payload.get("response_error_type") == "reasoning_leak":
+        return False, "reasoning_leak"
+    if not response.schema_valid:
+        return False, "schema_invalid"
+    if verification.invalid_sentence_ids or verification.out_of_pack_sentence_ids:
+        return False, "citation_invalid"
+    if response_has_english_reason_text(response):
+        return False, "english_long_span"
+    if response.recommendations:
+        if verification.citation_precision != 1.0:
+            return False, "citation_precision_not_full"
+        return True, "ok"
+    if response.unsupported_notice.strip() and not unit.unsupported_requests:
+        return True, "ok"
+    if response.unsupported_notice.strip():
+        return False, "unsupported_driven_abstain"
+    return False, "empty_without_notice"
+
+
+def classify_grounded_record_slices(row: dict[str, Any]) -> set[str]:
+    preference = row["input_payload"]["user_preference_gold"]
+    focus_aspects = preference["focus_aspects"]
+    avoid_aspects = preference["avoid_aspects"]
+    candidate_count = len(row["input_payload"]["candidate_hotels"])
+    recommendation_count = len(row["target_payload"]["recommendations"])
+    max_possible_recommendations = min(E9_MAX_RECOMMENDATIONS, candidate_count)
+
+    slices: set[str] = set()
+    if "quiet_sleep" in focus_aspects:
+        slices.add("quiet_sleep")
+    if avoid_aspects:
+        slices.add("focus_avoid")
+    if recommendation_count < max_possible_recommendations:
+        slices.add("partial_abstain")
+    if recommendation_count == 0:
+        slices.add("zero_recommendation")
+    return slices
+
+
+def duplicate_manifest_record(row: dict[str, Any], repeat_index: int, reason: str) -> dict[str, Any]:
+    duplicated = copy.deepcopy(row)
+    duplicated["record_id"] = stable_hash(
+        {
+            "task_type": duplicated["task_type"],
+            "source_record_id": row["record_id"],
+            "repeat_index": repeat_index,
+            "reason": reason,
+        }
+    )
+    duplicated["source_asset"] = f"{duplicated['source_asset']}#{reason}"
+    return duplicated
+
+
+def rebalance_grounded_train_records(
+    grounded_rows: list[dict[str, Any]],
+    base_record_count: int,
+) -> list[dict[str, Any]]:
+    if not grounded_rows:
+        raise ValueError("E10 v2 grounded train rows 为空，无法构建 v2 manifest。")
+
+    rebalanced = list(sorted(grounded_rows, key=lambda row: row["record_id"]))
+    duplication_counter = 0
+    slice_requirements = {
+        "quiet_sleep": 0.30,
+        "focus_avoid": 0.30,
+        "partial_abstain": 0.15,
+    }
+
+    def slice_share(slice_name: str) -> float:
+        return sum(int(slice_name in classify_grounded_record_slices(row)) for row in rebalanced) / max(len(rebalanced), 1)
+
+    source_by_slice = {
+        slice_name: [row for row in rebalanced if slice_name in classify_grounded_record_slices(row)]
+        for slice_name in slice_requirements
+    }
+    for slice_name, source_rows in source_by_slice.items():
+        if not source_rows:
+            raise ValueError(f"E10 v2 grounded pool 缺少必须切片：{slice_name}")
+        offset = 0
+        while slice_share(slice_name) < slice_requirements[slice_name]:
+            rebalanced.append(
+                duplicate_manifest_record(
+                    source_rows[offset % len(source_rows)],
+                    duplication_counter,
+                    f"rebalance_{slice_name}",
+                )
+            )
+            duplication_counter += 1
+            offset += 1
+
+    all_source_rows = list(sorted(grounded_rows, key=lambda row: row["record_id"]))
+    offset = 0
+    while len(rebalanced) / max(base_record_count + len(rebalanced), 1) < 0.40:
+        rebalanced.append(
+            duplicate_manifest_record(
+                all_source_rows[offset % len(all_source_rows)],
+                duplication_counter,
+                "rebalance_grounded_share",
+            )
+        )
+        duplication_counter += 1
+        offset += 1
+
+    return rebalanced
+
+
+def build_grounded_manifest_report(
+    *,
+    source_rows: list[tuple[dict[str, Any], dict[str, Any], dict[str, Any]]],
+    train_base_records: list[dict[str, Any]],
+    dev_base_records: list[dict[str, Any]],
+    train_grounded_records_raw: list[dict[str, Any]],
+    dev_grounded_records_raw: list[dict[str, Any]],
+    train_grounded_records_final: list[dict[str, Any]],
+    dropped_reason_counts: dict[str, int],
+) -> dict[str, Any]:
+    def task_distribution(rows: list[dict[str, Any]]) -> dict[str, int]:
+        distribution: dict[str, int] = defaultdict(int)
+        for row in rows:
+            distribution[row["task_type"]] += 1
+        return dict(sorted(distribution.items()))
+
+    def slice_distribution(rows: list[dict[str, Any]]) -> dict[str, int]:
+        distribution: dict[str, int] = defaultdict(int)
+        for row in rows:
+            for slice_name in sorted(classify_grounded_record_slices(row)):
+                distribution[slice_name] += 1
+        return dict(sorted(distribution.items()))
+
+    clarify_needed_count = sum(int(clarify_row["clarify_needed"]) for _, _, clarify_row in source_rows)
+    return {
+        "version": E10_V2_MANIFEST_CONFIG_VERSION,
+        "source_query_count": len(source_rows),
+        "source_query_ids": [query_row["query_id"] for query_row, _, _ in source_rows],
+        "clarify_needed_source_count": clarify_needed_count,
+        "train_base_record_count": len(train_base_records),
+        "dev_base_record_count": len(dev_base_records),
+        "train_grounded_record_count_raw": len(train_grounded_records_raw),
+        "dev_grounded_record_count_raw": len(dev_grounded_records_raw),
+        "train_grounded_record_count_final": len(train_grounded_records_final),
+        "train_grounded_share_of_final_manifest": round(
+            len(train_grounded_records_final) / max(len(train_base_records) + len(train_grounded_records_final), 1),
+            4,
+        ),
+        "train_task_distribution": task_distribution(train_base_records + train_grounded_records_final),
+        "dev_task_distribution": task_distribution(dev_base_records + dev_grounded_records_raw),
+        "train_grounded_slice_distribution": slice_distribution(train_grounded_records_final),
+        "dev_grounded_slice_distribution": slice_distribution(dev_grounded_records_raw),
+        "dropped_reason_counts": dict(sorted(dropped_reason_counts.items())),
+    }
+
+
 def build_sft_manifest_records() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     judged_queries = load_jsonl(EXPERIMENT_ASSETS_DIR / "judged_queries.jsonl")
     slot_gold = {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "slot_gold.jsonl")}
@@ -1625,11 +1962,175 @@ def build_sft_manifest_records() -> tuple[list[dict[str, Any]], list[dict[str, A
     return train_records, dev_records
 
 
+def build_sft_manifest_records_v2() -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    train_records_base, dev_records_base = build_sft_manifest_records()
+    source_rows = build_e10_v2_grounded_query_rows()
+
+    cfg = load_config()
+    frozen_config = load_json(EXPERIMENT_ASSETS_DIR / "frozen_config.yaml")
+    split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
+    review_df = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
+    profile_df = pd.read_pickle("data/intermediate/hotel_profiles.pkl")
+    evidence_df = pd.read_pickle("data/intermediate/evidence_index.pkl")
+
+    hotel_summary = build_hotel_summary(review_df)
+    profile_current, profile_alt = build_profile_tables(profile_df)
+    del profile_alt
+    evidence_lookup = build_evidence_lookup(evidence_df)
+    split_hotel_lookup = build_split_hotel_lookup(split_manifest)
+
+    behavior_runtime_config, behavior_api_key = resolve_behavior_runtime_config(cfg, frozen_config)
+    validate_runtime_base_model(
+        behavior_runtime_config.model_id,
+        str(frozen_config["behavior"]["base_model"]),
+    )
+    llm_runner = build_behavior_backend(behavior_runtime_config, behavior_api_key)
+
+    from chromadb import PersistentClient
+    from sentence_transformers import SentenceTransformer
+
+    client = PersistentClient(path=cfg["embedding"]["chroma_persist_dir"])
+    collection = client.get_collection(cfg["embedding"]["chroma_collection"])
+    try:
+        bi_encoder = SentenceTransformer(cfg["embedding"]["model"], local_files_only=True)
+    except Exception as exc:
+        raise RuntimeError(
+            "E10 v2 manifest 生成需要本地可用的 embedding 模型缓存；当前环境未能在离线模式下加载 "
+            f"{cfg['embedding']['model']}。请先在有网环境缓存该模型后再重试。"
+        ) from exc
+    normalize_embeddings = bool(cfg["embedding"].get("normalize", True))
+
+    manifest_config = {
+        "task": "E10_manifest_v2",
+        "version": E10_V2_MANIFEST_CONFIG_VERSION,
+        "grounded_recommendation": True,
+        "retrieval_mode": E9_RETRIEVAL_MODE,
+        "candidate_policy": E9_CANDIDATE_POLICY,
+        "dense_top_k": cfg["reranker"]["top_k_before_rerank"],
+        "final_top_k": cfg["reranker"]["top_k_after_rerank"],
+        "embedding_model": cfg["embedding"]["model"],
+        "collection": cfg["embedding"]["chroma_collection"],
+        "generator_model_id": behavior_runtime_config.model_id,
+    }
+
+    train_grounded_records_raw: list[dict[str, Any]] = []
+    dev_grounded_records_raw: list[dict[str, Any]] = []
+    dropped_reason_counts: dict[str, int] = defaultdict(int)
+
+    for query_row, slot_row, clarify_row in source_rows:
+        for split in ("train", "dev"):
+            allowed_hotel_ids = set(split_hotel_lookup.get(split, {}).get(slot_row["city"], []))
+            if not allowed_hotel_ids:
+                dropped_reason_counts[f"{split}:no_hotels_in_city_split"] += 1
+                continue
+            candidate_hotels = build_candidate_hotels_for_slot(
+                hotel_summary=hotel_summary,
+                profile_current=profile_current,
+                slot_row=slot_row,
+                allowed_hotel_ids=allowed_hotel_ids,
+            )
+            if not candidate_hotels:
+                dropped_reason_counts[f"{split}:no_ranked_candidates"] += 1
+                continue
+            unit = build_generation_eval_unit_for_slot(
+                query_row=query_row,
+                slot_row=slot_row,
+                candidate_hotels=candidate_hotels,
+                collection=collection,
+                bi_encoder=bi_encoder,
+                normalize_embeddings=normalize_embeddings,
+                evidence_lookup=evidence_lookup,
+                dense_top_k=cfg["reranker"]["top_k_before_rerank"],
+                final_top_k=cfg["reranker"]["top_k_after_rerank"],
+                stable_asset_config=manifest_config | {"split": split},
+            )
+            response, verification, _audit_rows, debug_payload = generate_group_response(
+                llm_runner=llm_runner,
+                unit=unit,
+                group_id="C_grounded_generation_with_verifier",
+                max_new_tokens=E9_GENERATION_MAX_NEW_TOKENS,
+                evidence_lookup=evidence_lookup,
+            )
+            is_valid, drop_reason = validate_grounded_recommendation_example(
+                unit,
+                response,
+                verification,
+                debug_payload,
+            )
+            if not is_valid:
+                dropped_reason_counts[f"{split}:{drop_reason}"] += 1
+                continue
+
+            record = SFTManifestRecord(
+                record_id=stable_hash(
+                    {
+                        "task_type": "grounded_recommendation",
+                        "query_id": query_row["query_id"],
+                        "split": split,
+                        "candidate_hotels": [hotel.hotel_id for hotel in candidate_hotels],
+                    }
+                ),
+                split=split,
+                task_type="grounded_recommendation",
+                hotel_id=None,
+                query_id=query_row["query_id"],
+                source_asset="synthetic_grounded_recommendation_from_base_generator_v2",
+                input_payload={
+                    **build_grounded_recommendation_input_payload(unit),
+                },
+                target_payload=build_grounded_recommendation_target_payload(response),
+                config_hash=stable_hash(
+                    manifest_config
+                    | {
+                        "task_type": "grounded_recommendation",
+                        "query_id": query_row["query_id"],
+                        "split": split,
+                        "clarify_needed_source": bool(clarify_row["clarify_needed"]),
+                    }
+                ),
+            ).model_dump()
+            if split == "train":
+                train_grounded_records_raw.append(record)
+            else:
+                dev_grounded_records_raw.append(record)
+
+    train_grounded_records_final = rebalance_grounded_train_records(
+        train_grounded_records_raw,
+        len(train_records_base),
+    )
+    train_records = sorted(
+        train_records_base + train_grounded_records_final,
+        key=lambda row: (row["task_type"], row["query_id"], row["record_id"]),
+    )
+    dev_records = sorted(
+        dev_records_base + dev_grounded_records_raw,
+        key=lambda row: (row["task_type"], row["query_id"], row["record_id"]),
+    )
+    manifest_report = build_grounded_manifest_report(
+        source_rows=source_rows,
+        train_base_records=train_records_base,
+        dev_base_records=dev_records_base,
+        train_grounded_records_raw=train_grounded_records_raw,
+        dev_grounded_records_raw=dev_grounded_records_raw,
+        train_grounded_records_final=train_grounded_records_final,
+        dropped_reason_counts=dropped_reason_counts,
+    )
+    return train_records, dev_records, manifest_report
+
+
 def prepare_e10_manifests() -> tuple[Path, Path]:
     train_records, dev_records = build_sft_manifest_records()
     write_jsonl(SFT_TRAIN_MANIFEST_PATH, train_records)
     write_jsonl(SFT_DEV_MANIFEST_PATH, dev_records)
     return SFT_TRAIN_MANIFEST_PATH, SFT_DEV_MANIFEST_PATH
+
+
+def prepare_e10_manifests_v2() -> tuple[Path, Path, Path]:
+    train_records, dev_records, manifest_report = build_sft_manifest_records_v2()
+    write_jsonl(SFT_TRAIN_MANIFEST_V2_PATH, train_records)
+    write_jsonl(SFT_DEV_MANIFEST_V2_PATH, dev_records)
+    write_json(E10_V2_MANIFEST_REPORT_PATH, manifest_report)
+    return SFT_TRAIN_MANIFEST_V2_PATH, SFT_DEV_MANIFEST_V2_PATH, E10_V2_MANIFEST_REPORT_PATH
 
 
 def run_e10_base_vs_peft(

@@ -1,6 +1,6 @@
 # 下一步该做什么
 
-更新时间：2026-04-01
+更新时间：2026-04-02
 
 ## 当前推荐推进顺序
 
@@ -12,8 +12,8 @@
 4. 以 `experiments/reports/05_behavior_stage_3_chapter_materials.md` 为主入口，完成行为章节正文写作
 5. 仅在论文或答辩需要时，追加 `Qwen3.5-9B` 附录对比
 6. 将 `E9` 第二轮结果视为当前正式冻结结果，不再改 retrieval 主线
-7. 进入 `E10 / PEFT` 评测骨架，准备 adapter metadata 与云端训练
-8. adapter 准备好后，运行 `e10_base_vs_peft`
+7. 冻结 `E10 v1` 正式负结果，不再把 `PEFT exp01` 视为待确认结果
+8. 进入 `E10 v2` 数据方案，生成 `v2` manifest、训练 `exp02` 并复评
 
 ## 第一优先级：立即要做
 
@@ -110,52 +110,77 @@
   - `Qwen/Qwen3.5-4B`
   - `E2 B_final_aspect_score Top5`
 
-### 任务 5：进入 `E10 / PEFT` 评测骨架
+### 任务 5：冻结 `E10 v1` 正式结论并转入 `E10 v2`
 
 目标：
 
-- 在固定 `E9` eval units 与固定证据条件下，完成 `Base 4B vs PEFT 4B` 的评测入口准备
-- 当前先做 adapter-ready 评测骨架，不在仓库里直接启动正式训练
+- 将当前 `E10 v1` compare 固定为论文可引用的正式负结果
+- 在不改 retrieval、不改评测协议的前提下，推进 `E10 v2` 数据方案与复训
 
 当前推荐顺序为：
 
-1. 先确认本地 `venv` 可用，并优先从仓库根目录执行命令
-2. 先确认以下文件存在且内容正确：
-   - `experiments/assets/sft_train_manifest.jsonl`
-   - `experiments/assets/sft_dev_manifest.jsonl`
-   - `experiments/assets/e10_train_config_template.json`
-   - `experiments/assets/e10_adapter_metadata.template.json`
-   - `docs/deployment/02_e10_peft_runbook.md`
-3. 在云端完成 adapter 训练并回传后，准备 adapter metadata
-4. 再跑：
+1. 先冻结并引用当前正式 run：
+   - `e10_0dc5c2e6f867c66f_20260402T015230+0000`
+   - `e10_0ef381420c1bd19a_20260402T020120+0000`
+   - `e10cmp_28598dfb8434c1ba_20260402T020734+0000`
+2. 确认以下 `v2` 资产/入口存在且内容正确：
+   - `experiments/assets/e10_train_config.qwen35_4b_peft_v2.json`
+   - `scripts/evaluation/run_experiment_suite.py` 中的 `e10_prepare_manifests_v2`
+   - `docs/plans/03_generation_and_peft_phase_plan.md`
+   - `experiments/reports/07_generation_stage_2_e10_formal_summary.md`
+3. 在云端基于 strongest base 生成 `v2 grounded` silver manifest：
 
 ```bash
-python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v2
+```
+
+4. 在云端训练 `exp02`：
+
+```bash
+accelerate launch -m scripts.training.train_e10_peft \
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v2.json
+```
+
+5. merge `exp02` 后，只重跑：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite \
+  --task e10_base_vs_peft \
+  --group-id B_peft_4b_grounded
+```
+
+6. 最后复用 base formal run，生成 compare：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite \
+  --task e10_compare_runs \
+  --base-run-dir /abs/path/to/e10_0dc5c2e6f867c66f_20260402T015230+0000 \
+  --peft-run-dir /abs/path/to/new_peft_v2_run
 ```
 
 当前固定约束：
 
-- 训练样本只来自 `train` 酒店
-- 只做四类 SFT：
+- 不改 retrieval 主线
+- 不改 `E9` eval units
+- 不改正式 base baseline
+- 不改评测 prompt 与 compare 协议
+- `v2` 训练配方保持不变，只扩展训练数据
+- `v2` task_types 扩展为：
   - `preference_parse`
   - `clarification`
   - `constraint_honesty`
   - `feedback_update`
-- 多轮能力只先做：
-  - 单次澄清
-  - 单次反馈更新
-- 不改 retrieval 主线
-- 不重生成 `E9` eval units
+  - `grounded_recommendation`
 
 ## 当前不建议启动的内容
 
 在下面这些条件未满足前，不建议提前进入：
 
 - 行为章节还没真正写进论文前：不要启动 `G1-G4`
-- 在未准备好 adapter metadata 前：不要直接启动 `e10_base_vs_peft`
+- 在未生成 `sft_train_manifest_v2.jsonl / sft_dev_manifest_v2.jsonl` 前：不要直接启动 `exp02`
 - 当前阶段：不要把 `reranker` 或 `fallback` 再接回默认主流程
 - 当前阶段：不要为了追求更高指标而覆盖 `2B` baseline、`4B` 正式 run、或 `E9` 第二轮正式 run
 
 ## 一句话版本
 
-你现在最该做的，是把 `E9` 第二轮结果视为当前正式冻结结果，然后准备 `E10 / PEFT` 的 adapter metadata 与云端训练产物，最后在固定 `E9` eval units 上运行 `e10_base_vs_peft`。
+你现在最该做的，是冻结 `E10 v1` 的正式负结果，然后用新增的 `grounded_recommendation` 数据方案推进 `E10 v2`，而不是继续修改 retrieval 或更换评测协议。

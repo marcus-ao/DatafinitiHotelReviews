@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from scripts.training.training_utils import (
+    assert_sft_samples_within_max_seq_length,
     build_output_paths,
     build_sft_dataset,
     build_sft_trainer_kwargs,
@@ -85,6 +86,18 @@ def run_training(config_path: str | Path, dry_run: bool = False) -> dict[str, An
     tokenizer = AutoTokenizer.from_pretrained(config.base_model_id, trust_remote_code=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    assert_sft_samples_within_max_seq_length(
+        train_dataset,
+        tokenizer,
+        config.max_seq_length,
+        dataset_name="train_dataset",
+    )
+    assert_sft_samples_within_max_seq_length(
+        dev_dataset,
+        tokenizer,
+        config.max_seq_length,
+        dataset_name="dev_dataset",
+    )
 
     model = AutoModelForCausalLM.from_pretrained(
         config.base_model_id,
