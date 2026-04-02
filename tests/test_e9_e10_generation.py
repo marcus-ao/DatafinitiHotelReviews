@@ -401,6 +401,12 @@ class E9E10GenerationTestCase(unittest.TestCase):
             "Qwen/Qwen3.5-4B",
         )
 
+    def test_validate_runtime_base_model_accepts_path_and_hf_name(self):
+        generation_mod.validate_runtime_base_model(
+            "/root/autodl-tmp/models/base/Qwen3.5-4B",
+            "Qwen/Qwen3.5-4B",
+        )
+
     def test_run_e10_base_vs_peft_requires_adapter_metadata_path(self):
         runtime_config = generation_mod.BehaviorRuntimeConfig(
             llm_backend="api",

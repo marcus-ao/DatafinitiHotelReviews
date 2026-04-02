@@ -173,6 +173,21 @@ def validate_adapter_metadata_base_model(
     )
 
 
+def validate_runtime_base_model(
+    runtime_model_id: str,
+    frozen_base_model_id: str,
+) -> None:
+    runtime_model = str(runtime_model_id).strip()
+    if runtime_model == frozen_base_model_id:
+        return
+    if canonical_model_id_name(runtime_model) == canonical_model_id_name(frozen_base_model_id):
+        return
+    raise ValueError(
+        "E10 固定要求 Base 组使用冻结的正式行为模型 "
+        f"{frozen_base_model_id}；当前解析到的 model_id 为 {runtime_model_id}。"
+    )
+
+
 def build_peft_runtime_config(
     base_runtime_config: BehaviorRuntimeConfig,
     adapter_metadata: dict[str, Any],
@@ -1659,11 +1674,8 @@ def run_e10_base_vs_peft_with_groups(
         )
     needs_peft_group = "B_peft_4b_grounded" in selected_group_ids
     needs_base_group = "A_base_4b_grounded" in selected_group_ids
-    if needs_base_group and base_runtime_config.model_id != frozen_base_model_id:
-        raise ValueError(
-            "E10 固定要求 Base 组使用冻结的正式行为模型 "
-            f"{frozen_base_model_id}；当前解析到的 model_id 为 {base_runtime_config.model_id}。"
-        )
+    if needs_base_group:
+        validate_runtime_base_model(base_runtime_config.model_id, frozen_base_model_id)
     if needs_peft_group and not base_runtime_config.adapter_metadata_path:
         raise ValueError(
             "运行 E10 的 PEFT 组需要提供 adapter metadata。"
