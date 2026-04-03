@@ -5,6 +5,9 @@ from __future__ import annotations
 import inspect
 import json
 from pathlib import Path
+from pathlib import PurePath
+from pathlib import PurePosixPath
+from pathlib import PureWindowsPath
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -51,6 +54,22 @@ def resolve_repo_path(path_value: str | Path) -> Path:
     if path.is_absolute():
         return path
     return ROOT_DIR / path
+
+
+def normalize_path_reference(path_value: str | Path) -> Path | PurePath:
+    path_text = str(path_value).strip()
+    if not path_text:
+        return ROOT_DIR
+    local_path = Path(path_text)
+    if local_path.is_absolute():
+        return local_path
+    posix_path = PurePosixPath(path_text)
+    if posix_path.is_absolute():
+        return posix_path
+    windows_path = PureWindowsPath(path_text)
+    if windows_path.is_absolute():
+        return windows_path
+    return ROOT_DIR / Path(path_text)
 
 
 def load_train_config(path: str | Path) -> E10TrainConfig:
@@ -174,13 +193,14 @@ def build_sft_trainer_kwargs(
     return kwargs
 
 
-def build_output_paths(config: E10TrainConfig) -> dict[str, Path]:
-    adapter_dir = resolve_repo_path(config.output_adapter_dir)
+def build_output_paths(config: E10TrainConfig) -> dict[str, Path | PurePath]:
+    adapter_dir = normalize_path_reference(config.output_adapter_dir)
     if adapter_dir.suffix:
         raise ValueError("output_adapter_dir 必须是目录路径，不能是文件路径。")
-    checkpoint_dir = Path(str(adapter_dir).replace("/models/adapters/", "/training/checkpoints/"))
-    log_dir = Path(str(adapter_dir).replace("/models/adapters/", "/training/logs/"))
-    report_dir = Path(str(adapter_dir).replace("/models/adapters/", "/training/reports/"))
+    path_cls = type(adapter_dir)
+    checkpoint_dir = path_cls(str(adapter_dir).replace("/models/adapters/", "/training/checkpoints/"))
+    log_dir = path_cls(str(adapter_dir).replace("/models/adapters/", "/training/logs/"))
+    report_dir = path_cls(str(adapter_dir).replace("/models/adapters/", "/training/reports/"))
     return {
         "adapter_dir": adapter_dir,
         "checkpoint_dir": checkpoint_dir,
@@ -191,9 +211,16 @@ def build_output_paths(config: E10TrainConfig) -> dict[str, Path]:
 
 def ensure_output_dirs(config: E10TrainConfig) -> dict[str, Path]:
     paths = build_output_paths(config)
-    for path in paths.values():
+    materialized_paths: dict[str, Path] = {}
+    for key, path in paths.items():
+        if not isinstance(path, Path):
+            raise ValueError(
+                "当前系统无法直接创建该 output_adapter_dir 对应的目标路径。"
+                "请在目标训练环境中执行正式训练，或仅在本机执行 dry-run。"
+            )
         path.mkdir(parents=True, exist_ok=True)
-    return paths
+        materialized_paths[key] = path
+    return materialized_paths
 
 
 def build_adapter_metadata_payload(

@@ -64,6 +64,7 @@ source venv/bin/activate
 
 ```bash
 python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v3
+python -m scripts.evaluation.run_experiment_suite --task e10_validate_manifest_v3
 ```
 
 补充说明：
@@ -88,6 +89,13 @@ accelerate launch -m scripts.training.train_e10_peft \
 4. merge `exp03` 后，只重跑 PEFT：
 
 ```bash
+python -m scripts.training.merge_e10_peft_adapter \
+  --base-model-path /root/autodl-tmp/models/base/Qwen3.5-4B \
+  --adapter-path /root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp03 \
+  --merged-output-path /root/autodl-tmp/models/merged/qwen35_4b_merged_exp03 \
+  --report-dir /root/autodl-tmp/training/reports/qwen35_4b_qlora/exp03 \
+  --repo-metadata-path experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v3.json
+
 python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --group-id B_peft_4b_grounded
 ```
 
@@ -97,7 +105,7 @@ python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --grou
 python -m scripts.evaluation.run_experiment_suite \
   --task e10_compare_runs \
   --base-run-dir /abs/path/to/e10_0dc5c2e6f867c66f_20260402T015230+0000 \
-  --peft-run-dir /abs/path/to/new_peft_v2_run
+  --peft-run-dir /abs/path/to/new_peft_v3_run
 ```
 
 ### 第三步：`E10 v3` 跑完后，按固定步骤做人工审计
@@ -245,4 +253,4 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 
 ## 手册 E：一句话版
 
-当前行为主线、`E9` 第二轮正式结果与 `E10 v1` 正式 compare 都已经完成并冻结；你现在最该做的是保持这些冻结资产不动，生成 `v2` grounded manifest、训练 `exp02` 并复评，而不是再回头改 retrieval 主线。
+当前行为主线、`E9` 第二轮正式结果与 `E10 v1` 正式 compare 都已经完成并冻结；你现在最该做的是保持这些冻结资产不动，生成 `v3` grounded manifest、训练 `exp03` 并复评，而不是再回头改 retrieval 主线。

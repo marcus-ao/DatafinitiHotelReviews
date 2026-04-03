@@ -1182,6 +1182,44 @@ class E9E10GenerationTestCase(unittest.TestCase):
         self.assertIn("train_grounded_slice_share", report)
         self.assertIn("train_grounded_source_share", report)
 
+    def test_validate_e10_manifest_report_v3_payload_accepts_valid_report(self):
+        report = {
+            "version": 3,
+            "source_type_distribution": {"judged": 4, "synthetic": 3},
+            "source_type_share": {"judged": 0.5714, "synthetic": 0.4286},
+            "train_task_distribution": {"grounded_recommendation": 10, "clarification": 2},
+            "train_grounded_slice_share": {
+                "quiet_sleep": 0.30,
+                "focus_avoid": 0.30,
+                "partial_support_keep_recommendation": 0.20,
+                "multi_hotel_pack_boundary": 0.20,
+                "zero_recommendation_evidence_gap": 0.10,
+            },
+            "train_grounded_source_share": {"judged": 0.6, "synthetic": 0.4},
+            "dropped_reason_counts": {"train:none": 1},
+        }
+        validated = generation_mod.validate_e10_manifest_report_v3_payload(report)
+        self.assertEqual(validated["version"], 3)
+
+    def test_validate_e10_manifest_report_v3_payload_rejects_low_slice_share(self):
+        report = {
+            "version": 3,
+            "source_type_distribution": {"judged": 4, "synthetic": 3},
+            "source_type_share": {"judged": 0.5714, "synthetic": 0.4286},
+            "train_task_distribution": {"grounded_recommendation": 10, "clarification": 2},
+            "train_grounded_slice_share": {
+                "quiet_sleep": 0.29,
+                "focus_avoid": 0.30,
+                "partial_support_keep_recommendation": 0.20,
+                "multi_hotel_pack_boundary": 0.20,
+                "zero_recommendation_evidence_gap": 0.10,
+            },
+            "train_grounded_source_share": {"judged": 0.6, "synthetic": 0.4},
+            "dropped_reason_counts": {"train:none": 1},
+        }
+        with self.assertRaises(ValueError):
+            generation_mod.validate_e10_manifest_report_v3_payload(report)
+
 
 if __name__ == "__main__":
     unittest.main()

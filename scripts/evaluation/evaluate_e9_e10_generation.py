@@ -9,6 +9,8 @@ import re
 import time
 from collections import defaultdict
 from pathlib import Path
+from pathlib import PurePosixPath
+from pathlib import PureWindowsPath
 from typing import Any
 
 import pandas as pd
@@ -127,6 +129,24 @@ E10_ADAPTER_METADATA_REQUIRED_FIELDS = {
     "adapter_path",
     "backend",
 }
+E10_V3_REQUIRED_REPORT_FIELDS = {
+    "version",
+    "source_type_distribution",
+    "source_type_share",
+    "train_task_distribution",
+    "train_grounded_slice_share",
+    "train_grounded_source_share",
+    "dropped_reason_counts",
+}
+E10_V3_MIN_SLICE_SHARE = {
+    "quiet_sleep": 0.30,
+    "focus_avoid": 0.30,
+    "partial_support_keep_recommendation": 0.20,
+    "multi_hotel_pack_boundary": 0.15,
+}
+E10_V3_MAX_SLICE_SHARE = {
+    "zero_recommendation_evidence_gap": 0.10,
+}
 
 
 def canonical_model_id_name(model_id: str) -> str:
@@ -162,6 +182,15 @@ def resolve_repo_relative_path(path_value: str | None) -> Path | None:
     return resolve_repo_path(path_value)
 
 
+def normalize_external_path_string(path_value: str | Path) -> str:
+    path_text = str(path_value).strip()
+    if not path_text:
+        return ""
+    if PurePosixPath(path_text).is_absolute() or PureWindowsPath(path_text).is_absolute():
+        return path_text
+    return str(resolve_repo_path(path_text))
+
+
 def load_adapter_metadata(path: str | Path) -> dict[str, Any]:
     metadata_path = resolve_repo_path(path)
     if not metadata_path.exists():
@@ -176,8 +205,70 @@ def load_adapter_metadata(path: str | Path) -> dict[str, Any]:
             f"Adapter metadata 缺少字段: {', '.join(missing)}"
         )
     payload["_metadata_path"] = str(metadata_path)
-    payload["_resolved_adapter_path"] = str(resolve_repo_path(payload["adapter_path"]))
+    payload["_resolved_adapter_path"] = normalize_external_path_string(payload["adapter_path"])
     return payload
+
+
+def validate_e10_manifest_report_v3_payload(report: dict[str, Any]) -> dict[str, Any]:
+    missing_fields = sorted(E10_V3_REQUIRED_REPORT_FIELDS - set(report))
+    if missing_fields:
+        raise KeyError(
+            "E10 v3 manifest report 缺少字段: " + ", ".join(missing_fields)
+        )
+    if int(report.get("version", -1)) != E10_V3_MANIFEST_CONFIG_VERSION:
+        raise ValueError(
+            "E10 v3 manifest report 版本不正确："
+            f"{report.get('version')} != {E10_V3_MANIFEST_CONFIG_VERSION}"
+        )
+
+    source_type_distribution = report["source_type_distribution"]
+    if source_type_distribution.get("judged", 0) <= 0:
+        raise ValueError("E10 v3 manifest report 缺少 judged 来源样本。")
+    if source_type_distribution.get("synthetic", 0) <= 0:
+        raise ValueError("E10 v3 manifest report 缺少 synthetic 来源样本。")
+
+    train_task_distribution = report["train_task_distribution"]
+    if train_task_distribution.get("grounded_recommendation", 0) <= 0:
+        raise ValueError("E10 v3 train manifest 中没有 grounded_recommendation 样本。")
+
+    train_slice_share = report["train_grounded_slice_share"]
+    for slice_name, minimum_share in E10_V3_MIN_SLICE_SHARE.items():
+        actual_share = float(train_slice_share.get(slice_name, 0.0))
+        if actual_share + 1e-9 < minimum_share:
+            raise ValueError(
+                f"E10 v3 train_grounded_slice_share 未满足下限："
+                f"{slice_name}={actual_share:.4f} < {minimum_share:.4f}"
+            )
+    for slice_name, maximum_share in E10_V3_MAX_SLICE_SHARE.items():
+        actual_share = float(train_slice_share.get(slice_name, 0.0))
+        if actual_share - 1e-9 > maximum_share:
+            raise ValueError(
+                f"E10 v3 train_grounded_slice_share 超过上限："
+                f"{slice_name}={actual_share:.4f} > {maximum_share:.4f}"
+            )
+    return report
+
+
+def validate_e10_manifest_report_v3(
+    *,
+    report_path: Path | None = None,
+    train_manifest_path: Path | None = None,
+    dev_manifest_path: Path | None = None,
+) -> dict[str, Any]:
+    resolved_report_path = report_path or E10_V3_MANIFEST_REPORT_PATH
+    resolved_train_manifest_path = train_manifest_path or SFT_TRAIN_MANIFEST_V3_PATH
+    resolved_dev_manifest_path = dev_manifest_path or SFT_DEV_MANIFEST_V3_PATH
+
+    for asset_path in (
+        resolved_train_manifest_path,
+        resolved_dev_manifest_path,
+        resolved_report_path,
+    ):
+        if not asset_path.exists():
+            raise FileNotFoundError(f"Missing E10 v3 asset: {asset_path}")
+
+    report = load_json(resolved_report_path)
+    return validate_e10_manifest_report_v3_payload(report)
 
 
 def validate_adapter_metadata_base_model(

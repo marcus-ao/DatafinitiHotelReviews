@@ -134,6 +134,7 @@
 
 ```bash
 python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v3
+python -m scripts.evaluation.run_experiment_suite --task e10_validate_manifest_v3
 ```
 
 4. 在云端训练 `exp03`：
@@ -144,6 +145,15 @@ accelerate launch -m scripts.training.train_e10_peft \
 ```
 
 5. merge `exp03` 后，只重跑：
+
+```bash
+python -m scripts.training.merge_e10_peft_adapter \
+  --base-model-path /root/autodl-tmp/models/base/Qwen3.5-4B \
+  --adapter-path /root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp03 \
+  --merged-output-path /root/autodl-tmp/models/merged/qwen35_4b_merged_exp03 \
+  --report-dir /root/autodl-tmp/training/reports/qwen35_4b_qlora/exp03 \
+  --repo-metadata-path experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v3.json
+```
 
 ```bash
 python -m scripts.evaluation.run_experiment_suite \
@@ -157,7 +167,7 @@ python -m scripts.evaluation.run_experiment_suite \
 python -m scripts.evaluation.run_experiment_suite \
   --task e10_compare_runs \
   --base-run-dir /abs/path/to/e10_0dc5c2e6f867c66f_20260402T015230+0000 \
-  --peft-run-dir /abs/path/to/new_peft_v2_run
+  --peft-run-dir /abs/path/to/new_peft_v3_run
 ```
 
 当前固定约束：
@@ -182,7 +192,7 @@ python -m scripts.evaluation.run_experiment_suite \
 在下面这些条件未满足前，不建议提前进入：
 
 - 行为章节还没真正写进论文前：不要启动 `G1-G4`
-- 在未生成 `sft_train_manifest_v2.jsonl / sft_dev_manifest_v2.jsonl` 前：不要直接启动 `exp02`
+- 在未生成 `sft_train_manifest_v3.jsonl / sft_dev_manifest_v3.jsonl` 前：不要直接启动 `exp03`
 - 当前阶段：不要把 `reranker` 或 `fallback` 再接回默认主流程
 - 当前阶段：不要为了追求更高指标而覆盖 `2B` baseline、`4B` 正式 run、或 `E9` 第二轮正式 run
 

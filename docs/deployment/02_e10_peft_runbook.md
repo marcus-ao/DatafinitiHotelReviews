@@ -229,6 +229,7 @@ python -m scripts.evaluation.run_experiment_suite \
 
 ```bash
 python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v3
+python -m scripts.evaluation.run_experiment_suite --task e10_validate_manifest_v3
 ```
 
 然后在云端训练：
@@ -238,7 +239,7 @@ accelerate launch -m scripts.training.train_e10_peft \
   --config experiments/assets/e10_train_config.qwen35_4b_peft_v3.json
 ```
 
-训练完成并 merge 后，只重跑 PEFT 组，再复用当前 base formal run 做 compare。
+训练完成后，先 merge `exp03` 并把 metadata 复制回仓库，再只重跑 PEFT 组，最后复用当前 base formal run 做 compare。
 
 当前 `v3` 固定修复目标为：
 
@@ -253,8 +254,15 @@ accelerate launch -m scripts.training.train_e10_peft \
 
 ```bash
 python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v3
+python -m scripts.evaluation.run_experiment_suite --task e10_validate_manifest_v3
 accelerate launch -m scripts.training.train_e10_peft \
   --config experiments/assets/e10_train_config.qwen35_4b_peft_v3.json
+python -m scripts.training.merge_e10_peft_adapter \
+  --base-model-path /root/autodl-tmp/models/base/Qwen3.5-4B \
+  --adapter-path /root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp03 \
+  --merged-output-path /root/autodl-tmp/models/merged/qwen35_4b_merged_exp03 \
+  --report-dir /root/autodl-tmp/training/reports/qwen35_4b_qlora/exp03 \
+  --repo-metadata-path experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v3.json
 python -m scripts.evaluation.run_experiment_suite \
   --task e10_base_vs_peft \
   --group-id B_peft_4b_grounded

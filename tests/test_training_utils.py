@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from scripts.training import merge_e10_peft_adapter as merge_mod
 from scripts.training import training_utils as training_mod
 from scripts.training import train_e10_peft as train_mod
 
@@ -240,6 +241,48 @@ class TrainingUtilsTestCase(unittest.TestCase):
         self.assertEqual(result["train_sample_count"], 1)
         self.assertEqual(result["dev_sample_count"], 1)
         self.assertEqual(result["adapter_metadata_path"], "")
+        self.assertEqual(
+            result["output_paths"]["adapter_dir"].replace("\\", "/"),
+            "/root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp01",
+        )
+
+    def test_build_output_paths_preserves_posix_cloud_paths_for_dry_run(self):
+        config = training_mod.E10TrainConfig(
+            base_model_id="/root/autodl-tmp/models/base/Qwen3.5-4B",
+            adapter_type="qlora",
+            train_manifest_path="experiments/assets/sft_train_manifest_v3.jsonl",
+            dev_manifest_path="experiments/assets/sft_dev_manifest_v3.jsonl",
+            task_types=["grounded_recommendation"],
+            output_adapter_dir="/root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp03",
+        )
+        output_paths = training_mod.build_output_paths(config)
+        self.assertEqual(
+            str(output_paths["adapter_dir"]).replace("\\", "/"),
+            "/root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp03",
+        )
+        self.assertEqual(
+            str(output_paths["report_dir"]).replace("\\", "/"),
+            "/root/autodl-tmp/training/reports/qwen35_4b_qlora/exp03",
+        )
+
+    def test_merge_e10_peft_adapter_dry_run_returns_expected_paths(self):
+        result = merge_mod.merge_e10_peft_adapter(
+            base_model_path="/root/autodl-tmp/models/base/Qwen3.5-4B",
+            adapter_path="/root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp03",
+            merged_output_path="/root/autodl-tmp/models/merged/qwen35_4b_merged_exp03",
+            repo_metadata_path="experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v3.json",
+            dry_run=True,
+        )
+        self.assertTrue(result["dry_run"])
+        self.assertEqual(
+            result["report_metadata_path"].replace("\\", "/"),
+            "/root/autodl-tmp/training/reports/qwen35_4b_qlora/exp03/adapter_metadata.json",
+        )
+        self.assertTrue(
+            result["repo_metadata_path"].replace("\\", "/").endswith(
+                "/experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v3.json"
+            )
+        )
 
 
 if __name__ == "__main__":

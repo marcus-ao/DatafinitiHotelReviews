@@ -15,6 +15,7 @@ from scripts.evaluation.evaluate_e9_e10_generation import (
     prepare_e10_manifests,
     prepare_e10_manifests_v2,
     prepare_e10_manifests_v3,
+    validate_e10_manifest_report_v3,
     run_e10_compare_runs,
     run_e10_base_vs_peft,
     run_e9_generation_constraints,
@@ -47,6 +48,7 @@ def main() -> None:
             "e10_prepare_manifests",
             "e10_prepare_manifests_v2",
             "e10_prepare_manifests_v3",
+            "e10_validate_manifest_v3",
             "e10_base_vs_peft",
             "e10_compare_runs",
         ],
@@ -122,6 +124,11 @@ def main() -> None:
         print(f"[OK] train manifest written to {train_path}")
         print(f"[OK] dev manifest written to {dev_path}")
         print(f"[OK] manifest report written to {report_path}")
+    elif args.task == "e10_validate_manifest_v3":
+        report = validate_e10_manifest_report_v3()
+        print("[OK] E10 v3 manifest assets validated")
+        print(f"[OK] grounded share={report['train_grounded_share_of_final_manifest']}")
+        print(f"[OK] slice share={report['train_grounded_slice_share']}")
     elif args.task == "e10_base_vs_peft":
         run_dir = run_e10_base_vs_peft(
             output_root=output_root,
