@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import copy
+import csv
 import json
 import math
 import re
 import time
 from collections import defaultdict
+from difflib import SequenceMatcher
 from pathlib import Path
 from pathlib import PurePosixPath
 from pathlib import PureWindowsPath
@@ -93,10 +95,26 @@ E10_V2_MANIFEST_REPORT_PATH = EXPERIMENT_ASSETS_DIR / "sft_manifest_v2_report.js
 SFT_TRAIN_MANIFEST_V3_PATH = EXPERIMENT_ASSETS_DIR / "sft_train_manifest_v3.jsonl"
 SFT_DEV_MANIFEST_V3_PATH = EXPERIMENT_ASSETS_DIR / "sft_dev_manifest_v3.jsonl"
 E10_V3_MANIFEST_REPORT_PATH = EXPERIMENT_ASSETS_DIR / "sft_manifest_v3_report.json"
+E10_V4_SEED_SPECS_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_seed_specs.jsonl"
+E10_V4_GOLD_PATCH_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_gold_patch.jsonl"
+E10_V4_DEEPSEEK_DRAFTS_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_deepseek_drafts.jsonl"
+E10_V4_REVIEW_LOG_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_review_log.csv"
+E10_V4_ACCEPTED_GROUNDED_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_accepted_grounded.jsonl"
+E10_V4_DEEPSEEK_PROMPTS_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_deepseek_prompt_templates.json"
+E10_V4_DEEPSEEK_QUERY_REQUESTS_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_deepseek_query_requests.jsonl"
+E10_V4_DEEPSEEK_TARGET_REQUESTS_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_deepseek_target_requests.jsonl"
+E10_V4_LEGACY_GLM_DRAFTS_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_glm_drafts.jsonl"
+E10_V4_LEGACY_GLM_PROMPTS_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_glm_prompt_templates.json"
+E10_V4_LEGACY_GLM_QUERY_REQUESTS_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_glm_query_requests.jsonl"
+E10_V4_LEGACY_GLM_TARGET_REQUESTS_PATH = EXPERIMENT_ASSETS_DIR / "e10_v4_glm_target_requests.jsonl"
+SFT_TRAIN_MANIFEST_V4_PATH = EXPERIMENT_ASSETS_DIR / "sft_train_manifest_v4.jsonl"
+SFT_DEV_MANIFEST_V4_PATH = EXPERIMENT_ASSETS_DIR / "sft_dev_manifest_v4.jsonl"
+E10_V4_MANIFEST_REPORT_PATH = EXPERIMENT_ASSETS_DIR / "sft_manifest_v4_report.json"
 E10_TRAIN_CONFIG_TEMPLATE_PATH = EXPERIMENT_ASSETS_DIR / "e10_train_config_template.json"
 E10_ADAPTER_METADATA_TEMPLATE_PATH = EXPERIMENT_ASSETS_DIR / "e10_adapter_metadata.template.json"
 E10_V2_MANIFEST_CONFIG_VERSION = 2
 E10_V3_MANIFEST_CONFIG_VERSION = 3
+E10_V4_MANIFEST_CONFIG_VERSION = 4
 ENGLISH_LONG_SPAN_PATTERN = re.compile(r"[A-Za-z]{4,}")
 MISSING_EVIDENCE_REASON_PATTERNS = (
     "无直接证据",
@@ -146,6 +164,94 @@ E10_V3_MIN_SLICE_SHARE = {
 }
 E10_V3_MAX_SLICE_SHARE = {
     "zero_recommendation_evidence_gap": 0.10,
+}
+E10_V4_PRIMARY_SLICES = (
+    "control_standard_grounded",
+    "quiet_sleep_focus_avoid",
+    "partial_support_keep_recommendation",
+    "multi_hotel_pack_boundary",
+    "zero_recommendation_evidence_gap",
+    "schema_boundary_control",
+)
+E10_V4_SECONDARY_TAGS = {
+    "quiet_sleep",
+    "focus_avoid",
+    "multi_aspect",
+    "single_hotel",
+    "two_hotel",
+    "root_notice_required",
+    "pack_boundary_sensitive",
+    "schema_boundary_sensitive",
+}
+E10_V4_SOURCE_MODES = {"gold_manual", "silver_deepseek"}
+E10_V4_REVIEW_DECISIONS = {"accept", "edit_then_accept", "reject"}
+E10_V4_REVIEW_ROUNDS = {"r1", "r2"}
+E10_V4_REVIEW_LOG_COLUMNS = [
+    "sample_id",
+    "review_round",
+    "reviewer_id",
+    "decision",
+    "schema_issue_type",
+    "citation_issue_type",
+    "language_issue_type",
+    "behavior_issue_type",
+    "notes",
+]
+E10_V4_QUERY_SIMILARITY_THRESHOLD = 0.92
+E10_V4_ACCEPTED_VERSION = "v4"
+E10_V4_FULL_SLICE_COUNTS = {
+    "control_standard_grounded": 50,
+    "quiet_sleep_focus_avoid": 40,
+    "partial_support_keep_recommendation": 40,
+    "multi_hotel_pack_boundary": 30,
+    "zero_recommendation_evidence_gap": 20,
+    "schema_boundary_control": 20,
+}
+E10_V4_FULL_SOURCE_COUNTS = {
+    "control_standard_grounded": {"gold_manual": 10, "silver_deepseek": 40},
+    "quiet_sleep_focus_avoid": {"gold_manual": 18, "silver_deepseek": 22},
+    "partial_support_keep_recommendation": {"gold_manual": 24, "silver_deepseek": 16},
+    "multi_hotel_pack_boundary": {"gold_manual": 18, "silver_deepseek": 12},
+    "zero_recommendation_evidence_gap": {"gold_manual": 12, "silver_deepseek": 8},
+    "schema_boundary_control": {"gold_manual": 14, "silver_deepseek": 6},
+}
+E10_V4_PILOT_SLICE_COUNTS = {slice_name: 4 for slice_name in E10_V4_PRIMARY_SLICES}
+E10_V4_PILOT_SOURCE_COUNTS = {
+    slice_name: {"gold_manual": 2, "silver_deepseek": 2}
+    for slice_name in E10_V4_PRIMARY_SLICES
+}
+E10_V4_PROFILE_CONFIGS = {
+    "pilot": {
+        "accepted_count": 24,
+        "train_grounded": 18,
+        "dev_grounded": 6,
+        "primary_slice_counts": E10_V4_PILOT_SLICE_COUNTS,
+        "source_counts": E10_V4_PILOT_SOURCE_COUNTS,
+    },
+    "full": {
+        "accepted_count": 200,
+        "train_grounded": 160,
+        "dev_grounded": 40,
+        "primary_slice_counts": E10_V4_FULL_SLICE_COUNTS,
+        "source_counts": E10_V4_FULL_SOURCE_COUNTS,
+    },
+}
+E10_V4_REQUIRED_REPORT_FIELDS = {
+    "version",
+    "dataset_profile",
+    "accepted_count",
+    "train_grounded_count",
+    "dev_grounded_count",
+    "primary_slice_distribution",
+    "source_mode_distribution",
+    "secondary_tag_distribution",
+    "city_distribution",
+    "hotel_split_distribution",
+    "deepseek_model_distribution",
+    "review_round_2_coverage",
+    "slice_review_round_2_coverage",
+    "max_accepted_per_seed",
+    "rejected_reason_counts",
 }
 
 
@@ -269,6 +375,198 @@ def validate_e10_manifest_report_v3(
 
     report = load_json(resolved_report_path)
     return validate_e10_manifest_report_v3_payload(report)
+
+
+def query_similarity_score(left: str, right: str) -> float:
+    return SequenceMatcher(None, str(left or "").strip(), str(right or "").strip()).ratio()
+
+
+def build_preference_signature(
+    *,
+    city: str | None,
+    focus_aspects: list[str],
+    avoid_aspects: list[str],
+    unsupported_requests: list[str],
+) -> tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    return (
+        str(city or ""),
+        tuple(sorted(focus_aspects)),
+        tuple(sorted(avoid_aspects)),
+        tuple(sorted(unsupported_requests)),
+    )
+
+
+def load_official_e9_query_references() -> tuple[set[tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...]]], list[str]]:
+    eval_units = load_generation_eval_units(E9_UNITS_PATH)
+    signatures = {
+        build_preference_signature(
+            city=unit.user_preference_gold.city,
+            focus_aspects=list(unit.user_preference_gold.focus_aspects),
+            avoid_aspects=list(unit.user_preference_gold.avoid_aspects),
+            unsupported_requests=list(unit.unsupported_requests),
+        )
+        for unit in eval_units
+    }
+    query_texts = [unit.query_text_zh for unit in eval_units]
+    return signatures, query_texts
+
+
+def empty_jsonl_file(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("", encoding="utf-8")
+
+
+def write_csv_header(path: Path, columns: list[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=columns)
+        writer.writeheader()
+
+
+def read_csv_rows(path: Path) -> list[dict[str, str]]:
+    if not path.exists():
+        return []
+    with path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        return [dict(row) for row in reader]
+
+
+def replace_e10_v4_legacy_deepseek_strings(value: Any) -> Any:
+    if isinstance(value, str):
+        return (
+            value.replace("silver_glm", "silver_deepseek")
+            .replace("source_mode=silver_glm", "source_mode=silver_deepseek")
+            .replace("glm_model_distribution", "deepseek_model_distribution")
+        )
+    if isinstance(value, list):
+        return [replace_e10_v4_legacy_deepseek_strings(item) for item in value]
+    if isinstance(value, dict):
+        migrated: dict[str, Any] = {}
+        for key, item in value.items():
+            new_key = "deepseek_model_distribution" if key == "glm_model_distribution" else key
+            migrated[new_key] = replace_e10_v4_legacy_deepseek_strings(item)
+        return migrated
+    return value
+
+
+def query_type_from_slot(slot_row: dict[str, Any]) -> str:
+    focus_aspects = list(slot_row["focus_aspects"])
+    avoid_aspects = list(slot_row["avoid_aspects"])
+    if focus_aspects and avoid_aspects:
+        return "focus_and_avoid"
+    if len(focus_aspects) > 1:
+        return "multi_aspect"
+    return "single_aspect"
+
+
+def build_v4_phase_primary_slice_counts() -> dict[str, dict[str, int]]:
+    phase_counts: dict[str, dict[str, int]] = {
+        phase_name: dict(config["primary_slice_counts"])
+        for phase_name, config in E10_V4_PROFILE_CONFIGS.items()
+    }
+    phase_counts["full_extension"] = {
+        slice_name: E10_V4_FULL_SLICE_COUNTS[slice_name] - E10_V4_PILOT_SLICE_COUNTS[slice_name]
+        for slice_name in E10_V4_PRIMARY_SLICES
+    }
+    return phase_counts
+
+
+def build_even_source_sequence(total_count: int, source_counts: dict[str, int]) -> list[str]:
+    if sum(source_counts.values()) != total_count:
+        raise ValueError("source_counts 总和与 total_count 不一致。")
+    sequence = [""] * total_count
+    for source_mode, count in sorted(source_counts.items()):
+        if count <= 0:
+            continue
+        positions = [
+            min(total_count - 1, math.floor((index + 0.5) * total_count / count))
+            for index in range(count)
+        ]
+        assigned = 0
+        for position in positions:
+            cursor = position
+            while cursor < total_count and sequence[cursor]:
+                cursor += 1
+            if cursor >= total_count:
+                cursor = 0
+                while cursor < total_count and sequence[cursor]:
+                    cursor += 1
+            if cursor >= total_count:
+                raise ValueError("无法为 source_mode 分配位置。")
+            sequence[cursor] = source_mode
+            assigned += 1
+        if assigned != count:
+            raise ValueError("source_mode 分配数量不正确。")
+    if any(not item for item in sequence):
+        raise ValueError("source sequence 存在未填充位置。")
+    return sequence
+
+
+def build_e10_v4_phase_assignment_plan() -> list[dict[str, str]]:
+    phase_slice_counts = build_v4_phase_primary_slice_counts()
+    assignments: list[dict[str, str]] = []
+    for phase_name in ("pilot", "full_extension"):
+        for primary_slice in E10_V4_PRIMARY_SLICES:
+            total_count = phase_slice_counts[phase_name][primary_slice]
+            if phase_name == "pilot":
+                split_counts = {"train": 3, "dev": 1}
+            else:
+                full_train_count = math.floor(E10_V4_FULL_SLICE_COUNTS[primary_slice] * 0.8)
+                full_dev_count = E10_V4_FULL_SLICE_COUNTS[primary_slice] - full_train_count
+                split_counts = {"train": full_train_count - 3, "dev": full_dev_count - 1}
+            split_sequence = ["train"] * split_counts["train"] + ["dev"] * split_counts["dev"]
+            if phase_name == "pilot":
+                source_counts = dict(E10_V4_PILOT_SOURCE_COUNTS[primary_slice])
+            else:
+                source_counts = {
+                    source_mode: E10_V4_FULL_SOURCE_COUNTS[primary_slice][source_mode]
+                    - E10_V4_PILOT_SOURCE_COUNTS[primary_slice][source_mode]
+                    for source_mode in sorted(E10_V4_SOURCE_MODES)
+                }
+            source_sequence = build_even_source_sequence(total_count, source_counts)
+            for index, split in enumerate(split_sequence):
+                assignments.append(
+                    {
+                        "phase_hint": phase_name,
+                        "primary_slice": primary_slice,
+                        "split": split,
+                        "source_mode": source_sequence[index],
+                    }
+                )
+    return assignments
+
+
+def build_e10_v4_deepseek_prompt_templates() -> dict[str, Any]:
+    return {
+        "query_draft": {
+            "system": (
+                "你是酒店推荐训练数据构造助手。"
+                "请仅根据给定 seed spec 生成自然中文用户查询，不要泄漏内部训练要求，不要提到 sentence_id、evidence pack、JSON schema。"
+            ),
+            "user_template": (
+                "基于以下 seed spec 生成 1 条自然中文用户查询。"
+                "只输出 query_text_zh 文本本身，不要解释。\n"
+                "Seed JSON:\n{seed_json}"
+            ),
+            "temperature": 0.6,
+            "top_p": 0.9,
+        },
+        "target_draft": {
+            "system": (
+                "你是 grounded 酒店推荐标注助手。"
+                "必须只输出 JSON，对齐 RecommendationResponse 兼容结构。"
+                "不要输出多余说明。"
+            ),
+            "user_template": (
+                "请基于以下输入生成 grounded recommendation target。\n"
+                "必须满足：最多2家酒店；每家最多2条 reason；每条 reason 必须有非空 sentence_id；"
+                "unsupported_notice 只能在根级；reason_text 必须中文；不要把缺证据说明写进 reasons。\n"
+                "Input JSON:\n{draft_input_json}"
+            ),
+            "temperature": 0.2,
+            "top_p": 0.8,
+        },
+    }
 
 
 def validate_adapter_metadata_base_model(
@@ -2936,6 +3234,1253 @@ def build_sft_manifest_records_v3() -> tuple[list[dict[str, Any]], list[dict[str
         dropped_reason_counts=dropped_reason_counts,
     )
     return train_records, dev_records, manifest_report
+
+
+def build_e10_v4_slice_templates() -> dict[str, list[dict[str, Any]]]:
+    return {
+        "control_standard_grounded": [
+            {"focus_aspects": ["service"], "avoid_aspects": [], "query_text_template": "我想在{city}找一家服务很好的酒店。"},
+            {"focus_aspects": ["location_transport"], "avoid_aspects": [], "query_text_template": "我想在{city}找一家位置交通方便的酒店。"},
+            {"focus_aspects": ["cleanliness", "service"], "avoid_aspects": [], "query_text_template": "请推荐{city}卫生和服务都不错的酒店。"},
+            {"focus_aspects": ["room_facilities", "value"], "avoid_aspects": [], "query_text_template": "请推荐{city}房间设施和性价比都不错的酒店。"},
+        ],
+        "quiet_sleep_focus_avoid": [
+            {"focus_aspects": ["quiet_sleep"], "avoid_aspects": ["value"], "query_text_template": "我想在{city}住得安静一些，但不要性价比太差。"},
+            {"focus_aspects": ["quiet_sleep"], "avoid_aspects": ["service"], "query_text_template": "我想在{city}找一家安静睡眠更好的酒店，但不要服务太差。"},
+            {"focus_aspects": ["quiet_sleep"], "avoid_aspects": ["location_transport"], "query_text_template": "请推荐{city}安静睡眠更好的酒店，但不要位置交通太差。"},
+            {"focus_aspects": ["quiet_sleep"], "avoid_aspects": ["room_facilities"], "query_text_template": "请推荐{city}更安静、但房间设施不要明显欠缺的酒店。"},
+        ],
+        "partial_support_keep_recommendation": [
+            {"focus_aspects": ["quiet_sleep", "value"], "avoid_aspects": [], "query_text_template": "请推荐{city}安静睡眠和性价比都不错的酒店。"},
+            {"focus_aspects": ["quiet_sleep", "service"], "avoid_aspects": [], "query_text_template": "请推荐{city}安静睡眠和服务都不错的酒店。"},
+            {"focus_aspects": ["service", "location_transport"], "avoid_aspects": [], "query_text_template": "请推荐{city}服务和位置交通都不错的酒店。"},
+            {"focus_aspects": ["cleanliness", "room_facilities"], "avoid_aspects": [], "query_text_template": "请推荐{city}卫生和房间设施都不错的酒店。"},
+        ],
+        "multi_hotel_pack_boundary": [
+            {"focus_aspects": ["service", "quiet_sleep", "location_transport"], "avoid_aspects": [], "query_text_template": "请推荐{city}在服务、安静睡眠和位置交通三方面都比较均衡的酒店。"},
+            {"focus_aspects": ["service", "cleanliness", "location_transport"], "avoid_aspects": [], "query_text_template": "请推荐{city}在服务、卫生和位置交通三方面都比较均衡的酒店。"},
+            {"focus_aspects": ["room_facilities", "quiet_sleep", "value"], "avoid_aspects": [], "query_text_template": "请推荐{city}在房间设施、安静睡眠和性价比三方面都比较均衡的酒店。"},
+        ],
+        "zero_recommendation_evidence_gap": [
+            {"focus_aspects": ["quiet_sleep", "room_facilities", "service"], "avoid_aspects": [], "query_text_template": "请推荐{city}同时满足安静睡眠、房间设施和服务都好的酒店。"},
+            {"focus_aspects": ["quiet_sleep", "cleanliness", "value"], "avoid_aspects": [], "query_text_template": "请推荐{city}同时满足安静睡眠、卫生和性价比都好的酒店。"},
+            {"focus_aspects": ["quiet_sleep", "location_transport", "room_facilities"], "avoid_aspects": [], "query_text_template": "请推荐{city}同时满足安静睡眠、位置交通和房间设施都好的酒店。"},
+        ],
+        "schema_boundary_control": [
+            {"focus_aspects": ["quiet_sleep", "room_facilities"], "avoid_aspects": ["value"], "query_text_template": "我想在{city}找一家安静睡眠和房间设施都不错，但不要性价比太差的酒店。"},
+            {"focus_aspects": ["service", "quiet_sleep"], "avoid_aspects": ["location_transport"], "query_text_template": "请推荐{city}服务和安静睡眠都不错，但不要位置交通太差的酒店。"},
+            {"focus_aspects": ["location_transport", "service"], "avoid_aspects": ["cleanliness"], "query_text_template": "请推荐{city}位置交通和服务都不错，但不要卫生明显不佳的酒店。"},
+        ],
+    }
+
+
+def build_e10_v4_secondary_tags(
+    primary_slice: str,
+    focus_aspects: list[str],
+    avoid_aspects: list[str],
+) -> list[str]:
+    tags: set[str] = set()
+    if "quiet_sleep" in focus_aspects:
+        tags.add("quiet_sleep")
+    if avoid_aspects:
+        tags.add("focus_avoid")
+    if len(focus_aspects) + len(avoid_aspects) > 1:
+        tags.add("multi_aspect")
+    if primary_slice == "multi_hotel_pack_boundary":
+        tags.add("two_hotel")
+        tags.add("pack_boundary_sensitive")
+    else:
+        tags.add("single_hotel")
+    if primary_slice in {"partial_support_keep_recommendation", "zero_recommendation_evidence_gap"}:
+        tags.add("root_notice_required")
+    if primary_slice in {"partial_support_keep_recommendation", "schema_boundary_control"}:
+        tags.add("schema_boundary_sensitive")
+    return sorted(tags)
+
+
+def build_e10_v4_query_constraints(primary_slice: str, phase_hint: str) -> dict[str, Any]:
+    constraints = {
+        "language": "zh",
+        "length_chars_min": 18,
+        "length_chars_max": 42,
+        "phase_hint": phase_hint,
+        "forbid_internal_instruction_leak": True,
+        "forbid_sentence_id_mention": True,
+    }
+    if primary_slice == "partial_support_keep_recommendation":
+        constraints["must_allow_partial_support"] = True
+    if primary_slice == "multi_hotel_pack_boundary":
+        constraints["must_support_multi_hotel_balance"] = True
+    if primary_slice == "zero_recommendation_evidence_gap":
+        constraints["must_allow_zero_recommendation"] = True
+    if primary_slice == "schema_boundary_control":
+        constraints["must_stress_schema_boundary"] = True
+    return constraints
+
+
+def build_e10_v4_target_constraints(primary_slice: str) -> dict[str, Any]:
+    constraints = {
+        "max_recommendations": 2,
+        "max_reasons_per_hotel": 2,
+        "reason_sentence_id_required": True,
+        "root_unsupported_notice_only": True,
+        "forbid_item_level_notice": True,
+        "forbid_empty_reasons": True,
+        "forbid_illegal_aspect": True,
+        "forbid_reasoning_text": True,
+        "reason_text_language": "zh",
+    }
+    if primary_slice == "partial_support_keep_recommendation":
+        constraints["must_keep_supported_hotel"] = True
+        constraints["must_move_missing_evidence_to_root_notice"] = True
+    if primary_slice == "multi_hotel_pack_boundary":
+        constraints["must_keep_pack_boundary"] = True
+        constraints["min_recommended_hotels"] = 2
+    if primary_slice == "zero_recommendation_evidence_gap":
+        constraints["must_require_zero_recommendation"] = True
+    return constraints
+
+
+def build_focus_support_summary(unit: GenerationEvalUnit) -> dict[str, set[str]]:
+    focus_aspects = set(unit.user_preference_gold.focus_aspects)
+    support_summary: dict[str, set[str]] = {}
+    for pack in unit.evidence_packs:
+        support_summary[pack.hotel_id] = {
+            aspect
+            for aspect in focus_aspects
+            if pack.evidence_by_aspect.get(aspect)
+        }
+    return support_summary
+
+
+def v4_seed_unit_matches_primary_slice(primary_slice: str, unit: GenerationEvalUnit) -> bool:
+    support_summary = build_focus_support_summary(unit)
+    focus_aspects = set(unit.user_preference_gold.focus_aspects)
+    candidate_count = len(unit.candidate_hotels)
+    full_support_count = sum(int(bool(supported) and supported == focus_aspects) for supported in support_summary.values())
+    partial_support_count = sum(int(bool(supported) and supported < focus_aspects) for supported in support_summary.values())
+    any_support_count = sum(int(bool(supported)) for supported in support_summary.values())
+
+    if primary_slice == "control_standard_grounded":
+        return full_support_count >= 1
+    if primary_slice == "quiet_sleep_focus_avoid":
+        return "quiet_sleep" in focus_aspects and any("quiet_sleep" in supported for supported in support_summary.values())
+    if primary_slice == "partial_support_keep_recommendation":
+        return partial_support_count >= 1
+    if primary_slice == "multi_hotel_pack_boundary":
+        return candidate_count >= 2 and any_support_count >= 2
+    if primary_slice == "zero_recommendation_evidence_gap":
+        return full_support_count == 0
+    if primary_slice == "schema_boundary_control":
+        return candidate_count >= 2 and (partial_support_count >= 1 or full_support_count >= 1)
+    return False
+
+
+def build_e10_v4_seed_spec_rows() -> list[dict[str, Any]]:
+    cfg = load_config()
+    split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
+    review_df = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
+    profile_df = pd.read_pickle("data/intermediate/hotel_profiles.pkl")
+    evidence_df = pd.read_pickle("data/intermediate/evidence_index.pkl")
+
+    hotel_summary = build_hotel_summary(review_df)
+    profile_current, profile_alt = build_profile_tables(profile_df)
+    del profile_alt
+    evidence_lookup = build_evidence_lookup(evidence_df)
+    split_hotel_lookup = build_split_hotel_lookup(split_manifest)
+    state_lookup = city_state_map(review_df)
+
+    official_signatures, _official_query_texts = load_official_e9_query_references()
+    template_library = build_e10_v4_slice_templates()
+    assignment_plan = build_e10_v4_phase_assignment_plan()
+
+    from chromadb import PersistentClient
+    from sentence_transformers import SentenceTransformer
+
+    client = PersistentClient(path=cfg["embedding"]["chroma_persist_dir"])
+    collection = client.get_collection(cfg["embedding"]["chroma_collection"])
+    try:
+        bi_encoder = SentenceTransformer(cfg["embedding"]["model"], local_files_only=True)
+    except Exception as exc:
+        raise RuntimeError(
+            "E10 v4 seed spec 生成需要本地可用的 embedding 模型缓存；当前环境未能在离线模式下加载 "
+            f"{cfg['embedding']['model']}。请先在有网环境缓存该模型后再重试。"
+        ) from exc
+    normalize_embeddings = bool(cfg["embedding"].get("normalize", True))
+
+    city_rotation = {
+        split: sorted(city_lookup)
+        for split, city_lookup in split_hotel_lookup.items()
+    }
+    if not city_rotation.get("train") or not city_rotation.get("dev"):
+        raise ValueError("E10 v4 seed spec 生成需要 train/dev split 城市列表。")
+
+    city_cursor_by_split_slice: dict[tuple[str, str], int] = defaultdict(int)
+    template_cursor_by_slice: dict[str, int] = defaultdict(int)
+    per_slice_index: dict[str, int] = defaultdict(int)
+    seed_rows: list[dict[str, Any]] = []
+
+    manifest_config = {
+        "task": "E10_seed_v4",
+        "version": E10_V4_MANIFEST_CONFIG_VERSION,
+        "retrieval_mode": E9_RETRIEVAL_MODE,
+        "candidate_policy": E9_CANDIDATE_POLICY,
+        "dense_top_k": cfg["reranker"]["top_k_before_rerank"],
+        "final_top_k": cfg["reranker"]["top_k_after_rerank"],
+        "embedding_model": cfg["embedding"]["model"],
+        "collection": cfg["embedding"]["chroma_collection"],
+    }
+
+    for assignment_index, assignment in enumerate(assignment_plan):
+        primary_slice = assignment["primary_slice"]
+        split = assignment["split"]
+        source_mode = assignment["source_mode"]
+        phase_hint = assignment["phase_hint"]
+        cities = city_rotation[split]
+        templates = template_library[primary_slice]
+        selected_seed_row: dict[str, Any] | None = None
+
+        for attempt in range(len(cities) * len(templates) * 4):
+            city = cities[(city_cursor_by_split_slice[(split, primary_slice)] + attempt) % len(cities)]
+            template = templates[(template_cursor_by_slice[primary_slice] + attempt) % len(templates)]
+            slot_row = {
+                "city": city,
+                "state": state_lookup.get(city),
+                "hotel_category": None,
+                "focus_aspects": list(template["focus_aspects"]),
+                "avoid_aspects": list(template["avoid_aspects"]),
+                "unsupported_requests": [],
+                "query_en": build_query_en_from_slots(
+                    city,
+                    list(template["focus_aspects"]),
+                    list(template["avoid_aspects"]),
+                    [],
+                ),
+            }
+            signature = build_preference_signature(
+                city=slot_row["city"],
+                focus_aspects=slot_row["focus_aspects"],
+                avoid_aspects=slot_row["avoid_aspects"],
+                unsupported_requests=slot_row["unsupported_requests"],
+            )
+            if signature in official_signatures:
+                continue
+            allowed_hotel_ids = set(split_hotel_lookup.get(split, {}).get(city, []))
+            if not allowed_hotel_ids:
+                continue
+            candidate_hotels = build_candidate_hotels_for_slot(
+                hotel_summary=hotel_summary,
+                profile_current=profile_current,
+                slot_row=slot_row,
+                allowed_hotel_ids=allowed_hotel_ids,
+            )
+            if len(candidate_hotels) < 2:
+                continue
+            query_text_zh = template["query_text_template"].format(city=city)
+            query_id = f"v4seed_{stable_hash({'slice': primary_slice, 'split': split, 'source_mode': source_mode, 'phase_hint': phase_hint, 'city': city, 'template': template, 'index': per_slice_index[primary_slice]})}"
+            query_row = {
+                "query_id": query_id,
+                "query_text_zh": query_text_zh,
+                "query_type": query_type_from_slot(slot_row),
+            }
+            unit = build_generation_eval_unit_for_slot(
+                query_row=query_row,
+                slot_row=slot_row,
+                candidate_hotels=candidate_hotels,
+                collection=collection,
+                bi_encoder=bi_encoder,
+                normalize_embeddings=normalize_embeddings,
+                evidence_lookup=evidence_lookup,
+                dense_top_k=cfg["reranker"]["top_k_before_rerank"],
+                final_top_k=cfg["reranker"]["top_k_after_rerank"],
+                stable_asset_config=manifest_config | {"primary_slice": primary_slice, "split": split},
+            )
+            selection_mode = "strict"
+            if primary_slice == "zero_recommendation_evidence_gap":
+                focus_aspects = set(slot_row["focus_aspects"])
+                support_summary = build_focus_support_summary(unit)
+                filtered_hotels = [
+                    hotel
+                    for hotel in candidate_hotels
+                    if support_summary.get(hotel.hotel_id, set()) != focus_aspects
+                ]
+                if len(filtered_hotels) < 2:
+                    continue
+                candidate_hotels = filtered_hotels[:E9_MAX_RECOMMENDATIONS]
+                unit = build_generation_eval_unit_for_slot(
+                    query_row=query_row,
+                    slot_row=slot_row,
+                    candidate_hotels=candidate_hotels,
+                    collection=collection,
+                    bi_encoder=bi_encoder,
+                    normalize_embeddings=normalize_embeddings,
+                    evidence_lookup=evidence_lookup,
+                    dense_top_k=cfg["reranker"]["top_k_before_rerank"],
+                    final_top_k=cfg["reranker"]["top_k_after_rerank"],
+                    stable_asset_config=manifest_config | {"primary_slice": primary_slice, "split": split, "filtered_for_zero_gap": True},
+                )
+            slice_matched = v4_seed_unit_matches_primary_slice(primary_slice, unit)
+            if not slice_matched:
+                if primary_slice != "zero_recommendation_evidence_gap":
+                    continue
+                selection_mode = "fallback_hard_query"
+            selected_seed_row = {
+                "seed_id": query_id,
+                "phase_hint": phase_hint,
+                "split": split,
+                "source_mode": source_mode,
+                "primary_slice": primary_slice,
+                "secondary_tags": build_e10_v4_secondary_tags(
+                    primary_slice,
+                    list(template["focus_aspects"]),
+                    list(template["avoid_aspects"]),
+                ),
+                "city": slot_row["city"],
+                "state": slot_row["state"],
+                "hotel_category": slot_row["hotel_category"],
+                "focus_aspects": slot_row["focus_aspects"],
+                "avoid_aspects": slot_row["avoid_aspects"],
+                "unsupported_requests": slot_row["unsupported_requests"],
+                "query_type": query_row["query_type"],
+                "candidate_hotel_ids": [hotel.hotel_id for hotel in candidate_hotels[:E9_MAX_RECOMMENDATIONS]],
+                "candidate_hotels": [
+                    {"hotel_id": hotel.hotel_id, "hotel_name": hotel.hotel_name}
+                    for hotel in candidate_hotels[:E9_MAX_RECOMMENDATIONS]
+                ],
+                "query_constraints": build_e10_v4_query_constraints(primary_slice, phase_hint),
+                "target_constraints": build_e10_v4_target_constraints(primary_slice),
+                "evidence_pack_refs": build_grounded_recommendation_input_payload(unit)["evidence_packs"],
+                "notes": (
+                    f"Generated for {primary_slice} using split={split}, source_mode={source_mode}, "
+                    f"selection_mode={selection_mode}."
+                ),
+            }
+            city_cursor_by_split_slice[(split, primary_slice)] += attempt + 1
+            template_cursor_by_slice[primary_slice] += attempt + 1
+            per_slice_index[primary_slice] += 1
+            break
+
+        if selected_seed_row is None:
+            if primary_slice == "zero_recommendation_evidence_gap":
+                fallback_templates = [
+                    template
+                    for template_group in template_library.values()
+                    for template in template_group
+                ]
+                for city in cities:
+                    state = state_lookup.get(city)
+                    if not state:
+                        continue
+                    allowed_hotel_ids = set(split_hotel_lookup.get(split, {}).get(city, []))
+                    if len(allowed_hotel_ids) < 2:
+                        continue
+                    for template in fallback_templates:
+                        slot_row = {
+                            "city": city,
+                            "state": state,
+                            "hotel_category": None,
+                            "focus_aspects": list(template["focus_aspects"]),
+                            "avoid_aspects": list(template["avoid_aspects"]),
+                            "unsupported_requests": [],
+                            "query_en": build_query_en_from_slots(
+                                city,
+                                list(template["focus_aspects"]),
+                                list(template["avoid_aspects"]),
+                                [],
+                            ),
+                        }
+                        signature = build_preference_signature(
+                            city=slot_row["city"],
+                            focus_aspects=slot_row["focus_aspects"],
+                            avoid_aspects=slot_row["avoid_aspects"],
+                            unsupported_requests=slot_row["unsupported_requests"],
+                        )
+                        if signature in official_signatures:
+                            continue
+                        candidate_hotels = build_candidate_hotels_for_slot(
+                            hotel_summary=hotel_summary,
+                            profile_current=profile_current,
+                            slot_row=slot_row,
+                            allowed_hotel_ids=allowed_hotel_ids,
+                        )
+                        if len(candidate_hotels) < 2:
+                            continue
+                        query_text_zh = template["query_text_template"].format(city=city)
+                        query_id = f"v4seed_{stable_hash({'slice': primary_slice, 'split': split, 'source_mode': source_mode, 'phase_hint': phase_hint, 'city': city, 'template': template, 'index': per_slice_index[primary_slice], 'fallback': 'final'})}"
+                        query_row = {
+                            "query_id": query_id,
+                            "query_text_zh": query_text_zh,
+                            "query_type": query_type_from_slot(slot_row),
+                        }
+                        unit = build_generation_eval_unit_for_slot(
+                            query_row=query_row,
+                            slot_row=slot_row,
+                            candidate_hotels=candidate_hotels[:E9_MAX_RECOMMENDATIONS],
+                            collection=collection,
+                            bi_encoder=bi_encoder,
+                            normalize_embeddings=normalize_embeddings,
+                            evidence_lookup=evidence_lookup,
+                            dense_top_k=cfg["reranker"]["top_k_before_rerank"],
+                            final_top_k=cfg["reranker"]["top_k_after_rerank"],
+                            stable_asset_config=manifest_config | {"primary_slice": primary_slice, "split": split, "fallback_seed": True},
+                        )
+                        selected_seed_row = {
+                            "seed_id": query_id,
+                            "phase_hint": phase_hint,
+                            "split": split,
+                            "source_mode": source_mode,
+                            "primary_slice": primary_slice,
+                            "secondary_tags": sorted(
+                                set(build_e10_v4_secondary_tags(
+                                    primary_slice,
+                                    list(template["focus_aspects"]),
+                                    list(template["avoid_aspects"]),
+                                )) | {"root_notice_required"}
+                            ),
+                            "city": slot_row["city"],
+                            "state": slot_row["state"],
+                            "hotel_category": slot_row["hotel_category"],
+                            "focus_aspects": slot_row["focus_aspects"],
+                            "avoid_aspects": slot_row["avoid_aspects"],
+                            "unsupported_requests": slot_row["unsupported_requests"],
+                            "query_type": query_row["query_type"],
+                            "candidate_hotel_ids": [hotel.hotel_id for hotel in candidate_hotels[:E9_MAX_RECOMMENDATIONS]],
+                            "candidate_hotels": [
+                                {"hotel_id": hotel.hotel_id, "hotel_name": hotel.hotel_name}
+                                for hotel in candidate_hotels[:E9_MAX_RECOMMENDATIONS]
+                            ],
+                            "query_constraints": build_e10_v4_query_constraints(primary_slice, phase_hint),
+                            "target_constraints": build_e10_v4_target_constraints(primary_slice),
+                            "evidence_pack_refs": build_grounded_recommendation_input_payload(unit)["evidence_packs"],
+                            "notes": (
+                                f"Generated for {primary_slice} using split={split}, source_mode={source_mode}, "
+                                "selection_mode=fallback_any_supported_query."
+                            ),
+                        }
+                        per_slice_index[primary_slice] += 1
+                        break
+                    if selected_seed_row is not None:
+                        break
+        if selected_seed_row is None:
+            raise ValueError(
+                f"E10 v4 无法为 primary_slice={primary_slice}, split={split}, source_mode={source_mode} 构造 seed spec。"
+            )
+        seed_rows.append(selected_seed_row)
+
+    if len(seed_rows) != E10_V4_PROFILE_CONFIGS["full"]["accepted_count"]:
+        raise ValueError("E10 v4 seed spec 数量不正确。")
+    return seed_rows
+
+
+def validate_e10_v4_seed_specs_payload(seed_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(seed_rows) != E10_V4_PROFILE_CONFIGS["full"]["accepted_count"]:
+        raise ValueError("E10 v4 seed spec 总数必须为 200。")
+
+    seed_ids = [row["seed_id"] for row in seed_rows]
+    if len(seed_ids) != len(set(seed_ids)):
+        raise ValueError("E10 v4 seed_id 存在重复。")
+
+    primary_counts: dict[str, int] = defaultdict(int)
+    source_counts: dict[str, int] = defaultdict(int)
+    phase_counts: dict[str, int] = defaultdict(int)
+    split_counts: dict[str, int] = defaultdict(int)
+    for row in seed_rows:
+        if row["primary_slice"] not in E10_V4_PRIMARY_SLICES:
+            raise ValueError(f"未知 primary_slice: {row['primary_slice']}")
+        if row["source_mode"] not in E10_V4_SOURCE_MODES:
+            raise ValueError(f"未知 source_mode: {row['source_mode']}")
+        if row["split"] not in {"train", "dev"}:
+            raise ValueError(f"未知 split: {row['split']}")
+        if not set(row["secondary_tags"]).issubset(E10_V4_SECONDARY_TAGS):
+            raise ValueError(f"存在未知 secondary_tags: {row['secondary_tags']}")
+        primary_counts[row["primary_slice"]] += 1
+        source_counts[row["source_mode"]] += 1
+        phase_counts[row["phase_hint"]] += 1
+        split_counts[row["split"]] += 1
+
+    if dict(primary_counts) != E10_V4_FULL_SLICE_COUNTS:
+        raise ValueError("E10 v4 primary_slice 配比与 full profile 不一致。")
+    if source_counts["gold_manual"] != 96 or source_counts["silver_deepseek"] != 104:
+        raise ValueError("E10 v4 seed spec source_mode 配比不正确。")
+    if phase_counts["pilot"] != 24 or phase_counts["full_extension"] != 176:
+        raise ValueError("E10 v4 seed spec phase_hint 配比不正确。")
+    if split_counts["train"] != 160 or split_counts["dev"] != 40:
+        raise ValueError("E10 v4 seed spec split 配比不正确。")
+    return seed_rows
+
+
+def bootstrap_e10_v4_assets() -> tuple[Path, Path, Path, Path, Path, Path]:
+    seed_rows = validate_e10_v4_seed_specs_payload(build_e10_v4_seed_spec_rows())
+    write_jsonl(E10_V4_SEED_SPECS_PATH, seed_rows)
+    empty_jsonl_file(E10_V4_GOLD_PATCH_PATH)
+    empty_jsonl_file(E10_V4_DEEPSEEK_DRAFTS_PATH)
+    empty_jsonl_file(E10_V4_ACCEPTED_GROUNDED_PATH)
+    write_csv_header(E10_V4_REVIEW_LOG_PATH, E10_V4_REVIEW_LOG_COLUMNS)
+    write_json(E10_V4_DEEPSEEK_PROMPTS_PATH, build_e10_v4_deepseek_prompt_templates())
+    return (
+        E10_V4_SEED_SPECS_PATH,
+        E10_V4_GOLD_PATCH_PATH,
+        E10_V4_DEEPSEEK_DRAFTS_PATH,
+        E10_V4_REVIEW_LOG_PATH,
+        E10_V4_ACCEPTED_GROUNDED_PATH,
+        E10_V4_DEEPSEEK_PROMPTS_PATH,
+    )
+
+
+def build_chat_messages(system_prompt: str, user_prompt: str) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_e10_v4_query_seed_payload(seed_row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "seed_id": seed_row["seed_id"],
+        "phase_hint": seed_row["phase_hint"],
+        "split": seed_row["split"],
+        "primary_slice": seed_row["primary_slice"],
+        "secondary_tags": seed_row["secondary_tags"],
+        "city": seed_row["city"],
+        "state": seed_row["state"],
+        "hotel_category": seed_row["hotel_category"],
+        "focus_aspects": seed_row["focus_aspects"],
+        "avoid_aspects": seed_row["avoid_aspects"],
+        "unsupported_requests": seed_row["unsupported_requests"],
+        "query_constraints": seed_row["query_constraints"],
+        "notes": seed_row["notes"],
+    }
+
+
+def move_v4_legacy_glm_asset_if_needed(legacy_path: Path, current_path: Path) -> bool:
+    if not legacy_path.exists() or current_path.exists():
+        return False
+    current_path.parent.mkdir(parents=True, exist_ok=True)
+    legacy_path.replace(current_path)
+    return True
+
+
+def migrate_e10_v4_seed_rows(seed_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    migrated_rows: list[dict[str, Any]] = []
+    for row in seed_rows:
+        migrated = replace_e10_v4_legacy_deepseek_strings(copy.deepcopy(row))
+        if migrated.get("source_mode") == "silver_glm":
+            migrated["source_mode"] = "silver_deepseek"
+        migrated_rows.append(migrated)
+    return migrated_rows
+
+
+def migrate_e10_v4_deepseek_asset_rows(
+    rows: list[dict[str, Any]],
+    *,
+    seed_lookup: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    migrated_rows: list[dict[str, Any]] = []
+    for row in rows:
+        migrated = replace_e10_v4_legacy_deepseek_strings(copy.deepcopy(row))
+        seed_row = None
+        if seed_lookup:
+            seed_id = str(migrated.get("seed_id", ""))
+            seed_row = seed_lookup.get(seed_id)
+        if seed_row is not None:
+            migrated["source_mode"] = seed_row["source_mode"]
+            migrated["split"] = seed_row["split"]
+            migrated["primary_slice"] = seed_row["primary_slice"]
+            migrated["secondary_tags"] = list(seed_row["secondary_tags"])
+            migrated["city"] = seed_row["city"]
+            if "focus_aspects" in migrated or migrated.get("stage") == "query_draft":
+                migrated["focus_aspects"] = list(seed_row["focus_aspects"])
+            if "avoid_aspects" in migrated or migrated.get("stage") == "query_draft":
+                migrated["avoid_aspects"] = list(seed_row["avoid_aspects"])
+            if "seed_payload" in migrated:
+                migrated["seed_payload"] = build_e10_v4_query_seed_payload(seed_row)
+        migrated_rows.append(migrated)
+    return migrated_rows
+
+
+def migrate_e10_v4_deepseek_assets_in_place() -> dict[str, Any]:
+    moved_legacy_paths: list[str] = []
+    for legacy_path, current_path in (
+        (E10_V4_LEGACY_GLM_DRAFTS_PATH, E10_V4_DEEPSEEK_DRAFTS_PATH),
+        (E10_V4_LEGACY_GLM_PROMPTS_PATH, E10_V4_DEEPSEEK_PROMPTS_PATH),
+        (E10_V4_LEGACY_GLM_QUERY_REQUESTS_PATH, E10_V4_DEEPSEEK_QUERY_REQUESTS_PATH),
+        (E10_V4_LEGACY_GLM_TARGET_REQUESTS_PATH, E10_V4_DEEPSEEK_TARGET_REQUESTS_PATH),
+    ):
+        if move_v4_legacy_glm_asset_if_needed(legacy_path, current_path):
+            moved_legacy_paths.append(str(current_path))
+
+    updated_paths: list[str] = []
+    seed_lookup: dict[str, dict[str, Any]] = {}
+    if E10_V4_SEED_SPECS_PATH.exists():
+        original_seed_rows = load_jsonl(E10_V4_SEED_SPECS_PATH)
+        migrated_seed_rows = migrate_e10_v4_seed_rows(original_seed_rows)
+        if migrated_seed_rows != original_seed_rows:
+            write_jsonl(E10_V4_SEED_SPECS_PATH, migrated_seed_rows)
+            updated_paths.append(str(E10_V4_SEED_SPECS_PATH))
+        seed_lookup = {row["seed_id"]: row for row in migrated_seed_rows}
+
+    asset_paths = [
+        E10_V4_DEEPSEEK_DRAFTS_PATH,
+        E10_V4_DEEPSEEK_QUERY_REQUESTS_PATH,
+        E10_V4_DEEPSEEK_TARGET_REQUESTS_PATH,
+        E10_V4_ACCEPTED_GROUNDED_PATH,
+    ]
+    pilot_query_request_path = E10_V4_DEEPSEEK_QUERY_REQUESTS_PATH.with_suffix(".pilot.jsonl")
+    if pilot_query_request_path.exists():
+        asset_paths.append(pilot_query_request_path)
+
+    for asset_path in asset_paths:
+        if not asset_path.exists():
+            continue
+        original_rows = load_jsonl(asset_path)
+        migrated_rows = migrate_e10_v4_deepseek_asset_rows(original_rows, seed_lookup=seed_lookup)
+        if migrated_rows != original_rows:
+            write_jsonl(asset_path, migrated_rows)
+            updated_paths.append(str(asset_path))
+
+    if E10_V4_DEEPSEEK_PROMPTS_PATH.exists():
+        original_prompts = load_json(E10_V4_DEEPSEEK_PROMPTS_PATH)
+        migrated_prompts = replace_e10_v4_legacy_deepseek_strings(copy.deepcopy(original_prompts))
+        if migrated_prompts != original_prompts:
+            write_json(E10_V4_DEEPSEEK_PROMPTS_PATH, migrated_prompts)
+            updated_paths.append(str(E10_V4_DEEPSEEK_PROMPTS_PATH))
+
+    if E10_V4_MANIFEST_REPORT_PATH.exists():
+        original_report = load_json(E10_V4_MANIFEST_REPORT_PATH)
+        migrated_report = replace_e10_v4_legacy_deepseek_strings(copy.deepcopy(original_report))
+        if migrated_report != original_report:
+            write_json(E10_V4_MANIFEST_REPORT_PATH, migrated_report)
+            updated_paths.append(str(E10_V4_MANIFEST_REPORT_PATH))
+
+    return {
+        "moved_legacy_paths": moved_legacy_paths,
+        "updated_paths": updated_paths,
+    }
+
+
+def build_e10_v4_deepseek_query_request_rows() -> list[dict[str, Any]]:
+    seed_rows = validate_e10_v4_seed_specs_payload(load_jsonl(E10_V4_SEED_SPECS_PATH))
+    prompt_templates = load_json(E10_V4_DEEPSEEK_PROMPTS_PATH)
+    template = prompt_templates["query_draft"]
+    request_rows: list[dict[str, Any]] = []
+    for seed_row in seed_rows:
+        if seed_row["source_mode"] != "silver_deepseek":
+            continue
+        seed_payload = build_e10_v4_query_seed_payload(seed_row)
+        request_rows.append(
+            {
+                "request_id": f"v4qry_{stable_hash(seed_row['seed_id'])}",
+                "stage": "query_draft",
+                "seed_id": seed_row["seed_id"],
+                "split": seed_row["split"],
+                "primary_slice": seed_row["primary_slice"],
+                "source_mode": seed_row["source_mode"],
+                "city": seed_row["city"],
+                "focus_aspects": seed_row["focus_aspects"],
+                "avoid_aspects": seed_row["avoid_aspects"],
+                "secondary_tags": seed_row["secondary_tags"],
+                "seed_payload": seed_payload,
+                "messages": build_chat_messages(
+                    template["system"],
+                    template["user_template"].format(
+                        seed_json=json.dumps(seed_payload, ensure_ascii=False, sort_keys=True)
+                    ),
+                ),
+                "temperature": template["temperature"],
+                "top_p": template["top_p"],
+            }
+        )
+    return request_rows
+
+
+def validate_e10_v4_deepseek_drafts_for_target_stage(deepseek_draft_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seed_lookup = {row["seed_id"]: row for row in validate_e10_v4_seed_specs_payload(load_jsonl(E10_V4_SEED_SPECS_PATH))}
+    validated: list[dict[str, Any]] = []
+    seen_seed_ids: set[str] = set()
+    official_signatures, official_query_texts = load_official_e9_query_references()
+    for row in deepseek_draft_rows:
+        if row.get("source_mode") != "silver_deepseek":
+            continue
+        if row.get("review_status") not in {"query_accepted", "accepted_query"}:
+            continue
+        seed_id = row.get("seed_id")
+        if not seed_id or seed_id not in seed_lookup:
+            raise ValueError(f"E10 v4 DeepSeek query draft 缺少有效 seed_id：{seed_id}")
+        if seed_id in seen_seed_ids:
+            raise ValueError(f"E10 v4 DeepSeek query draft 的 seed_id 重复：{seed_id}")
+        query_text_zh = str(row.get("query_text_zh", "")).strip()
+        if not query_text_zh:
+            raise ValueError(f"E10 v4 DeepSeek query draft 缺少 query_text_zh：{seed_id}")
+        seed_row = seed_lookup[seed_id]
+        signature = build_preference_signature(
+            city=seed_row["city"],
+            focus_aspects=list(seed_row["focus_aspects"]),
+            avoid_aspects=list(seed_row["avoid_aspects"]),
+            unsupported_requests=list(seed_row["unsupported_requests"]),
+        )
+        if signature in official_signatures:
+            raise ValueError(f"E10 v4 DeepSeek query draft 与官方 E9 preference signature 重合：{seed_id}")
+        if any(query_similarity_score(query_text_zh, official_text) >= E10_V4_QUERY_SIMILARITY_THRESHOLD for official_text in official_query_texts):
+            raise ValueError(f"E10 v4 DeepSeek query draft 与官方 E9 query 过于相似：{seed_id}")
+        seen_seed_ids.add(seed_id)
+        validated.append(row)
+    if not validated:
+        raise ValueError("E10 v4 当前没有可用于生成 target_draft 的已接受 DeepSeek query_draft。")
+    return validated
+
+
+def build_e10_v4_deepseek_target_request_rows() -> list[dict[str, Any]]:
+    seed_lookup = {row["seed_id"]: row for row in validate_e10_v4_seed_specs_payload(load_jsonl(E10_V4_SEED_SPECS_PATH))}
+    deepseek_draft_rows = load_jsonl(E10_V4_DEEPSEEK_DRAFTS_PATH)
+    query_draft_rows = validate_e10_v4_deepseek_drafts_for_target_stage(deepseek_draft_rows)
+    prompt_templates = load_json(E10_V4_DEEPSEEK_PROMPTS_PATH)
+    template = prompt_templates["target_draft"]
+
+    request_rows: list[dict[str, Any]] = []
+    for draft_row in query_draft_rows:
+        seed_row = seed_lookup[draft_row["seed_id"]]
+        request_input = {
+            "seed_id": seed_row["seed_id"],
+            "split": seed_row["split"],
+            "primary_slice": seed_row["primary_slice"],
+            "secondary_tags": seed_row["secondary_tags"],
+            "query_id": f"v4s_{stable_hash(seed_row['seed_id'])}",
+            "query_text_zh": draft_row["query_text_zh"],
+            "query_type": seed_row["query_type"],
+            "user_preference_gold": {
+                "city": seed_row["city"],
+                "state": seed_row["state"],
+                "hotel_category": seed_row["hotel_category"],
+                "focus_aspects": seed_row["focus_aspects"],
+                "avoid_aspects": seed_row["avoid_aspects"],
+                "unsupported_requests": seed_row["unsupported_requests"],
+                "query_en": build_query_en_from_slots(
+                    seed_row["city"],
+                    list(seed_row["focus_aspects"]),
+                    list(seed_row["avoid_aspects"]),
+                    list(seed_row["unsupported_requests"]),
+                ),
+            },
+            "unsupported_requests": seed_row["unsupported_requests"],
+            "candidate_hotels": seed_row["candidate_hotels"],
+            "evidence_packs": seed_row["evidence_pack_refs"],
+            "target_constraints": seed_row["target_constraints"],
+        }
+        request_rows.append(
+            {
+                "request_id": f"v4tgt_{stable_hash(seed_row['seed_id'])}",
+                "stage": "target_draft",
+                "seed_id": seed_row["seed_id"],
+                "split": seed_row["split"],
+                "primary_slice": seed_row["primary_slice"],
+                "source_mode": seed_row["source_mode"],
+                "query_id": request_input["query_id"],
+                "query_text_zh": request_input["query_text_zh"],
+                "secondary_tags": seed_row["secondary_tags"],
+                "request_input": request_input,
+                "messages": build_chat_messages(
+                    template["system"],
+                    template["user_template"].format(
+                        draft_input_json=json.dumps(request_input, ensure_ascii=False, sort_keys=True)
+                    ),
+                ),
+                "temperature": template["temperature"],
+                "top_p": template["top_p"],
+            }
+        )
+    return request_rows
+
+
+def prepare_e10_deepseek_query_requests_v4() -> Path:
+    migrate_e10_v4_deepseek_assets_in_place()
+    request_rows = build_e10_v4_deepseek_query_request_rows()
+    write_jsonl(E10_V4_DEEPSEEK_QUERY_REQUESTS_PATH, request_rows)
+    return E10_V4_DEEPSEEK_QUERY_REQUESTS_PATH
+
+
+def prepare_e10_deepseek_target_requests_v4() -> Path:
+    migrate_e10_v4_deepseek_assets_in_place()
+    request_rows = build_e10_v4_deepseek_target_request_rows()
+    write_jsonl(E10_V4_DEEPSEEK_TARGET_REQUESTS_PATH, request_rows)
+    return E10_V4_DEEPSEEK_TARGET_REQUESTS_PATH
+
+
+def build_generation_eval_unit_from_v4_record(record: dict[str, Any]) -> GenerationEvalUnit:
+    preference = UserPreference.model_validate(record["user_preference_gold"])
+    candidate_hotels: list[HotelCandidate] = []
+    for row in record["candidate_hotels"]:
+        candidate_hotels.append(
+            HotelCandidate.model_validate(
+                {
+                    "hotel_id": row["hotel_id"],
+                    "hotel_name": row["hotel_name"],
+                    "score_total": row.get("score_total", 0.0),
+                    "score_breakdown": row.get("score_breakdown", {}),
+                }
+            )
+        )
+    evidence_packs: list[EvidencePack] = []
+    for row in record["evidence_packs"]:
+        if "query_en" in row and "retrieval_trace" in row:
+            evidence_packs.append(EvidencePack.model_validate(row))
+            continue
+        evidence_by_aspect = {}
+        for aspect, sentence_rows in row["evidence_by_aspect"].items():
+            evidence_by_aspect[aspect] = [
+                SentenceCandidate.model_validate(
+                    {
+                        "sentence_id": sentence_row["sentence_id"],
+                        "sentence_text": sentence_row["sentence_text"],
+                        "aspect": aspect,
+                        "sentiment": "positive",
+                        "review_date": None,
+                        "score_dense": None,
+                        "score_rerank": None,
+                    }
+                )
+                for sentence_row in sentence_rows
+            ]
+        evidence_packs.append(
+            EvidencePack(
+                hotel_id=row["hotel_id"],
+                query_en=preference.query_en,
+                evidence_by_aspect=evidence_by_aspect,
+                all_sentence_ids=list(row.get("allowed_sentence_ids", [])),
+                retrieval_trace={"mode": E9_RETRIEVAL_MODE, "source": "v4_compact_seed"},
+            )
+        )
+    return GenerationEvalUnit(
+        query_id=record["query_id"],
+        query_text_zh=record["query_text_zh"],
+        query_type=record["query_type"],
+        user_preference_gold=preference,
+        unsupported_requests=list(record["unsupported_requests"]),
+        candidate_hotels=candidate_hotels,
+        evidence_packs=evidence_packs,
+        retrieval_mode=E9_RETRIEVAL_MODE,
+        candidate_policy=E9_CANDIDATE_POLICY,
+        config_hash=stable_hash(
+            {
+                "query_id": record["query_id"],
+                "candidate_hotel_ids": [hotel.hotel_id for hotel in candidate_hotels],
+                "all_sentence_ids": [pack.all_sentence_ids for pack in evidence_packs],
+            }
+        ),
+    )
+
+
+def build_e10_v4_local_evidence_lookup(unit: GenerationEvalUnit) -> dict[str, dict[str, Any]]:
+    lookup: dict[str, dict[str, Any]] = {}
+    for pack in unit.evidence_packs:
+        for aspect, sentences in pack.evidence_by_aspect.items():
+            for sentence in sentences:
+                lookup[sentence.sentence_id] = {
+                    "hotel_id": pack.hotel_id,
+                    "aspect": aspect,
+                }
+    return lookup
+
+
+def infer_e10_v4_profile(accepted_rows: list[dict[str, Any]]) -> str:
+    accepted_count = len(accepted_rows)
+    if accepted_count == E10_V4_PROFILE_CONFIGS["pilot"]["accepted_count"]:
+        return "pilot"
+    if accepted_count == E10_V4_PROFILE_CONFIGS["full"]["accepted_count"]:
+        return "full"
+    raise ValueError(f"E10 v4 accepted grounded 数量不支持：{accepted_count}")
+
+
+def validate_e10_v4_accepted_dataset() -> tuple[list[dict[str, Any]], list[dict[str, str]], dict[str, Any]]:
+    for asset_path in (E10_V4_SEED_SPECS_PATH, E10_V4_ACCEPTED_GROUNDED_PATH, E10_V4_REVIEW_LOG_PATH):
+        if not asset_path.exists():
+            raise FileNotFoundError(f"Missing E10 v4 asset: {asset_path}")
+
+    seed_rows = validate_e10_v4_seed_specs_payload(load_jsonl(E10_V4_SEED_SPECS_PATH))
+    accepted_rows = load_jsonl(E10_V4_ACCEPTED_GROUNDED_PATH)
+    review_rows = read_csv_rows(E10_V4_REVIEW_LOG_PATH)
+    if not accepted_rows:
+        raise ValueError("E10 v4 accepted grounded 数据为空。")
+
+    profile_name = infer_e10_v4_profile(accepted_rows)
+    profile_config = E10_V4_PROFILE_CONFIGS[profile_name]
+    seed_lookup = {row["seed_id"]: row for row in seed_rows}
+    split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
+    split_hotel_lookup = build_split_hotel_lookup(split_manifest)
+    official_signatures, official_query_texts = load_official_e9_query_references()
+
+    sample_ids: set[str] = set()
+    seed_usage_counts: dict[str, int] = defaultdict(int)
+    primary_counts: dict[str, int] = defaultdict(int)
+    source_counts: dict[str, int] = defaultdict(int)
+    split_counts: dict[str, int] = defaultdict(int)
+    secondary_tag_counts: dict[str, int] = defaultdict(int)
+    city_counts: dict[str, int] = defaultdict(int)
+    deepseek_model_counts: dict[str, int] = defaultdict(int)
+    duplicate_signatures: set[str] = set()
+
+    for row in accepted_rows:
+        required_fields = {
+            "sample_id",
+            "seed_id",
+            "split",
+            "source_mode",
+            "primary_slice",
+            "secondary_tags",
+            "query_id",
+            "query_text_zh",
+            "query_type",
+            "city",
+            "user_preference_gold",
+            "unsupported_requests",
+            "candidate_hotels",
+            "evidence_packs",
+            "provenance",
+            "review_status",
+            "accepted_version",
+            "accepted_target_payload",
+        }
+        missing_fields = sorted(required_fields - set(row))
+        if missing_fields:
+            raise KeyError(f"E10 v4 accepted 样本缺少字段 {missing_fields}: {row.get('sample_id', '<unknown>')}")
+        sample_id = str(row["sample_id"])
+        if sample_id in sample_ids:
+            raise ValueError(f"E10 v4 accepted sample_id 重复：{sample_id}")
+        sample_ids.add(sample_id)
+        if row["source_mode"] not in E10_V4_SOURCE_MODES:
+            raise ValueError(f"E10 v4 source_mode 非法：{row['source_mode']}")
+        if row["primary_slice"] not in E10_V4_PRIMARY_SLICES:
+            raise ValueError(f"E10 v4 primary_slice 非法：{row['primary_slice']}")
+        if row["split"] not in {"train", "dev"}:
+            raise ValueError(f"E10 v4 split 非法：{row['split']}")
+        if row["review_status"] != "accepted":
+            raise ValueError(f"E10 v4 accepted 样本 review_status 必须为 accepted：{sample_id}")
+        if row["accepted_version"] != E10_V4_ACCEPTED_VERSION:
+            raise ValueError(f"E10 v4 accepted_version 非法：{sample_id}")
+        if not set(row["secondary_tags"]).issubset(E10_V4_SECONDARY_TAGS):
+            raise ValueError(f"E10 v4 secondary_tags 非法：{sample_id}")
+
+        seed_row = seed_lookup.get(row["seed_id"])
+        if seed_row is None:
+            raise ValueError(f"E10 v4 accepted 样本引用了不存在的 seed_id：{row['seed_id']}")
+        seed_usage_counts[row["seed_id"]] += 1
+        if seed_usage_counts[row["seed_id"]] > 2:
+            raise ValueError(f"E10 v4 单个 seed_id 不能衍生超过 2 条 accepted 样本：{row['seed_id']}")
+        for field_name in ("split", "source_mode", "primary_slice"):
+            if row[field_name] != seed_row[field_name]:
+                raise ValueError(f"E10 v4 accepted 样本与 seed spec {field_name} 不一致：{sample_id}")
+        if row["city"] != seed_row["city"]:
+            raise ValueError(f"E10 v4 accepted 样本 city 与 seed spec 不一致：{sample_id}")
+        if list(row["user_preference_gold"]["focus_aspects"]) != list(seed_row["focus_aspects"]):
+            raise ValueError(f"E10 v4 accepted 样本 focus_aspects 与 seed spec 不一致：{sample_id}")
+        if list(row["user_preference_gold"]["avoid_aspects"]) != list(seed_row["avoid_aspects"]):
+            raise ValueError(f"E10 v4 accepted 样本 avoid_aspects 与 seed spec 不一致：{sample_id}")
+        if list(row["unsupported_requests"]) != list(seed_row["unsupported_requests"]):
+            raise ValueError(f"E10 v4 accepted 样本 unsupported_requests 与 seed spec 不一致：{sample_id}")
+
+        preference_signature = build_preference_signature(
+            city=row["user_preference_gold"]["city"],
+            focus_aspects=list(row["user_preference_gold"]["focus_aspects"]),
+            avoid_aspects=list(row["user_preference_gold"]["avoid_aspects"]),
+            unsupported_requests=list(row["unsupported_requests"]),
+        )
+        if preference_signature in official_signatures:
+            raise ValueError(f"E10 v4 accepted 样本与官方 E9 preference signature 重合：{sample_id}")
+        if any(query_similarity_score(row["query_text_zh"], official_text) >= E10_V4_QUERY_SIMILARITY_THRESHOLD for official_text in official_query_texts):
+            raise ValueError(f"E10 v4 accepted 样本 query_text_zh 与官方 E9 query 过于相似：{sample_id}")
+
+        candidate_hotel_ids = [hotel["hotel_id"] for hotel in row["candidate_hotels"]]
+        if candidate_hotel_ids != list(seed_row["candidate_hotel_ids"]):
+            raise ValueError(f"E10 v4 accepted 样本 candidate_hotel_ids 与 seed spec 不一致：{sample_id}")
+        allowed_hotel_ids = set(split_hotel_lookup.get(row["split"], {}).get(row["city"], []))
+        if not set(candidate_hotel_ids).issubset(allowed_hotel_ids):
+            raise ValueError(f"E10 v4 accepted 样本出现跨 split 酒店泄漏：{sample_id}")
+
+        unit = build_generation_eval_unit_from_v4_record(row)
+        response = coerce_generation_payload(
+            row["accepted_target_payload"],
+            unit,
+            "C_grounded_generation_with_verifier",
+            json.dumps(row["accepted_target_payload"], ensure_ascii=False),
+        )
+        evidence_lookup = build_e10_v4_local_evidence_lookup(unit)
+        verification, _audit_rows = verify_response_citations(response, unit, evidence_lookup)
+        if not response.schema_valid:
+            raise ValueError(f"E10 v4 accepted target schema_invalid：{sample_id}")
+        if verification.invalid_sentence_ids or verification.out_of_pack_sentence_ids:
+            raise ValueError(f"E10 v4 accepted target 存在 citation 问题：{sample_id}")
+        if response_has_english_reason_text(response):
+            raise ValueError(f"E10 v4 accepted target reason_text 存在英文长串：{sample_id}")
+        if response.recommendations:
+            if verification.citation_precision != 1.0:
+                raise ValueError(f"E10 v4 accepted target citation_precision 非 1.0：{sample_id}")
+        else:
+            if row["unsupported_requests"]:
+                raise ValueError(f"E10 v4 zero-recommendation 样本不能包含 unsupported_requests：{sample_id}")
+            if not response.unsupported_notice.strip():
+                raise ValueError(f"E10 v4 zero-recommendation 样本必须有根级 unsupported_notice：{sample_id}")
+
+        duplication_signature = stable_hash(
+            {
+                "query_text_zh": row["query_text_zh"],
+                "candidate_hotel_ids": candidate_hotel_ids,
+                "accepted_target_payload": row["accepted_target_payload"],
+            }
+        )
+        if duplication_signature in duplicate_signatures:
+            raise ValueError(f"E10 v4 accepted 样本存在 exact duplicate target：{sample_id}")
+        duplicate_signatures.add(duplication_signature)
+
+        primary_counts[row["primary_slice"]] += 1
+        source_counts[row["source_mode"]] += 1
+        split_counts[row["split"]] += 1
+        for tag in row["secondary_tags"]:
+            secondary_tag_counts[tag] += 1
+        city_counts[row["city"]] += 1
+        deepseek_model_counts[str(row["provenance"]["generator_model_name"])] += 1
+
+    if dict(primary_counts) != profile_config["primary_slice_counts"]:
+        raise ValueError("E10 v4 accepted primary_slice 配比不符合当前 profile。")
+    expected_gold = sum(profile_config["source_counts"][slice_name]["gold_manual"] for slice_name in E10_V4_PRIMARY_SLICES)
+    expected_silver = sum(profile_config["source_counts"][slice_name]["silver_deepseek"] for slice_name in E10_V4_PRIMARY_SLICES)
+    if source_counts["gold_manual"] != expected_gold or source_counts["silver_deepseek"] != expected_silver:
+        raise ValueError(f"E10 v4 accepted source_mode 总量不正确。gold={source_counts['gold_manual']} silver={source_counts['silver_deepseek']}")
+    if split_counts["train"] != profile_config["train_grounded"] or split_counts["dev"] != profile_config["dev_grounded"]:
+        raise ValueError("E10 v4 accepted split 配比不正确。")
+
+    review_rows_by_sample: dict[str, list[dict[str, str]]] = defaultdict(list)
+    rejected_reason_counts: dict[str, int] = defaultdict(int)
+    for review_row in review_rows:
+        if review_row.get("decision") and review_row["decision"] not in E10_V4_REVIEW_DECISIONS:
+            raise ValueError(f"E10 v4 review_log decision 非法：{review_row['decision']}")
+        if review_row.get("review_round") and review_row["review_round"] not in E10_V4_REVIEW_ROUNDS:
+            raise ValueError(f"E10 v4 review_log review_round 非法：{review_row['review_round']}")
+        review_rows_by_sample[review_row["sample_id"]].append(review_row)
+        if review_row.get("decision") == "reject":
+            rejected_reason_counts[review_row.get("behavior_issue_type") or "reject"] += 1
+
+    accepted_decisions = {"accept", "edit_then_accept"}
+    r2_sample_ids: set[str] = set()
+    r2_by_slice: dict[str, set[str]] = defaultdict(set)
+    accepted_lookup = {row["sample_id"]: row for row in accepted_rows}
+    for sample_id, row in accepted_lookup.items():
+        sample_reviews = review_rows_by_sample.get(sample_id, [])
+        if not sample_reviews:
+            raise ValueError(f"E10 v4 accepted 样本缺少 review_log：{sample_id}")
+        if not any(review["review_round"] == "r1" for review in sample_reviews):
+            raise ValueError(f"E10 v4 accepted 样本缺少 r1 review：{sample_id}")
+        if not any(review["decision"] in accepted_decisions for review in sample_reviews):
+            raise ValueError(f"E10 v4 accepted 样本没有最终 accept / edit_then_accept 决策：{sample_id}")
+        if any(review["review_round"] == "r2" for review in sample_reviews):
+            r2_sample_ids.add(sample_id)
+            r2_by_slice[row["primary_slice"]].add(sample_id)
+
+    min_r2_count = math.ceil(len(accepted_rows) * 0.20)
+    if len(r2_sample_ids) < min_r2_count:
+        raise ValueError("E10 v4 accepted 样本的第二轮 review 覆盖不足。")
+    for slice_name in ("partial_support_keep_recommendation", "multi_hotel_pack_boundary"):
+        required_slice_r2 = math.ceil(primary_counts[slice_name] * 0.30)
+        if len(r2_by_slice[slice_name]) < required_slice_r2:
+            raise ValueError(f"E10 v4 {slice_name} 的第二轮 review 覆盖不足。")
+
+    report = {
+        "version": E10_V4_MANIFEST_CONFIG_VERSION,
+        "dataset_profile": profile_name,
+        "accepted_count": len(accepted_rows),
+        "train_grounded_count": split_counts["train"],
+        "dev_grounded_count": split_counts["dev"],
+        "primary_slice_distribution": dict(sorted(primary_counts.items())),
+        "source_mode_distribution": dict(sorted(source_counts.items())),
+        "secondary_tag_distribution": dict(sorted(secondary_tag_counts.items())),
+        "city_distribution": dict(sorted(city_counts.items())),
+        "hotel_split_distribution": {
+            "train": split_counts["train"],
+            "dev": split_counts["dev"],
+            "test": 0,
+        },
+        "deepseek_model_distribution": dict(sorted(deepseek_model_counts.items())),
+        "review_round_2_coverage": round(len(r2_sample_ids) / len(accepted_rows), 4),
+        "slice_review_round_2_coverage": {
+            slice_name: (
+                round(len(r2_by_slice[slice_name]) / primary_counts[slice_name], 4)
+                if primary_counts[slice_name]
+                else 0.0
+            )
+            for slice_name in ("partial_support_keep_recommendation", "multi_hotel_pack_boundary")
+        },
+        "max_accepted_per_seed": max(seed_usage_counts.values()) if seed_usage_counts else 0,
+        "rejected_reason_counts": dict(sorted(rejected_reason_counts.items())),
+    }
+    return accepted_rows, review_rows, report
+
+
+def validate_e10_manifest_report_v4_payload(report: dict[str, Any]) -> dict[str, Any]:
+    missing_fields = sorted(E10_V4_REQUIRED_REPORT_FIELDS - set(report))
+    if missing_fields:
+        raise KeyError("E10 v4 manifest report 缺少字段: " + ", ".join(missing_fields))
+    if int(report["version"]) != E10_V4_MANIFEST_CONFIG_VERSION:
+        raise ValueError("E10 v4 manifest report 版本不正确。")
+    if report["dataset_profile"] not in E10_V4_PROFILE_CONFIGS:
+        raise ValueError("E10 v4 dataset_profile 非法。")
+    if report["hotel_split_distribution"].get("test", 1) != 0:
+        raise ValueError("E10 v4 manifest report 出现 test 酒店泄漏。")
+
+    accepted_count = int(report["accepted_count"])
+    if accepted_count not in {24, 200}:
+        raise ValueError("E10 v4 accepted_count 必须为 pilot=24 或 full=200。")
+    profile_config = E10_V4_PROFILE_CONFIGS[report["dataset_profile"]]
+    if int(report["train_grounded_count"]) != profile_config["train_grounded"]:
+        raise ValueError("E10 v4 train_grounded_count 与 profile 不一致。")
+    if int(report["dev_grounded_count"]) != profile_config["dev_grounded"]:
+        raise ValueError("E10 v4 dev_grounded_count 与 profile 不一致。")
+    if report["primary_slice_distribution"] != profile_config["primary_slice_counts"]:
+        raise ValueError("E10 v4 primary_slice_distribution 与 profile 不一致。")
+    source_distribution = report["source_mode_distribution"]
+    gold_share = source_distribution.get("gold_manual", 0) / max(accepted_count, 1)
+    silver_share = source_distribution.get("silver_deepseek", 0) / max(accepted_count, 1)
+    if gold_share + 1e-9 < 0.45:
+        raise ValueError("E10 v4 gold_manual share 低于 0.45。")
+    if silver_share - 1e-9 > 0.55:
+        raise ValueError("E10 v4 silver_deepseek share 高于 0.55。")
+    expected_gold = sum(profile_config["source_counts"][slice_name]["gold_manual"] for slice_name in E10_V4_PRIMARY_SLICES)
+    expected_silver = sum(profile_config["source_counts"][slice_name]["silver_deepseek"] for slice_name in E10_V4_PRIMARY_SLICES)
+    if source_distribution.get("gold_manual", 0) != expected_gold:
+        raise ValueError("E10 v4 gold_manual 总量与 profile 不一致。")
+    if source_distribution.get("silver_deepseek", 0) != expected_silver:
+        raise ValueError("E10 v4 silver_deepseek 总量与 profile 不一致。")
+    if int(report.get("max_accepted_per_seed", 0)) > 2:
+        raise ValueError("E10 v4 max_accepted_per_seed 超过 2。")
+    return report
+
+
+def build_grounded_manifest_report_v4(
+    *,
+    train_base_records: list[dict[str, Any]],
+    dev_base_records: list[dict[str, Any]],
+    train_grounded_records: list[dict[str, Any]],
+    dev_grounded_records: list[dict[str, Any]],
+    accepted_report: dict[str, Any],
+) -> dict[str, Any]:
+    def task_distribution(rows: list[dict[str, Any]]) -> dict[str, int]:
+        distribution: dict[str, int] = defaultdict(int)
+        for row in rows:
+            distribution[row["task_type"]] += 1
+        return dict(sorted(distribution.items()))
+
+    report = dict(accepted_report)
+    report.update(
+        {
+            "train_base_record_count": len(train_base_records),
+            "dev_base_record_count": len(dev_base_records),
+            "train_task_distribution": task_distribution(train_base_records + train_grounded_records),
+            "dev_task_distribution": task_distribution(dev_base_records + dev_grounded_records),
+            "train_grounded_share_of_final_manifest": round(
+                len(train_grounded_records) / max(len(train_base_records) + len(train_grounded_records), 1),
+                4,
+            ),
+        }
+    )
+    return report
+
+
+def build_sft_manifest_records_v4() -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    train_records_base, dev_records_base = build_sft_manifest_records()
+    accepted_rows, _review_rows, accepted_report = validate_e10_v4_accepted_dataset()
+
+    train_grounded_records: list[dict[str, Any]] = []
+    dev_grounded_records: list[dict[str, Any]] = []
+    for row in accepted_rows:
+        unit = build_generation_eval_unit_from_v4_record(row)
+        source_asset = f"e10_v4::{row['source_mode']}::{row['primary_slice']}"
+        manifest_row = SFTManifestRecord(
+            record_id=stable_hash(
+                {
+                    "task_type": "grounded_recommendation",
+                    "sample_id": row["sample_id"],
+                    "query_id": row["query_id"],
+                    "split": row["split"],
+                    "source_mode": row["source_mode"],
+                    "primary_slice": row["primary_slice"],
+                }
+            ),
+            split=row["split"],
+            task_type="grounded_recommendation",
+            hotel_id=None,
+            query_id=row["query_id"],
+            source_asset=source_asset,
+            input_payload=build_grounded_recommendation_input_payload(unit),
+            target_payload=row["accepted_target_payload"],
+            config_hash=stable_hash(
+                {
+                    "task": "E10_manifest_v4",
+                    "version": E10_V4_MANIFEST_CONFIG_VERSION,
+                    "sample_id": row["sample_id"],
+                    "seed_id": row["seed_id"],
+                    "source_mode": row["source_mode"],
+                    "primary_slice": row["primary_slice"],
+                    "split": row["split"],
+                }
+            ),
+        ).model_dump()
+        if row["split"] == "train":
+            train_grounded_records.append(manifest_row)
+        else:
+            dev_grounded_records.append(manifest_row)
+
+    train_records = sorted(
+        train_records_base + train_grounded_records,
+        key=lambda row: (row["task_type"], row["query_id"], row["record_id"]),
+    )
+    dev_records = sorted(
+        dev_records_base + dev_grounded_records,
+        key=lambda row: (row["task_type"], row["query_id"], row["record_id"]),
+    )
+    report = build_grounded_manifest_report_v4(
+        train_base_records=train_records_base,
+        dev_base_records=dev_records_base,
+        train_grounded_records=train_grounded_records,
+        dev_grounded_records=dev_grounded_records,
+        accepted_report=accepted_report,
+    )
+    validate_e10_manifest_report_v4_payload(report)
+    return train_records, dev_records, report
+
+
+def prepare_e10_seed_specs_v4() -> tuple[Path, Path, Path, Path, Path, Path]:
+    return bootstrap_e10_v4_assets()
+
+
+def migrate_e10_deepseek_assets_v4() -> dict[str, Any]:
+    return migrate_e10_v4_deepseek_assets_in_place()
+
+
+def prepare_e10_manifests_v4() -> tuple[Path, Path, Path]:
+    migrate_e10_v4_deepseek_assets_in_place()
+    train_records, dev_records, report = build_sft_manifest_records_v4()
+    write_jsonl(SFT_TRAIN_MANIFEST_V4_PATH, train_records)
+    write_jsonl(SFT_DEV_MANIFEST_V4_PATH, dev_records)
+    write_json(E10_V4_MANIFEST_REPORT_PATH, report)
+    return SFT_TRAIN_MANIFEST_V4_PATH, SFT_DEV_MANIFEST_V4_PATH, E10_V4_MANIFEST_REPORT_PATH
+
+
+def validate_e10_manifest_report_v4(
+    *,
+    report_path: Path | None = None,
+    train_manifest_path: Path | None = None,
+    dev_manifest_path: Path | None = None,
+) -> dict[str, Any]:
+    migrate_e10_v4_deepseek_assets_in_place()
+    resolved_report_path = report_path or E10_V4_MANIFEST_REPORT_PATH
+    resolved_train_manifest_path = train_manifest_path or SFT_TRAIN_MANIFEST_V4_PATH
+    resolved_dev_manifest_path = dev_manifest_path or SFT_DEV_MANIFEST_V4_PATH
+    for asset_path in (
+        resolved_train_manifest_path,
+        resolved_dev_manifest_path,
+        resolved_report_path,
+    ):
+        if not asset_path.exists():
+            raise FileNotFoundError(f"Missing E10 v4 asset: {asset_path}")
+    report = load_json(resolved_report_path)
+    return validate_e10_manifest_report_v4_payload(report)
 
 
 def prepare_e10_manifests() -> tuple[Path, Path]:

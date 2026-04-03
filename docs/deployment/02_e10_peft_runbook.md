@@ -11,6 +11,10 @@
 5. 在本地或云端生成正式 compare 报告
 6. 在 `E10 v1` 正式负结果与 `E10 v2` 阶段性结果基础上，准备 `E10 v3` grounded manifest 并训练 `exp03`
 
+`E10 v4` 的人工设计 + DeepSeek Reasoner 辅助生成数据集流程，已单独整理到：
+
+- `docs/deployment/03_e10_v4_deepseek_dataset_runbook.md`
+
 当前不覆盖：
 
 - 自动提交云端训练任务

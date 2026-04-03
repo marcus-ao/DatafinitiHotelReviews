@@ -1220,6 +1220,390 @@ class E9E10GenerationTestCase(unittest.TestCase):
         with self.assertRaises(ValueError):
             generation_mod.validate_e10_manifest_report_v3_payload(report)
 
+    def test_build_e10_v4_phase_assignment_plan_matches_expected_totals(self):
+        assignments = generation_mod.build_e10_v4_phase_assignment_plan()
+        self.assertEqual(len(assignments), 200)
+
+        slice_counts: dict[str, int] = {}
+        source_counts: dict[str, int] = {}
+        phase_counts: dict[str, int] = {}
+        split_counts: dict[str, int] = {}
+        for row in assignments:
+            slice_counts[row["primary_slice"]] = slice_counts.get(row["primary_slice"], 0) + 1
+            source_counts[row["source_mode"]] = source_counts.get(row["source_mode"], 0) + 1
+            phase_counts[row["phase_hint"]] = phase_counts.get(row["phase_hint"], 0) + 1
+            split_counts[row["split"]] = split_counts.get(row["split"], 0) + 1
+
+        self.assertEqual(slice_counts, generation_mod.E10_V4_FULL_SLICE_COUNTS)
+        self.assertEqual(source_counts, {"gold_manual": 96, "silver_deepseek": 104})
+        self.assertEqual(phase_counts, {"pilot": 24, "full_extension": 176})
+        self.assertEqual(split_counts, {"train": 160, "dev": 40})
+
+    def test_build_e10_v4_deepseek_prompt_templates_has_both_stages(self):
+        templates = generation_mod.build_e10_v4_deepseek_prompt_templates()
+        self.assertEqual(sorted(templates.keys()), ["query_draft", "target_draft"])
+        self.assertIn("temperature", templates["query_draft"])
+        self.assertIn("top_p", templates["target_draft"])
+
+    def test_validate_e10_manifest_report_v4_payload_accepts_pilot_profile(self):
+        report = {
+            "version": generation_mod.E10_V4_MANIFEST_CONFIG_VERSION,
+            "dataset_profile": "pilot",
+            "accepted_count": 24,
+            "train_grounded_count": 18,
+            "dev_grounded_count": 6,
+            "primary_slice_distribution": {slice_name: 4 for slice_name in generation_mod.E10_V4_PRIMARY_SLICES},
+            "source_mode_distribution": {"gold_manual": 12, "silver_deepseek": 12},
+            "secondary_tag_distribution": {"quiet_sleep": 6},
+            "city_distribution": {"Anaheim": 3},
+            "hotel_split_distribution": {"train": 18, "dev": 6, "test": 0},
+            "deepseek_model_distribution": {"deepseek-reasoner": 12},
+            "review_round_2_coverage": 0.25,
+            "slice_review_round_2_coverage": {
+                "partial_support_keep_recommendation": 0.5,
+                "multi_hotel_pack_boundary": 0.5,
+            },
+            "max_accepted_per_seed": 1,
+            "rejected_reason_counts": {"pack_boundary": 2},
+        }
+        validated = generation_mod.validate_e10_manifest_report_v4_payload(report)
+        self.assertEqual(validated["dataset_profile"], "pilot")
+
+    def test_build_e10_v4_deepseek_query_request_rows_uses_only_silver_specs(self):
+        seed_rows = [
+            {
+                "seed_id": "seed_silver",
+                "phase_hint": "pilot",
+                "split": "train",
+                "source_mode": "silver_deepseek",
+                "primary_slice": "control_standard_grounded",
+                "secondary_tags": ["single_hotel"],
+                "city": "Anaheim",
+                "state": "CA",
+                "hotel_category": None,
+                "focus_aspects": ["service"],
+                "avoid_aspects": [],
+                "unsupported_requests": [],
+                "query_constraints": {"language": "zh"},
+                "notes": "note",
+            },
+            {
+                "seed_id": "seed_gold",
+                "phase_hint": "pilot",
+                "split": "train",
+                "source_mode": "gold_manual",
+                "primary_slice": "control_standard_grounded",
+                "secondary_tags": ["single_hotel"],
+                "city": "Anaheim",
+                "state": "CA",
+                "hotel_category": None,
+                "focus_aspects": ["service"],
+                "avoid_aspects": [],
+                "unsupported_requests": [],
+                "query_constraints": {"language": "zh"},
+                "notes": "note",
+            },
+        ]
+        prompt_templates = generation_mod.build_e10_v4_deepseek_prompt_templates()
+        with mock.patch.object(generation_mod, "load_jsonl", return_value=seed_rows), \
+             mock.patch.object(generation_mod, "validate_e10_v4_seed_specs_payload", side_effect=lambda rows: rows), \
+             mock.patch.object(generation_mod, "load_json", return_value=prompt_templates):
+            rows = generation_mod.build_e10_v4_deepseek_query_request_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["seed_id"], "seed_silver")
+        self.assertEqual(rows[0]["stage"], "query_draft")
+        self.assertEqual(rows[0]["temperature"], prompt_templates["query_draft"]["temperature"])
+
+    def test_build_e10_v4_deepseek_target_request_rows_uses_accepted_query_drafts(self):
+        seed_rows = [
+            {
+                "seed_id": "seed_silver",
+                "phase_hint": "pilot",
+                "split": "train",
+                "source_mode": "silver_deepseek",
+                "primary_slice": "partial_support_keep_recommendation",
+                "secondary_tags": ["root_notice_required"],
+                "city": "Seattle",
+                "state": "WA",
+                "hotel_category": None,
+                "focus_aspects": ["quiet_sleep", "value"],
+                "avoid_aspects": [],
+                "unsupported_requests": [],
+                "query_type": "multi_aspect",
+                "candidate_hotels": [
+                    {"hotel_id": "h1", "hotel_name": "Hotel One"},
+                    {"hotel_id": "h2", "hotel_name": "Hotel Two"},
+                ],
+                "evidence_pack_refs": [
+                    {
+                        "hotel_id": "h1",
+                        "evidence_by_aspect": {"quiet_sleep": [{"sentence_id": "s1", "sentence_text": "quiet"}]},
+                        "allowed_sentence_ids": ["s1"],
+                    }
+                ],
+                "target_constraints": {"max_recommendations": 2},
+            }
+        ]
+        deepseek_draft_rows = [
+            {
+                "seed_id": "seed_silver",
+                "source_mode": "silver_deepseek",
+                "review_status": "query_accepted",
+                "query_text_zh": "请推荐Seattle安静且性价比不错的酒店。",
+            }
+        ]
+        prompt_templates = generation_mod.build_e10_v4_deepseek_prompt_templates()
+        with mock.patch.object(generation_mod, "load_jsonl", side_effect=[seed_rows, deepseek_draft_rows]), \
+             mock.patch.object(generation_mod, "validate_e10_v4_seed_specs_payload", side_effect=lambda rows: rows), \
+             mock.patch.object(generation_mod, "validate_e10_v4_deepseek_drafts_for_target_stage", return_value=deepseek_draft_rows), \
+             mock.patch.object(generation_mod, "load_json", return_value=prompt_templates):
+            rows = generation_mod.build_e10_v4_deepseek_target_request_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["seed_id"], "seed_silver")
+        self.assertEqual(rows[0]["stage"], "target_draft")
+        self.assertEqual(rows[0]["temperature"], prompt_templates["target_draft"]["temperature"])
+
+    def test_validate_e10_v4_accepted_dataset_allows_zero_recommendation_evidence_gap(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            seed_specs_path = tmp_path / "e10_v4_seed_specs.jsonl"
+            accepted_path = tmp_path / "e10_v4_accepted_grounded.jsonl"
+            review_log_path = tmp_path / "e10_v4_review_log.csv"
+
+            seed_row = {
+                "seed_id": "seed_zero",
+                "phase_hint": "pilot",
+                "split": "train",
+                "source_mode": "gold_manual",
+                "primary_slice": "zero_recommendation_evidence_gap",
+                "secondary_tags": ["root_notice_required", "single_hotel"],
+                "city": "Anaheim",
+                "state": "CA",
+                "hotel_category": None,
+                "focus_aspects": ["service"],
+                "avoid_aspects": [],
+                "unsupported_requests": [],
+                "query_type": "single_aspect",
+                "candidate_hotel_ids": ["hotel_1", "hotel_2"],
+                "candidate_hotels": [
+                    {"hotel_id": "hotel_1", "hotel_name": "Hotel One"},
+                    {"hotel_id": "hotel_2", "hotel_name": "Hotel Two"},
+                ],
+                "query_constraints": {"language": "zh"},
+                "target_constraints": {"max_recommendations": 2},
+                "evidence_pack_refs": [
+                    {
+                        "hotel_id": "hotel_1",
+                        "evidence_by_aspect": {
+                            "service": [{"sentence_id": "s1", "sentence_text": "服务很好。"}]
+                        },
+                        "allowed_sentence_ids": ["s1"],
+                    },
+                    {
+                        "hotel_id": "hotel_2",
+                        "evidence_by_aspect": {
+                            "service": [{"sentence_id": "s2", "sentence_text": "服务不错。"}]
+                        },
+                        "allowed_sentence_ids": ["s2"],
+                    },
+                ],
+                "notes": "manual zero-rec seed",
+            }
+            accepted_row = {
+                "sample_id": "v4acc_zero",
+                "seed_id": "seed_zero",
+                "split": "train",
+                "source_mode": "gold_manual",
+                "primary_slice": "zero_recommendation_evidence_gap",
+                "secondary_tags": ["root_notice_required", "single_hotel"],
+                "query_id": "v4g_zero",
+                "query_text_zh": "阿纳海姆有没有服务特别好的酒店？",
+                "query_type": "single_aspect",
+                "city": "Anaheim",
+                "user_preference_gold": {
+                    "city": "Anaheim",
+                    "state": "CA",
+                    "hotel_category": None,
+                    "focus_aspects": ["service"],
+                    "avoid_aspects": [],
+                    "unsupported_requests": [],
+                    "query_en": "hotel in Anaheim with strong service",
+                },
+                "unsupported_requests": [],
+                "candidate_hotels": seed_row["candidate_hotels"],
+                "evidence_packs": seed_row["evidence_pack_refs"],
+                "provenance": {
+                    "generator_provider": "manual",
+                    "generator_model_name": "manual-curated",
+                    "generation_stage": "target_draft",
+                    "request_id": "manual_001",
+                    "temperature": 0.0,
+                    "top_p": 1.0,
+                    "prompt_version": "manual_v4",
+                    "generated_at": "2026-04-03T00:00:00+00:00",
+                },
+                "review_status": "accepted",
+                "accepted_version": generation_mod.E10_V4_ACCEPTED_VERSION,
+                "accepted_target_payload": {
+                    "summary": "当前没有足够证据支持直接推荐。",
+                    "recommendations": [],
+                    "unsupported_notice": "现有证据不足以支持直接推荐服务明显更好的酒店。",
+                },
+                "auto_qc_summary": {"response_parse_ok": True},
+                "human_review_summary": "approved",
+            }
+            generation_mod.write_jsonl(seed_specs_path, [seed_row])
+            generation_mod.write_jsonl(accepted_path, [accepted_row])
+            review_log_path.write_text(
+                "sample_id,review_round,reviewer_id,decision,schema_issue_type,citation_issue_type,language_issue_type,behavior_issue_type,notes\n"
+                "v4acc_zero,r1,marcus,accept,none,none,none,none,ok\n"
+                "v4acc_zero,r2,reviewer_b,accept,none,none,none,none,ok\n",
+                encoding="utf-8-sig",
+            )
+
+            mini_profile = {
+                "accepted_count": 1,
+                "train_grounded": 1,
+                "dev_grounded": 0,
+                "primary_slice_counts": {"zero_recommendation_evidence_gap": 1},
+                "source_counts": {
+                    slice_name: {"gold_manual": int(slice_name == "zero_recommendation_evidence_gap"), "silver_deepseek": 0}
+                    for slice_name in generation_mod.E10_V4_PRIMARY_SLICES
+                },
+            }
+
+            with mock.patch.object(generation_mod, "E10_V4_SEED_SPECS_PATH", seed_specs_path), \
+                 mock.patch.object(generation_mod, "E10_V4_ACCEPTED_GROUNDED_PATH", accepted_path), \
+                 mock.patch.object(generation_mod, "E10_V4_REVIEW_LOG_PATH", review_log_path), \
+                 mock.patch.object(generation_mod, "validate_e10_v4_seed_specs_payload", side_effect=lambda rows: rows), \
+                 mock.patch.object(generation_mod, "infer_e10_v4_profile", return_value="mini"), \
+                 mock.patch.dict(generation_mod.E10_V4_PROFILE_CONFIGS, {"mini": mini_profile}, clear=False), \
+                 mock.patch.object(generation_mod, "load_official_e9_query_references", return_value=(set(), [])), \
+                 mock.patch.object(generation_mod, "build_split_hotel_lookup", return_value={"train": {"Anaheim": ["hotel_1", "hotel_2"]}, "dev": {}}), \
+                 mock.patch.object(generation_mod, "load_json", return_value={}):
+                accepted_rows, review_rows, report = generation_mod.validate_e10_v4_accepted_dataset()
+
+            self.assertEqual(len(accepted_rows), 1)
+            self.assertEqual(len(review_rows), 2)
+            self.assertEqual(report["accepted_count"], 1)
+            self.assertEqual(report["source_mode_distribution"]["gold_manual"], 1)
+
+    def test_migrate_e10_v4_deepseek_assets_rewrites_legacy_source_mode(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            seed_specs_path = tmp_path / "e10_v4_seed_specs.jsonl"
+            deepseek_drafts_path = tmp_path / "e10_v4_deepseek_drafts.jsonl"
+            deepseek_prompts_path = tmp_path / "e10_v4_deepseek_prompt_templates.json"
+            deepseek_query_requests_path = tmp_path / "e10_v4_deepseek_query_requests.jsonl"
+            deepseek_target_requests_path = tmp_path / "e10_v4_deepseek_target_requests.jsonl"
+            accepted_path = tmp_path / "e10_v4_accepted_grounded.jsonl"
+            manifest_report_path = tmp_path / "sft_manifest_v4_report.json"
+            legacy_glm_drafts_path = tmp_path / "e10_v4_glm_drafts.jsonl"
+            legacy_glm_prompts_path = tmp_path / "e10_v4_glm_prompt_templates.json"
+            legacy_glm_query_requests_path = tmp_path / "e10_v4_glm_query_requests.jsonl"
+            legacy_glm_target_requests_path = tmp_path / "e10_v4_glm_target_requests.jsonl"
+
+            generation_mod.write_jsonl(
+                seed_specs_path,
+                [
+                    {
+                        "seed_id": "seed_001",
+                        "phase_hint": "pilot",
+                        "split": "train",
+                        "source_mode": "silver_glm",
+                        "primary_slice": "control_standard_grounded",
+                        "secondary_tags": ["single_hotel"],
+                        "city": "Anaheim",
+                        "state": "CA",
+                        "hotel_category": None,
+                        "focus_aspects": ["service"],
+                        "avoid_aspects": [],
+                        "unsupported_requests": [],
+                        "query_type": "single_aspect",
+                        "candidate_hotel_ids": ["h1", "h2"],
+                        "candidate_hotels": [
+                            {"hotel_id": "h1", "hotel_name": "Hotel One"},
+                            {"hotel_id": "h2", "hotel_name": "Hotel Two"},
+                        ],
+                        "query_constraints": {"language": "zh"},
+                        "target_constraints": {"max_recommendations": 2},
+                        "evidence_pack_refs": [],
+                        "notes": "source_mode=silver_glm",
+                    }
+                ],
+            )
+            generation_mod.write_jsonl(
+                deepseek_drafts_path,
+                [
+                    {
+                        "sample_id": "v4qry_001",
+                        "seed_id": "seed_001",
+                        "stage": "query_draft",
+                        "split": "train",
+                        "source_mode": "silver_glm",
+                        "primary_slice": "control_standard_grounded",
+                        "secondary_tags": [],
+                        "city": None,
+                        "query_text_zh": "请推荐阿纳海姆服务好的酒店。",
+                        "review_status": "query_generated",
+                        "raw_response": "请推荐阿纳海姆服务好的酒店。",
+                        "provenance": {"generator_provider": "deepseek"},
+                    }
+                ],
+            )
+
+            with mock.patch.object(generation_mod, "E10_V4_SEED_SPECS_PATH", seed_specs_path), \
+                 mock.patch.object(generation_mod, "E10_V4_DEEPSEEK_DRAFTS_PATH", deepseek_drafts_path), \
+                 mock.patch.object(generation_mod, "E10_V4_DEEPSEEK_PROMPTS_PATH", deepseek_prompts_path), \
+                 mock.patch.object(generation_mod, "E10_V4_DEEPSEEK_QUERY_REQUESTS_PATH", deepseek_query_requests_path), \
+                 mock.patch.object(generation_mod, "E10_V4_DEEPSEEK_TARGET_REQUESTS_PATH", deepseek_target_requests_path), \
+                 mock.patch.object(generation_mod, "E10_V4_ACCEPTED_GROUNDED_PATH", accepted_path), \
+                 mock.patch.object(generation_mod, "E10_V4_MANIFEST_REPORT_PATH", manifest_report_path), \
+                 mock.patch.object(generation_mod, "E10_V4_LEGACY_GLM_DRAFTS_PATH", legacy_glm_drafts_path), \
+                 mock.patch.object(generation_mod, "E10_V4_LEGACY_GLM_PROMPTS_PATH", legacy_glm_prompts_path), \
+                 mock.patch.object(generation_mod, "E10_V4_LEGACY_GLM_QUERY_REQUESTS_PATH", legacy_glm_query_requests_path), \
+                 mock.patch.object(generation_mod, "E10_V4_LEGACY_GLM_TARGET_REQUESTS_PATH", legacy_glm_target_requests_path):
+                result = generation_mod.migrate_e10_deepseek_assets_v4()
+
+            migrated_seed_rows = generation_mod.load_jsonl(seed_specs_path)
+            migrated_draft_rows = generation_mod.load_jsonl(deepseek_drafts_path)
+            self.assertIn(str(seed_specs_path), result["updated_paths"])
+            self.assertIn(str(deepseek_drafts_path), result["updated_paths"])
+            self.assertEqual(migrated_seed_rows[0]["source_mode"], "silver_deepseek")
+            self.assertEqual(migrated_seed_rows[0]["notes"], "source_mode=silver_deepseek")
+            self.assertEqual(migrated_draft_rows[0]["source_mode"], "silver_deepseek")
+            self.assertEqual(migrated_draft_rows[0]["city"], "Anaheim")
+            self.assertEqual(migrated_draft_rows[0]["secondary_tags"], ["single_hotel"])
+
+    def test_migrate_e10_v4_deepseek_assets_moves_legacy_glm_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            current_path = tmp_path / "e10_v4_deepseek_query_requests.jsonl"
+            legacy_path = tmp_path / "e10_v4_glm_query_requests.jsonl"
+            generation_mod.write_jsonl(
+                legacy_path,
+                [{"seed_id": "seed_001", "source_mode": "silver_glm", "messages": []}],
+            )
+
+            with mock.patch.object(generation_mod, "E10_V4_SEED_SPECS_PATH", tmp_path / "missing_seed_specs.jsonl"), \
+                 mock.patch.object(generation_mod, "E10_V4_DEEPSEEK_DRAFTS_PATH", tmp_path / "missing_drafts.jsonl"), \
+                 mock.patch.object(generation_mod, "E10_V4_DEEPSEEK_PROMPTS_PATH", tmp_path / "missing_prompts.json"), \
+                 mock.patch.object(generation_mod, "E10_V4_DEEPSEEK_QUERY_REQUESTS_PATH", current_path), \
+                 mock.patch.object(generation_mod, "E10_V4_DEEPSEEK_TARGET_REQUESTS_PATH", tmp_path / "missing_target_requests.jsonl"), \
+                 mock.patch.object(generation_mod, "E10_V4_ACCEPTED_GROUNDED_PATH", tmp_path / "missing_accepted.jsonl"), \
+                 mock.patch.object(generation_mod, "E10_V4_MANIFEST_REPORT_PATH", tmp_path / "missing_report.json"), \
+                 mock.patch.object(generation_mod, "E10_V4_LEGACY_GLM_DRAFTS_PATH", tmp_path / "missing_legacy_drafts.jsonl"), \
+                 mock.patch.object(generation_mod, "E10_V4_LEGACY_GLM_PROMPTS_PATH", tmp_path / "missing_legacy_prompts.json"), \
+                 mock.patch.object(generation_mod, "E10_V4_LEGACY_GLM_QUERY_REQUESTS_PATH", legacy_path), \
+                 mock.patch.object(generation_mod, "E10_V4_LEGACY_GLM_TARGET_REQUESTS_PATH", tmp_path / "missing_legacy_target_requests.jsonl"):
+                result = generation_mod.migrate_e10_deepseek_assets_v4()
+
+            self.assertFalse(legacy_path.exists())
+            self.assertTrue(current_path.exists())
+            migrated_rows = generation_mod.load_jsonl(current_path)
+            self.assertEqual(migrated_rows[0]["source_mode"], "silver_deepseek")
+            self.assertIn(str(current_path), result["moved_legacy_paths"])
+
 
 if __name__ == "__main__":
     unittest.main()

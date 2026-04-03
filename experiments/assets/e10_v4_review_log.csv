@@ -1,0 +1,33 @@
+﻿sample_id,review_round,reviewer_id,decision,schema_issue_type,citation_issue_type,language_issue_type,behavior_issue_type,notes
+v4acc_e27828d8f9c13eb3,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_e27828d8f9c13eb3,r2,codex_r2,accept,none,none,none,none,Second-pass review passed.
+v4acc_4103ac647e4fd725,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_4103ac647e4fd725,r2,codex_r2,accept,none,none,none,none,Second-pass review passed.
+v4acc_021376ab53e44481,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_848013740b55befb,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_d9024c61e5b1c31e,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_b46eb59805eaedae,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_b46eb59805eaedae,r2,codex_r2,accept,none,none,none,none,Second-pass review passed.
+v4acc_175d13c862a23fe3,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_175d13c862a23fe3,r2,codex_r2,accept,none,none,none,none,Second-pass review passed.
+v4acc_4261721bd6426b98,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_1bd300ae8b2bee85,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_3ea73cfca618d5ef,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_90497eeec0000d59,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_b11094dde9485c1f,r1,codex_r1,edit_then_accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_3e54dc253ed6926c,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_d0f67970564b967e,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_b6e6c1783e51d106,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_6857016ad22234ef,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_45ec672d9f49fa8c,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_45ec672d9f49fa8c,r2,codex_r2,accept,none,none,none,none,Second-pass review passed.
+v4acc_fdaeb2e249048568,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_fdaeb2e249048568,r2,codex_r2,accept,none,none,none,none,Second-pass review passed.
+v4acc_d9dd909e8f01b643,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_d9dd909e8f01b643,r2,codex_r2,accept,none,none,none,none,Second-pass review passed.
+v4acc_5ce25a0839fdfc4c,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_5ce25a0839fdfc4c,r2,codex_r2,accept,none,none,none,none,Second-pass review passed.
+v4acc_63cc14f1a3ab8dd4,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_ce348b184a2d0695,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_d0ba55c964f3f691,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.
+v4acc_f422e27fd9638252,r1,codex_r1,accept,none,none,none,none,Accepted after Codex pilot review.

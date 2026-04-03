@@ -12,9 +12,15 @@ from scripts.evaluation.evaluate_e3_e5_behavior import (
 )
 from scripts.evaluation.evaluate_e9_e10_generation import (
     freeze_e9_assets,
+    migrate_e10_deepseek_assets_v4,
+    prepare_e10_deepseek_query_requests_v4,
+    prepare_e10_deepseek_target_requests_v4,
     prepare_e10_manifests,
+    prepare_e10_manifests_v4,
+    prepare_e10_seed_specs_v4,
     prepare_e10_manifests_v2,
     prepare_e10_manifests_v3,
+    validate_e10_manifest_report_v4,
     validate_e10_manifest_report_v3,
     run_e10_compare_runs,
     run_e10_base_vs_peft,
@@ -48,7 +54,13 @@ def main() -> None:
             "e10_prepare_manifests",
             "e10_prepare_manifests_v2",
             "e10_prepare_manifests_v3",
+            "e10_prepare_seed_specs_v4",
+            "e10_migrate_deepseek_assets_v4",
+            "e10_prepare_deepseek_query_requests_v4",
+            "e10_prepare_deepseek_target_requests_v4",
+            "e10_prepare_manifests_v4",
             "e10_validate_manifest_v3",
+            "e10_validate_manifest_v4",
             "e10_base_vs_peft",
             "e10_compare_runs",
         ],
@@ -124,11 +136,41 @@ def main() -> None:
         print(f"[OK] train manifest written to {train_path}")
         print(f"[OK] dev manifest written to {dev_path}")
         print(f"[OK] manifest report written to {report_path}")
+    elif args.task == "e10_prepare_seed_specs_v4":
+        seed_path, gold_path, deepseek_path, review_log_path, accepted_path, prompt_path = prepare_e10_seed_specs_v4()
+        print(f"[OK] seed specs written to {seed_path}")
+        print(f"[OK] gold patch bootstrap written to {gold_path}")
+        print(f"[OK] deepseek drafts bootstrap written to {deepseek_path}")
+        print(f"[OK] review log bootstrap written to {review_log_path}")
+        print(f"[OK] accepted grounded bootstrap written to {accepted_path}")
+        print(f"[OK] DeepSeek prompt templates written to {prompt_path}")
+    elif args.task == "e10_migrate_deepseek_assets_v4":
+        result = migrate_e10_deepseek_assets_v4()
+        print("[OK] E10 v4 DeepSeek assets migrated")
+        print(f"[OK] moved_legacy_paths={result['moved_legacy_paths']}")
+        print(f"[OK] updated_paths={result['updated_paths']}")
+    elif args.task == "e10_prepare_deepseek_query_requests_v4":
+        request_path = prepare_e10_deepseek_query_requests_v4()
+        print(f"[OK] DeepSeek query request package written to {request_path}")
+    elif args.task == "e10_prepare_deepseek_target_requests_v4":
+        request_path = prepare_e10_deepseek_target_requests_v4()
+        print(f"[OK] DeepSeek target request package written to {request_path}")
+    elif args.task == "e10_prepare_manifests_v4":
+        train_path, dev_path, report_path = prepare_e10_manifests_v4()
+        print(f"[OK] train manifest written to {train_path}")
+        print(f"[OK] dev manifest written to {dev_path}")
+        print(f"[OK] manifest report written to {report_path}")
     elif args.task == "e10_validate_manifest_v3":
         report = validate_e10_manifest_report_v3()
         print("[OK] E10 v3 manifest assets validated")
         print(f"[OK] grounded share={report['train_grounded_share_of_final_manifest']}")
         print(f"[OK] slice share={report['train_grounded_slice_share']}")
+    elif args.task == "e10_validate_manifest_v4":
+        report = validate_e10_manifest_report_v4()
+        print("[OK] E10 v4 manifest assets validated")
+        print(f"[OK] dataset_profile={report['dataset_profile']}")
+        print(f"[OK] accepted_count={report['accepted_count']}")
+        print(f"[OK] source_mode_distribution={report['source_mode_distribution']}")
     elif args.task == "e10_base_vs_peft":
         run_dir = run_e10_base_vs_peft(
             output_root=output_root,

@@ -1,0 +1,69 @@
+{
+  "version": 4,
+  "dataset_profile": "pilot",
+  "accepted_count": 24,
+  "train_grounded_count": 18,
+  "dev_grounded_count": 6,
+  "primary_slice_distribution": {
+    "control_standard_grounded": 4,
+    "multi_hotel_pack_boundary": 4,
+    "partial_support_keep_recommendation": 4,
+    "quiet_sleep_focus_avoid": 4,
+    "schema_boundary_control": 4,
+    "zero_recommendation_evidence_gap": 4
+  },
+  "source_mode_distribution": {
+    "gold_manual": 12,
+    "silver_deepseek": 12
+  },
+  "secondary_tag_distribution": {
+    "focus_avoid": 8,
+    "multi_aspect": 21,
+    "pack_boundary_sensitive": 4,
+    "quiet_sleep": 16,
+    "root_notice_required": 8,
+    "schema_boundary_sensitive": 8,
+    "single_hotel": 20,
+    "two_hotel": 4
+  },
+  "city_distribution": {
+    "Anaheim": 9,
+    "Atlanta": 4,
+    "Chicago": 6,
+    "Dallas": 4,
+    "Honolulu": 1
+  },
+  "hotel_split_distribution": {
+    "train": 18,
+    "dev": 6,
+    "test": 0
+  },
+  "deepseek_model_distribution": {
+    "deepseek-reasoner": 12,
+    "manual-curated-v4": 12
+  },
+  "review_round_2_coverage": 0.3333,
+  "slice_review_round_2_coverage": {
+    "partial_support_keep_recommendation": 1.0,
+    "multi_hotel_pack_boundary": 1.0
+  },
+  "max_accepted_per_seed": 1,
+  "rejected_reason_counts": {},
+  "train_base_record_count": 234,
+  "dev_base_record_count": 54,
+  "train_task_distribution": {
+    "clarification": 70,
+    "constraint_honesty": 24,
+    "feedback_update": 70,
+    "grounded_recommendation": 18,
+    "preference_parse": 70
+  },
+  "dev_task_distribution": {
+    "clarification": 16,
+    "constraint_honesty": 6,
+    "feedback_update": 16,
+    "grounded_recommendation": 6,
+    "preference_parse": 16
+  },
+  "train_grounded_share_of_final_manifest": 0.0714
+}

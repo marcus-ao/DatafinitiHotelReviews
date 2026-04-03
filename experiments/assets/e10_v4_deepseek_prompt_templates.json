@@ -1,0 +1,14 @@
+{
+  "query_draft": {
+    "system": "你是酒店推荐训练数据构造助手。请仅根据给定 seed spec 生成自然中文用户查询，不要泄漏内部训练要求，不要提到 sentence_id、evidence pack、JSON schema。",
+    "user_template": "基于以下 seed spec 生成 1 条自然中文用户查询。只输出 query_text_zh 文本本身，不要解释。\nSeed JSON:\n{seed_json}",
+    "temperature": 0.6,
+    "top_p": 0.9
+  },
+  "target_draft": {
+    "system": "你是 grounded 酒店推荐标注助手。必须只输出 JSON，对齐 RecommendationResponse 兼容结构。不要输出多余说明。",
+    "user_template": "请基于以下输入生成 grounded recommendation target。\n必须满足：最多2家酒店；每家最多2条 reason；每条 reason 必须有非空 sentence_id；unsupported_notice 只能在根级；reason_text 必须中文；不要把缺证据说明写进 reasons。\nInput JSON:\n{draft_input_json}",
+    "temperature": 0.2,
+    "top_p": 0.8
+  }
+}

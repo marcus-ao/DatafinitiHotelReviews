@@ -1,0 +1,36 @@
+{
+  "base_model_id": "/root/autodl-tmp/models/base/Qwen3.5-4B",
+  "adapter_type": "qlora",
+  "train_manifest_path": "experiments/assets/sft_train_manifest_v4.jsonl",
+  "dev_manifest_path": "experiments/assets/sft_dev_manifest_v4.jsonl",
+  "task_types": [
+    "preference_parse",
+    "clarification",
+    "constraint_honesty",
+    "feedback_update",
+    "grounded_recommendation"
+  ],
+  "max_seq_length": 2048,
+  "per_device_train_batch_size": 1,
+  "gradient_accumulation_steps": 32,
+  "num_train_epochs": 2,
+  "learning_rate": 0.0002,
+  "gradient_checkpointing": true,
+  "gradient_checkpointing_use_reentrant": false,
+  "lora_r": 16,
+  "lora_alpha": 32,
+  "lora_dropout": 0.05,
+  "target_modules": [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj"
+  ],
+  "load_in_4bit": true,
+  "bf16": true,
+  "output_adapter_dir": "/root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp04",
+  "notes": "E10 v4 human-designed + DeepSeek-assisted grounded dataset config. Keeps the same QLoRA recipe and only switches to manifest_v4 / exp04."
+}
