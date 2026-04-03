@@ -4,7 +4,7 @@
 
 ## 总体阶段判断
 
-当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进入“`E9` 第二轮正式结果已冻结 + `E10 v1` 正式对照已完成 + `E10 v2` 数据方案推进”阶段。
+当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进入“`E9` 第二轮正式结果已冻结 + `E10 v1` 正式对照已完成 + `E10 v2` 阶段性结果已归档 + `E10 v3` 数据/约束修复准备”阶段。
 
 目前整体处于：
 
@@ -20,7 +20,7 @@
 - 最新 `E4` 审计：已完成首轮人工评分并冻结 reviewed 快照
 - 行为章节材料：已形成 `E3 / E4 / E5` 汇总初稿
 - `Qwen3.5-9B`：可作为附录或扩展对比，当前不是主线阻塞项
-- `E9 / E10 / PEFT`：`E9` 第二轮正式结果已完成并冻结，`E10 v1` 正式 compare 已完成，`E10 v2` 进入数据方案迭代阶段
+- `E9 / E10 / PEFT`：`E9` 第二轮正式结果已完成并冻结，`E10 v1` 正式 compare 已完成，`E10 v2` 已形成阶段性改进结果，当前转入 `E10 v3` 数据+约束修复阶段
 
 ## 已完成的核心内容
 
@@ -218,6 +218,56 @@
 推荐优先阅读：
 
 - `experiments/reports/05_behavior_stage_3_chapter_materials.md`
+- `experiments/reports/07_generation_stage_2_e10_formal_summary.md`
+- `experiments/reports/08_generation_stage_3_e10_v2_iteration_summary.md`
+
+## 5. E9 / E10 当前正式状态
+
+### `E9` 冻结状态
+
+- 正式 run：
+  - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- 结论：
+  - 当前生成层已达到可审计、可冻结状态
+  - retrieval 主线不再继续变更
+
+### `E10 v1` 正式状态
+
+- base formal：
+  - `experiments/runs/e10_0dc5c2e6f867c66f_20260402T015230+0000/`
+- peft formal：
+  - `experiments/runs/e10_0ef381420c1bd19a_20260402T020120+0000/`
+- compare formal：
+  - `experiments/runs/e10cmp_28598dfb8434c1ba_20260402T020734+0000/`
+
+固定结论：
+
+- `PEFT exp01` 未优于 base
+- 主要退化集中在 `quiet_sleep` 与 `focus+avoid`
+- `v1` 的负结果主要来自训练目标错位，而不是运行时失真
+
+### `E10 v2` 当前状态
+
+- peft formal：
+  - `experiments/runs/e10_a2dd1a0bd73c57b5_20260402T073127+0000/`
+- compare formal：
+  - `experiments/runs/e10cmp_7cf0c9c0a9830796_20260402T074331+0000/`
+
+固定结论：
+
+- `v2` 已把 `citation_precision` 从 `0.9250` 拉回到 `0.9688`
+- `q013 / q023` 已修复
+- 但 `schema_valid_rate` 从 `1.0` 降到 `0.95`
+- `q018 / q022 / q085` 成为当前最主要的 `v3` 修复对象
+
+当前默认正式主系统仍保持：
+
+- base formal `Qwen/Qwen3.5-4B`
+
+`v2` 当前被定位为：
+
+- 阶段性改进结果
+- 不是最终正结果
 - `experiments/reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
 - `experiments/runs/e3_14928d821d811e86_20260331T122611+0000/analysis.md`
 - `experiments/runs/e4_55c8021e1119fb77_20260331T122648+0000/analysis.md`

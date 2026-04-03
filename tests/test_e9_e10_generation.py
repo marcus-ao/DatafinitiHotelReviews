@@ -2,7 +2,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
+
+import pandas as pd
 
 from scripts.evaluation import evaluate_e9_e10_generation as generation_mod
 from scripts.shared.experiment_schemas import (
@@ -876,6 +879,308 @@ class E9E10GenerationTestCase(unittest.TestCase):
             sorted(payload["evidence_packs"][0].keys()),
             ["allowed_sentence_ids", "evidence_by_aspect", "hotel_id"],
         )
+
+    def test_sanitize_grounded_recommendation_response_for_training_removes_null_and_missing_evidence_reasons(self):
+        unit = _build_eval_unit().model_copy(
+            update={
+                "user_preference_gold": _build_eval_unit().user_preference_gold.model_copy(
+                    update={"focus_aspects": ["location_transport", "quiet_sleep"]}
+                )
+            }
+        )
+        response = RecommendationResponse(
+            query_id="q001",
+            group_id="C_grounded_generation_with_verifier",
+            summary="原始摘要",
+            recommendations=[
+                RecommendationItem(
+                    hotel_id="hotel_1",
+                    hotel_name="Hotel One",
+                    reasons=[
+                        RecommendationReason(
+                            aspect="location_transport",
+                            reason_text="位置交通方便。",
+                            sentence_id="s_valid",
+                        ),
+                        RecommendationReason(
+                            aspect="quiet_sleep",
+                            reason_text="无直接证据支持安静睡眠。",
+                            sentence_id=None,
+                        ),
+                    ],
+                )
+            ],
+            unsupported_notice="",
+            schema_valid=True,
+            raw_response="{}",
+        )
+
+        sanitized = generation_mod.sanitize_grounded_recommendation_response_for_training(unit, response)
+
+        self.assertTrue(sanitized.schema_valid)
+        self.assertEqual(len(sanitized.recommendations), 1)
+        self.assertEqual(len(sanitized.recommendations[0].reasons), 1)
+        self.assertEqual(sanitized.recommendations[0].reasons[0].aspect, "location_transport")
+        self.assertIn("仅保留可验证理由", sanitized.unsupported_notice)
+        self.assertNotIn("无直接证据支持", json.dumps(sanitized.model_dump(), ensure_ascii=False))
+
+    def test_build_e10_v3_judged_grounded_source_rows_excludes_official_and_unsupported_queries(self):
+        rows = generation_mod.build_e10_v3_judged_grounded_source_rows()
+        official_ids = set(generation_mod.load_json(generation_mod.E9_QUERY_IDS_PATH))
+        self.assertTrue(rows)
+        self.assertTrue(all(row["query_row"]["query_id"] not in official_ids for row in rows))
+        self.assertTrue(all(not row["slot_row"]["unsupported_requests"] for row in rows))
+        self.assertTrue(all(row["slot_row"]["city"] for row in rows))
+
+    def test_build_e10_v3_synthetic_grounded_source_rows_only_uses_train_split_cities(self):
+        review_df = pd.DataFrame(
+            {
+                "city": ["Anaheim", "Seattle", "Boston"],
+                "state": ["CA", "WA", "MA"],
+            }
+        )
+        split_hotel_lookup = {
+            "train": {
+                "Anaheim": ["h1", "h2"],
+                "Seattle": ["h3"],
+            },
+            "dev": {
+                "Boston": ["h4"],
+            },
+        }
+        rows = generation_mod.build_e10_v3_synthetic_grounded_source_rows(review_df, split_hotel_lookup)
+        self.assertTrue(rows)
+        self.assertTrue(all(row["source_type"] == "synthetic" for row in rows))
+        self.assertTrue(all(row["slot_row"]["city"] in {"Anaheim", "Seattle"} for row in rows))
+        self.assertFalse(any(row["slot_row"]["city"] == "Boston" for row in rows))
+
+    def test_classify_grounded_record_slices_v3_marks_partial_support_and_boundary(self):
+        row = {
+            "record_id": "r1",
+            "task_type": "grounded_recommendation",
+            "query_id": "v3syn_test",
+            "source_asset": "synthetic_grounded_recommendation_v3::multi_hotel_pack_boundary",
+            "input_payload": {
+                "unsupported_requests": [],
+                "user_preference_gold": {
+                    "focus_aspects": ["quiet_sleep", "value"],
+                    "avoid_aspects": ["service"],
+                },
+            },
+            "target_payload": {
+                "summary": "测试",
+                "unsupported_notice": "部分方面缺乏直接证据，以下仅保留可验证理由。",
+                "recommendations": [
+                    {
+                        "hotel_id": "hotel_1",
+                        "hotel_name": "Hotel One",
+                        "reasons": [
+                            {
+                                "aspect": "quiet_sleep",
+                                "reason_text": "安静。",
+                                "sentence_id": "s1",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+        slices = generation_mod.classify_grounded_record_slices_v3(row)
+        self.assertIn("quiet_sleep", slices)
+        self.assertIn("focus_avoid", slices)
+        self.assertIn("multi_hotel_pack_boundary", slices)
+        self.assertIn("partial_support_keep_recommendation", slices)
+
+    def test_classify_grounded_record_slices_v3_does_not_treat_focus_avoid_as_partial_support_by_default(self):
+        row = {
+            "record_id": "r2",
+            "task_type": "grounded_recommendation",
+            "query_id": "v3syn_focus_avoid",
+            "source_asset": "synthetic_grounded_recommendation_v3::partial_support_keep_recommendation",
+            "input_payload": {
+                "unsupported_requests": [],
+                "user_preference_gold": {
+                    "focus_aspects": ["quiet_sleep"],
+                    "avoid_aspects": ["value"],
+                },
+            },
+            "target_payload": {
+                "summary": "测试",
+                "unsupported_notice": "",
+                "recommendations": [
+                    {
+                        "hotel_id": "hotel_1",
+                        "hotel_name": "Hotel One",
+                        "reasons": [
+                            {
+                                "aspect": "quiet_sleep",
+                                "reason_text": "安静。",
+                                "sentence_id": "s1",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+        slices = generation_mod.classify_grounded_record_slices_v3(row)
+        self.assertIn("focus_avoid", slices)
+        self.assertNotIn("partial_support_keep_recommendation", slices)
+
+    def test_rebalance_grounded_train_records_v3_preserves_final_floor_and_zero_cap(self):
+        def make_row(
+            record_id: str,
+            *,
+            focus_aspects: list[str],
+            avoid_aspects: list[str],
+            reasons: list[dict[str, str | None]],
+            source_asset: str,
+            unsupported_notice: str = "",
+        ) -> dict[str, Any]:
+            return {
+                "record_id": record_id,
+                "task_type": "grounded_recommendation",
+                "query_id": record_id,
+                "source_asset": source_asset,
+                "input_payload": {
+                    "unsupported_requests": [],
+                    "user_preference_gold": {
+                        "focus_aspects": focus_aspects,
+                        "avoid_aspects": avoid_aspects,
+                    },
+                },
+                "target_payload": {
+                    "summary": "测试",
+                    "unsupported_notice": unsupported_notice,
+                    "recommendations": (
+                        []
+                        if not reasons
+                        else [
+                            {
+                                "hotel_id": "hotel_1",
+                                "hotel_name": "Hotel One",
+                                "reasons": reasons,
+                            }
+                        ]
+                    ),
+                },
+            }
+
+        rows = [
+            make_row(
+                "quiet",
+                focus_aspects=["quiet_sleep"],
+                avoid_aspects=[],
+                reasons=[{"aspect": "quiet_sleep", "reason_text": "安静。", "sentence_id": "s1"}],
+                source_asset="judged_grounded_recommendation_v3::judged_grounded",
+            ),
+            make_row(
+                "focus_avoid",
+                focus_aspects=["service"],
+                avoid_aspects=["value"],
+                reasons=[{"aspect": "service", "reason_text": "服务好。", "sentence_id": "s2"}],
+                source_asset="judged_grounded_recommendation_v3::judged_grounded",
+            ),
+            make_row(
+                "partial",
+                focus_aspects=["quiet_sleep", "value"],
+                avoid_aspects=[],
+                reasons=[{"aspect": "quiet_sleep", "reason_text": "安静。", "sentence_id": "s3"}],
+                source_asset="synthetic_grounded_recommendation_v3::partial_support_keep_recommendation",
+            ),
+            make_row(
+                "boundary",
+                focus_aspects=["service", "quiet_sleep", "location_transport"],
+                avoid_aspects=[],
+                reasons=[
+                    {"aspect": "service", "reason_text": "服务好。", "sentence_id": "s4"},
+                    {"aspect": "quiet_sleep", "reason_text": "安静。", "sentence_id": "s5"},
+                ],
+                source_asset="synthetic_grounded_recommendation_v3::multi_hotel_pack_boundary",
+            ),
+            make_row(
+                "generic",
+                focus_aspects=["cleanliness"],
+                avoid_aspects=[],
+                reasons=[{"aspect": "cleanliness", "reason_text": "干净。", "sentence_id": "s6"}],
+                source_asset="judged_grounded_recommendation_v3::judged_grounded",
+            ),
+            make_row(
+                "zero_gap",
+                focus_aspects=["quiet_sleep"],
+                avoid_aspects=[],
+                reasons=[],
+                source_asset="judged_grounded_recommendation_v3::judged_grounded",
+                unsupported_notice="当前证据不足，暂不返回酒店推荐。",
+            ),
+        ]
+
+        rebalanced = generation_mod.rebalance_grounded_train_records_v3(rows, base_record_count=30)
+        grounded_share = len(rebalanced) / (30 + len(rebalanced))
+        self.assertGreaterEqual(grounded_share, 0.4)
+
+        def share(slice_name: str) -> float:
+            return sum(
+                int(slice_name in generation_mod.classify_grounded_record_slices_v3(row))
+                for row in rebalanced
+            ) / len(rebalanced)
+
+        self.assertGreaterEqual(share("quiet_sleep"), 0.30)
+        self.assertGreaterEqual(share("focus_avoid"), 0.30)
+        self.assertGreaterEqual(share("partial_support_keep_recommendation"), 0.20)
+        self.assertGreaterEqual(share("multi_hotel_pack_boundary"), 0.15)
+        self.assertLessEqual(share("zero_recommendation_evidence_gap"), 0.10)
+
+    def test_build_grounded_manifest_report_v3_includes_share_fields(self):
+        row = {
+            "record_id": "r1",
+            "task_type": "grounded_recommendation",
+            "query_id": "v3syn_test",
+            "source_asset": "synthetic_grounded_recommendation_v3::multi_hotel_pack_boundary",
+            "input_payload": {
+                "unsupported_requests": [],
+                "user_preference_gold": {
+                    "focus_aspects": ["quiet_sleep"],
+                    "avoid_aspects": [],
+                },
+            },
+            "target_payload": {
+                "summary": "测试",
+                "unsupported_notice": "",
+                "recommendations": [
+                    {
+                        "hotel_id": "hotel_1",
+                        "hotel_name": "Hotel One",
+                        "reasons": [
+                            {
+                                "aspect": "quiet_sleep",
+                                "reason_text": "安静。",
+                                "sentence_id": "s1",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+        report = generation_mod.build_grounded_manifest_report_v3(
+            source_rows=[
+                {
+                    "query_row": {"query_id": "v3syn_test"},
+                    "slot_row": {"city": "Anaheim"},
+                    "source_type": "synthetic",
+                    "template_kind": "multi_hotel_pack_boundary",
+                }
+            ],
+            train_base_records=[],
+            dev_base_records=[],
+            train_grounded_records_raw=[row],
+            dev_grounded_records_raw=[row],
+            train_grounded_records_final=[row],
+            dropped_reason_counts={"train:none": 1},
+        )
+        self.assertEqual(report["source_type_distribution"]["synthetic"], 1)
+        self.assertIn("source_type_share", report)
+        self.assertIn("train_grounded_slice_share", report)
+        self.assertIn("train_grounded_source_share", report)
 
 
 if __name__ == "__main__":

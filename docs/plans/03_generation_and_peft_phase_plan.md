@@ -2,7 +2,7 @@
 
 更新时间：2026-04-02
 
-本文件用于冻结行为章节收口后的后续主线。当前顺序固定为：`E9` 第二轮正式结果冻结后，完成 `E10 v1` Base vs PEFT 正式对照，再进入 `E10 v2` 数据方案。`Qwen/Qwen3.5-4B` 是当前默认基座模型；`Qwen/Qwen3.5-9B` 只作为可选附录上界，不进入默认训练与实现主线。
+本文件用于冻结行为章节收口后的后续主线。当前顺序固定为：`E9` 第二轮正式结果冻结后，完成 `E10 v1` Base vs PEFT 正式对照，再完成 `E10 v2` 数据方案验证，当前进入 `E10 v3` 数据+约束修复。`Qwen/Qwen3.5-4B` 是当前默认基座模型；`Qwen/Qwen3.5-9B` 只作为可选附录上界，不进入默认训练与实现主线。
 
 ## 1. 当前阶段判断
 
@@ -18,7 +18,8 @@
 
 1. `E9` 第二轮结果已证明当前生成层已经达到可审计、可冻结状态
 2. `E10 v1` 已经用 `4B base vs 4B PEFT` 回答了 `RQ2` 的首轮问题
-3. `E10 v2` 的目标固定为：只改训练数据，不改训练配方与评测协议
+3. `E10 v2` 已证明“补 grounded data”方向有效，但仍未超过 base
+4. `E10 v3` 的目标固定为：只改训练数据与 silver 过滤约束，不改训练配方与正式评测协议
 
 ## 2. E9：证据约束生成
 
@@ -258,6 +259,68 @@ SFT 样本类型固定为四类：
   - `clarification`
   - `constraint_honesty`
   - `feedback_update`
+
+后续版本：
+
+- `v2` / `v3` manifest 会追加：
+  - `grounded_recommendation`
+
+### 3.6 当前 E10 迭代状态
+
+`v1` 已冻结为正式负结果：
+
+- compare：
+  - `experiments/runs/e10cmp_28598dfb8434c1ba_20260402T020734+0000/`
+- 结论：
+  - `PEFT exp01` 未优于 base
+  - 主要退化集中在 `quiet_sleep` 与 `focus+avoid`
+
+`v2` 已冻结为阶段性改进结果：
+
+- compare：
+  - `experiments/runs/e10cmp_7cf0c9c0a9830796_20260402T074331+0000/`
+- 结论：
+  - `citation_precision` 已追平 base：`0.9688`
+  - `q013 / q023` 已修复
+  - 但 `schema_valid_rate = 0.95`
+  - 当前问题集中在：
+    - `q018 / q022`
+    - `q085`
+
+因此 `v3` 的主线任务被固定为：
+
+- `partial_support_keep_recommendation`
+- `multi_hotel_pack_boundary`
+- `zero_recommendation_evidence_gap` 过滤收紧
+
+### 3.7 E10 v3 固定原则
+
+`v3` 必须保持以下内容不变：
+
+- retrieval 主线
+- `E9` eval units
+- base formal run
+- compare 协议
+- QLoRA 训练配方
+
+`v3` 允许修改的只有：
+
+- grounded source rows
+- synthetic grounded query 设计
+- silver target 过滤与清洗约束
+
+`v3` 训练产物固定命名为：
+
+- manifest：
+  - `experiments/assets/sft_train_manifest_v3.jsonl`
+  - `experiments/assets/sft_dev_manifest_v3.jsonl`
+  - `experiments/assets/sft_manifest_v3_report.json`
+- config：
+  - `experiments/assets/e10_train_config.qwen35_4b_peft_v3.json`
+- adapter：
+  - `/root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp03`
+- merged：
+  - `/root/autodl-tmp/models/merged/qwen35_4b_merged_exp03`
 - `v2` 将新增：
   - `grounded_recommendation`
 - `E10 v1` 正式 compare 已完成并冻结为：

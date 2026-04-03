@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import re
 import time
 from collections import defaultdict
@@ -18,6 +19,7 @@ from scripts.evaluation.evaluate_e2_candidate_selection import (
     candidate_rank,
 )
 from scripts.evaluation.evaluate_e3_e5_behavior import (
+    build_query_en_from_slots,
     build_behavior_backend,
     build_rule_clarification,
     load_json,
@@ -50,6 +52,7 @@ from scripts.shared.experiment_utils import (
     E9_LABELS_DIR,
     EXPERIMENT_ASSETS_DIR,
     EXPERIMENT_RUNS_DIR,
+    city_state_map,
     ensure_dir,
     load_jsonl,
     stable_hash,
@@ -85,10 +88,22 @@ SFT_DEV_MANIFEST_PATH = EXPERIMENT_ASSETS_DIR / "sft_dev_manifest.jsonl"
 SFT_TRAIN_MANIFEST_V2_PATH = EXPERIMENT_ASSETS_DIR / "sft_train_manifest_v2.jsonl"
 SFT_DEV_MANIFEST_V2_PATH = EXPERIMENT_ASSETS_DIR / "sft_dev_manifest_v2.jsonl"
 E10_V2_MANIFEST_REPORT_PATH = EXPERIMENT_ASSETS_DIR / "sft_manifest_v2_report.json"
+SFT_TRAIN_MANIFEST_V3_PATH = EXPERIMENT_ASSETS_DIR / "sft_train_manifest_v3.jsonl"
+SFT_DEV_MANIFEST_V3_PATH = EXPERIMENT_ASSETS_DIR / "sft_dev_manifest_v3.jsonl"
+E10_V3_MANIFEST_REPORT_PATH = EXPERIMENT_ASSETS_DIR / "sft_manifest_v3_report.json"
 E10_TRAIN_CONFIG_TEMPLATE_PATH = EXPERIMENT_ASSETS_DIR / "e10_train_config_template.json"
 E10_ADAPTER_METADATA_TEMPLATE_PATH = EXPERIMENT_ASSETS_DIR / "e10_adapter_metadata.template.json"
 E10_V2_MANIFEST_CONFIG_VERSION = 2
+E10_V3_MANIFEST_CONFIG_VERSION = 3
 ENGLISH_LONG_SPAN_PATTERN = re.compile(r"[A-Za-z]{4,}")
+MISSING_EVIDENCE_REASON_PATTERNS = (
+    "无直接证据",
+    "未提供明确",
+    "缺乏直接证据",
+    "缺乏关于",
+    "证据不足",
+    "跳过",
+)
 
 ASPECT_ZH_LABELS = {
     "location_transport": "位置交通",
@@ -1707,6 +1722,82 @@ def build_grounded_recommendation_input_payload(unit: GenerationEvalUnit) -> dic
     }
 
 
+def reason_text_indicates_missing_evidence(reason_text: str) -> bool:
+    normalized = str(reason_text or "").strip()
+    return any(pattern in normalized for pattern in MISSING_EVIDENCE_REASON_PATTERNS)
+
+
+def build_supported_aspect_summary(
+    unit: GenerationEvalUnit,
+    supported_aspects: set[str],
+    recommendation_count: int,
+) -> str:
+    city = unit.user_preference_gold.city or "当前城市"
+    if not supported_aspects:
+        return f"{city}当前证据不足，暂不返回酒店推荐。"
+    labels = "、".join(ASPECT_ZH_LABELS.get(aspect, aspect) for aspect in sorted(supported_aspects))
+    if recommendation_count <= 1:
+        return f"推荐{city}在{labels}方面有明确证据的酒店。"
+    return f"推荐{city}在{labels}方面有明确证据的酒店。"
+
+
+def sanitize_grounded_recommendation_response_for_training(
+    unit: GenerationEvalUnit,
+    response: RecommendationResponse,
+) -> RecommendationResponse:
+    notice_parts: list[str] = []
+    seen_notice_parts: set[str] = set()
+    if response.unsupported_notice.strip():
+        notice_parts.append(response.unsupported_notice.strip())
+        seen_notice_parts.add(response.unsupported_notice.strip())
+
+    removed_partial_support = False
+    cleaned_items: list[RecommendationItem] = []
+    supported_aspects: set[str] = set()
+    for item in response.recommendations:
+        cleaned_reasons: list[RecommendationReason] = []
+        for reason in item.reasons:
+            if reason.sentence_id is None or reason_text_indicates_missing_evidence(reason.reason_text):
+                removed_partial_support = True
+                continue
+            cleaned_reasons.append(reason)
+            supported_aspects.add(reason.aspect)
+        if cleaned_reasons:
+            cleaned_items.append(
+                RecommendationItem(
+                    hotel_id=item.hotel_id,
+                    hotel_name=item.hotel_name,
+                    reasons=cleaned_reasons,
+                )
+            )
+        elif item.reasons:
+            removed_partial_support = True
+
+    if removed_partial_support:
+        partial_notice = "部分方面缺乏直接证据，以下仅保留可验证理由。"
+        if partial_notice not in seen_notice_parts:
+            notice_parts.append(partial_notice)
+            seen_notice_parts.add(partial_notice)
+
+    final_notice = " ".join(notice_parts)
+    if cleaned_items:
+        summary = build_supported_aspect_summary(unit, supported_aspects, len(cleaned_items))
+        schema_valid = True
+    else:
+        summary = f"{unit.user_preference_gold.city or '当前城市'}当前证据不足，暂不返回酒店推荐。"
+        schema_valid = bool(final_notice)
+
+    return RecommendationResponse(
+        query_id=response.query_id,
+        group_id=response.group_id,
+        summary=summary,
+        recommendations=cleaned_items,
+        unsupported_notice=final_notice,
+        schema_valid=schema_valid,
+        raw_response=response.raw_response,
+    )
+
+
 def validate_grounded_recommendation_example(
     unit: GenerationEvalUnit,
     response: RecommendationResponse,
@@ -2118,6 +2209,644 @@ def build_sft_manifest_records_v2() -> tuple[list[dict[str, Any]], list[dict[str
     return train_records, dev_records, manifest_report
 
 
+def build_e10_v3_judged_grounded_source_rows() -> list[dict[str, Any]]:
+    judged_queries = load_jsonl(EXPERIMENT_ASSETS_DIR / "judged_queries.jsonl")
+    slot_gold = {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "slot_gold.jsonl")}
+    clarify_gold = {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "clarify_gold.jsonl")}
+    official_e9_query_ids = set(load_json(E9_QUERY_IDS_PATH))
+
+    rows: list[dict[str, Any]] = []
+    for query_row in judged_queries:
+        query_id = query_row["query_id"]
+        if query_id in official_e9_query_ids:
+            continue
+        slot_row = slot_gold[query_id]
+        if slot_row["unsupported_requests"]:
+            continue
+        if not slot_row["city"] or not (slot_row["focus_aspects"] or slot_row["avoid_aspects"]):
+            continue
+        rows.append(
+            {
+                "query_row": query_row,
+                "slot_row": slot_row,
+                "source_type": "judged",
+                "template_kind": "judged_grounded",
+                "clarify_needed_source": bool(clarify_gold[query_id]["clarify_needed"]),
+            }
+        )
+    return rows
+
+
+def build_e10_v3_synthetic_grounded_source_rows(
+    review_df: pd.DataFrame,
+    split_hotel_lookup: dict[str, dict[str, list[str]]],
+) -> list[dict[str, Any]]:
+    state_lookup = city_state_map(review_df)
+    train_city_lookup = split_hotel_lookup.get("train", {})
+    template_specs = [
+        {
+            "template_kind": "multi_hotel_pack_boundary",
+            "query_type": "multi_aspect_strong",
+            "focus_aspects": ["service", "quiet_sleep", "location_transport"],
+            "avoid_aspects": [],
+            "query_text_template": "请推荐{city}在服务、安静睡眠、位置交通三方面都比较均衡的酒店。",
+        },
+        {
+            "template_kind": "partial_support_keep_recommendation",
+            "query_type": "multi_aspect",
+            "focus_aspects": ["quiet_sleep", "value"],
+            "avoid_aspects": [],
+            "query_text_template": "请推荐{city}安静睡眠和性价比都不错的酒店。",
+        },
+        {
+            "template_kind": "partial_support_keep_recommendation",
+            "query_type": "focus_and_avoid",
+            "focus_aspects": ["quiet_sleep"],
+            "avoid_aspects": ["value"],
+            "query_text_template": "我在{city}想住得安静一点，但不要性价比太差的酒店。",
+        },
+    ]
+
+    rows: list[dict[str, Any]] = []
+    for city in sorted(train_city_lookup):
+        state = state_lookup.get(city)
+        if not state:
+            continue
+        for template in template_specs:
+            slot_row = {
+                "city": city,
+                "state": state,
+                "hotel_category": None,
+                "focus_aspects": template["focus_aspects"],
+                "avoid_aspects": template["avoid_aspects"],
+                "unsupported_requests": [],
+                "query_en": build_query_en_from_slots(
+                    city,
+                    template["focus_aspects"],
+                    template["avoid_aspects"],
+                    [],
+                ),
+            }
+            query_row = {
+                "query_id": f"v3syn_{stable_hash({'city': city, 'template': template['template_kind'], 'query_type': template['query_type'], 'focus': template['focus_aspects'], 'avoid': template['avoid_aspects']})}",
+                "query_text_zh": template["query_text_template"].format(city=city),
+                "query_type": template["query_type"],
+            }
+            rows.append(
+                {
+                    "query_row": query_row,
+                    "slot_row": slot_row,
+                    "source_type": "synthetic",
+                    "template_kind": template["template_kind"],
+                    "clarify_needed_source": False,
+                }
+            )
+    return rows
+
+
+def build_generation_prompts_v3_grounded(unit: GenerationEvalUnit) -> tuple[str, str]:
+    system_prompt, user_prompt = build_generation_prompts(unit, "C_grounded_generation_with_verifier")
+    system_prompt = (
+        system_prompt
+        + "\n"
+        + "额外严格约束：\n"
+        + "1. grounded 模式下绝对不要输出 sentence_id 为 null。\n"
+        + "2. 如果某个方面缺少直接证据，不要把“无直接证据支持”写进 reasons；需要说明时只能写到根级 unsupported_notice。\n"
+        + "3. 每家酒店只能引用该酒店自己的 allowed_sentence_ids，绝对不要跨酒店复用 sentence_id。\n"
+        + "4. 如果某家酒店只在部分方面有证据，也可以保留该酒店，但 reasons 中只能保留有证据的方面。"
+    )
+    return system_prompt, user_prompt
+
+
+def build_retry_prompt_v3(
+    unit: GenerationEvalUnit,
+    invalid_sentence_ids: list[str],
+    out_of_pack_sentence_ids: list[str],
+    response_error_type: str | None,
+) -> str:
+    base_prompt = build_retry_prompt(
+        unit,
+        invalid_sentence_ids=invalid_sentence_ids,
+        out_of_pack_sentence_ids=out_of_pack_sentence_ids,
+    )
+    if response_error_type == "schema_invalid":
+        base_prompt += (
+            "\n不要输出 sentence_id 为空的 reason。"
+            "不要把“无直接证据支持”之类的话写进 reasons。"
+            "缺证据说明只能放到根级 unsupported_notice。"
+        )
+    return base_prompt
+
+
+def generate_training_grounded_response_v3(
+    llm_runner,
+    unit: GenerationEvalUnit,
+    evidence_lookup: dict[str, dict[str, Any]],
+) -> tuple[RecommendationResponse, CitationVerificationResult, list[dict[str, Any]], dict[str, Any]]:
+    def materialize_response(raw_response_text: str) -> tuple[RecommendationResponse, str | None]:
+        generation_debug = dict(getattr(llm_runner, "last_generation_debug", {}) or {})
+        payload, repaired = parse_json_with_repair(raw_response_text)
+        response = coerce_generation_payload(
+            payload,
+            unit,
+            "C_grounded_generation_with_verifier",
+            raw_response_text,
+        )
+        sanitized_response = sanitize_grounded_recommendation_response_for_training(unit, response)
+        response_error_type = generation_debug.get("response_error_type")
+        if response_error_type is None and payload is None:
+            response_error_type = "invalid_json"
+        elif response_error_type is None and not response.schema_valid and not sanitized_response.schema_valid:
+            response_error_type = "schema_invalid"
+        elif response_error_type == "schema_invalid" and sanitized_response.schema_valid:
+            response_error_type = None
+        return sanitized_response, response_error_type
+
+    system_prompt, user_prompt = build_generation_prompts_v3_grounded(unit)
+    raw_response = llm_runner.generate_json(system_prompt, user_prompt, max_new_tokens=E9_GENERATION_MAX_NEW_TOKENS)
+    response, response_error_type = materialize_response(raw_response)
+    verification, audit_rows = verify_response_citations(response, unit, evidence_lookup)
+    if response_error_type is None and (verification.invalid_sentence_ids or verification.out_of_pack_sentence_ids):
+        response_error_type = "citation_invalid"
+    debug_payload: dict[str, Any] = {
+        "raw_response_initial": raw_response,
+        "retry_raw_response": "",
+        "response_error_type": response_error_type,
+        "thinking_control_supported": getattr(llm_runner, "last_generation_debug", {}).get("thinking_control_supported"),
+        "raw_response_prefix": getattr(llm_runner, "last_generation_debug", {}).get("raw_response_prefix", raw_response[:80]),
+    }
+
+    needs_retry = bool(verification.invalid_sentence_ids or verification.out_of_pack_sentence_ids)
+    needs_retry = needs_retry or not response.schema_valid
+    if not needs_retry:
+        return response, verification, audit_rows, debug_payload
+
+    retry_raw_response = raw_response
+    for _ in range(E9_RETRY_LIMIT):
+        retry_prompt = build_retry_prompt_v3(
+            unit,
+            invalid_sentence_ids=verification.invalid_sentence_ids,
+            out_of_pack_sentence_ids=verification.out_of_pack_sentence_ids,
+            response_error_type=response_error_type,
+        )
+        retry_raw_response = llm_runner.generate_json(
+            system_prompt,
+            f"{user_prompt}\n\n{retry_prompt}",
+            max_new_tokens=E9_GENERATION_MAX_NEW_TOKENS,
+        )
+        retry_response, retry_error_type = materialize_response(retry_raw_response)
+        retry_verification, retry_audit_rows = verify_response_citations(
+            retry_response,
+            unit,
+            evidence_lookup,
+            retry_triggered=True,
+        )
+        if retry_error_type is None and (retry_verification.invalid_sentence_ids or retry_verification.out_of_pack_sentence_ids):
+            retry_error_type = "citation_invalid"
+        response = retry_response
+        verification = retry_verification
+        audit_rows = retry_audit_rows
+        response_error_type = retry_error_type
+        debug_payload["retry_raw_response"] = retry_raw_response
+        debug_payload["response_error_type"] = response_error_type
+        debug_payload["raw_response_prefix"] = getattr(
+            llm_runner,
+            "last_generation_debug",
+            {},
+        ).get("raw_response_prefix", retry_raw_response[:80])
+        if (
+            response.schema_valid
+            and not verification.invalid_sentence_ids
+            and not verification.out_of_pack_sentence_ids
+        ):
+            return response, verification, audit_rows, debug_payload
+
+    return response, verification, audit_rows, debug_payload
+
+
+def classify_grounded_record_slices_v3(row: dict[str, Any]) -> set[str]:
+    preference = row["input_payload"]["user_preference_gold"]
+    focus_aspects = set(preference["focus_aspects"])
+    avoid_aspects = set(preference["avoid_aspects"])
+    addressed_aspects = {
+        reason["aspect"]
+        for item in row["target_payload"]["recommendations"]
+        for reason in item["reasons"]
+    }
+    addressed_focus_aspects = addressed_aspects & focus_aspects
+    slices: set[str] = set()
+    if "quiet_sleep" in focus_aspects:
+        slices.add("quiet_sleep")
+    if avoid_aspects:
+        slices.add("focus_avoid")
+    if row["source_asset"].startswith("synthetic_grounded_recommendation_v3::multi_hotel_pack_boundary"):
+        slices.add("multi_hotel_pack_boundary")
+    if (
+        row["target_payload"]["recommendations"]
+        and len(focus_aspects) >= 2
+        and addressed_focus_aspects
+        and addressed_focus_aspects < focus_aspects
+    ):
+        slices.add("partial_support_keep_recommendation")
+    if (
+        not row["target_payload"]["recommendations"]
+        and row["target_payload"]["unsupported_notice"].strip()
+        and not row["input_payload"]["unsupported_requests"]
+    ):
+        slices.add("zero_recommendation_evidence_gap")
+    return slices
+
+
+def rebalance_grounded_train_records_v3(
+    grounded_rows: list[dict[str, Any]],
+    base_record_count: int,
+) -> list[dict[str, Any]]:
+    if not grounded_rows:
+        raise ValueError("E10 v3 grounded train rows 为空，无法构建 v3 manifest。")
+
+    rebalanced = list(sorted(grounded_rows, key=lambda row: row["record_id"]))
+    duplication_counter = 0
+    minimum_slice_requirements = {
+        "quiet_sleep": 0.30,
+        "focus_avoid": 0.30,
+        "partial_support_keep_recommendation": 0.20,
+        "multi_hotel_pack_boundary": 0.15,
+    }
+    zero_recommendation_max_share = 0.10
+    zero_slice_name = "zero_recommendation_evidence_gap"
+
+    def row_slices(row: dict[str, Any]) -> set[str]:
+        return classify_grounded_record_slices_v3(row)
+
+    def slice_count(slice_name: str) -> int:
+        return sum(int(slice_name in row_slices(row)) for row in rebalanced)
+
+    source_by_slice = {
+        slice_name: [row for row in grounded_rows if slice_name in row_slices(row)]
+        for slice_name in minimum_slice_requirements
+    }
+    for slice_name, source_rows in source_by_slice.items():
+        if not source_rows:
+            raise ValueError(f"E10 v3 grounded pool 缺少必须切片：{slice_name}")
+
+    current_zero_count = slice_count(zero_slice_name)
+    min_grounded_count = math.ceil((0.40 * base_record_count) / 0.60)
+    min_count_for_zero_cap = (
+        math.ceil(current_zero_count / zero_recommendation_max_share)
+        if current_zero_count
+        else len(rebalanced)
+    )
+    target_final_size = max(len(rebalanced), min_grounded_count, min_count_for_zero_cap)
+    required_minimum_counts = {
+        slice_name: math.ceil(required_share * target_final_size)
+        for slice_name, required_share in minimum_slice_requirements.items()
+    }
+    allowed_zero_max_count = math.floor(zero_recommendation_max_share * target_final_size)
+    remaining_slots = target_final_size - len(rebalanced)
+
+    def deficit_counts() -> dict[str, int]:
+        return {
+            slice_name: required_count - slice_count(slice_name)
+            for slice_name, required_count in required_minimum_counts.items()
+            if slice_count(slice_name) < required_count
+        }
+
+    def can_add(candidate_row: dict[str, Any]) -> bool:
+        candidate_zero = int(zero_slice_name in row_slices(candidate_row))
+        return current_zero_count + candidate_zero <= allowed_zero_max_count
+
+    def candidate_score_for_deficits(candidate_row: dict[str, Any], deficits: dict[str, int]) -> tuple[int, int, int, int]:
+        candidate_slices = row_slices(candidate_row)
+        deficit_reduction = sum(deficits[slice_name] for slice_name in deficits if slice_name in candidate_slices)
+        minimum_coverage = sum(int(slice_name in candidate_slices) for slice_name in minimum_slice_requirements)
+        is_non_zero = int(zero_slice_name not in candidate_slices)
+        is_synthetic = int(candidate_row["source_asset"].startswith("synthetic_"))
+        return (deficit_reduction, is_non_zero, minimum_coverage, is_synthetic)
+
+    while remaining_slots > 0 and deficit_counts():
+        deficits = deficit_counts()
+        candidates = [
+            row
+            for row in grounded_rows
+            if can_add(row) and candidate_score_for_deficits(row, deficits)[0] > 0
+        ]
+        if not candidates:
+            raise ValueError(
+                "E10 v3 grounded rebalance 无法满足最终 slice floors / zero-recommendation 上限 / grounded share 约束。"
+            )
+        best_row = max(
+            sorted(candidates, key=lambda row: row["record_id"]),
+            key=lambda row: candidate_score_for_deficits(row, deficits),
+        )
+        duplicated = duplicate_manifest_record(
+            best_row,
+            duplication_counter,
+            "rebalance_v3_floor",
+        )
+        rebalanced.append(duplicated)
+        duplication_counter += 1
+        remaining_slots -= 1
+        if zero_slice_name in row_slices(best_row):
+            current_zero_count += 1
+
+    if deficit_counts():
+        raise ValueError(
+            "E10 v3 grounded rebalance 在目标最终样本数下仍无法满足全部 slice floors。"
+        )
+
+    def candidate_score_for_fill(candidate_row: dict[str, Any]) -> tuple[int, int, int]:
+        candidate_slices = row_slices(candidate_row)
+        minimum_coverage = sum(int(slice_name in candidate_slices) for slice_name in minimum_slice_requirements)
+        is_non_zero = int(zero_slice_name not in candidate_slices)
+        is_synthetic = int(candidate_row["source_asset"].startswith("synthetic_"))
+        return (is_non_zero, minimum_coverage, is_synthetic)
+
+    while remaining_slots > 0:
+        candidates = [row for row in grounded_rows if can_add(row)]
+        if not candidates:
+            raise ValueError(
+                "E10 v3 grounded rebalance 在填充 grounded share 目标时没有可用候选样本。"
+            )
+        best_row = max(
+            sorted(candidates, key=lambda row: row["record_id"]),
+            key=candidate_score_for_fill,
+        )
+        duplicated = duplicate_manifest_record(
+            best_row,
+            duplication_counter,
+            "rebalance_v3_grounded_share",
+        )
+        rebalanced.append(duplicated)
+        duplication_counter += 1
+        remaining_slots -= 1
+        if zero_slice_name in row_slices(best_row):
+            current_zero_count += 1
+
+    if current_zero_count > allowed_zero_max_count:
+        raise ValueError("E10 v3 grounded rebalance 未能满足 zero_recommendation_evidence_gap 上限。")
+    for slice_name, required_count in required_minimum_counts.items():
+        if slice_count(slice_name) < required_count:
+            raise ValueError(f"E10 v3 grounded rebalance 未能满足切片下限：{slice_name}")
+
+    return rebalanced
+
+
+def build_grounded_manifest_report_v3(
+    *,
+    source_rows: list[dict[str, Any]],
+    train_base_records: list[dict[str, Any]],
+    dev_base_records: list[dict[str, Any]],
+    train_grounded_records_raw: list[dict[str, Any]],
+    dev_grounded_records_raw: list[dict[str, Any]],
+    train_grounded_records_final: list[dict[str, Any]],
+    dropped_reason_counts: dict[str, int],
+) -> dict[str, Any]:
+    def task_distribution(rows: list[dict[str, Any]]) -> dict[str, int]:
+        distribution: dict[str, int] = defaultdict(int)
+        for row in rows:
+            distribution[row["task_type"]] += 1
+        return dict(sorted(distribution.items()))
+
+    def slice_distribution(rows: list[dict[str, Any]]) -> dict[str, int]:
+        distribution: dict[str, int] = defaultdict(int)
+        for row in rows:
+            for slice_name in sorted(classify_grounded_record_slices_v3(row)):
+                distribution[slice_name] += 1
+        return dict(sorted(distribution.items()))
+
+    def source_distribution(rows: list[dict[str, Any]]) -> dict[str, int]:
+        distribution: dict[str, int] = defaultdict(int)
+        for row in rows:
+            source_key = "synthetic" if row["source_asset"].startswith("synthetic_") else "judged"
+            distribution[source_key] += 1
+        return dict(sorted(distribution.items()))
+
+    def share_distribution(counts: dict[str, int], total_count: int) -> dict[str, float]:
+        if total_count <= 0:
+            return {key: 0.0 for key in counts}
+        return {
+            key: round(value / total_count, 4)
+            for key, value in sorted(counts.items())
+        }
+
+    def source_query_distribution(rows: list[dict[str, Any]]) -> dict[str, int]:
+        distribution: dict[str, int] = defaultdict(int)
+        for row in rows:
+            distribution[row["source_type"]] += 1
+        return dict(sorted(distribution.items()))
+
+    train_grounded_slice_counts = slice_distribution(train_grounded_records_final)
+    dev_grounded_slice_counts = slice_distribution(dev_grounded_records_raw)
+    train_grounded_source_counts = source_distribution(train_grounded_records_final)
+    dev_grounded_source_counts = source_distribution(dev_grounded_records_raw)
+    source_query_counts = source_query_distribution(source_rows)
+
+    return {
+        "version": E10_V3_MANIFEST_CONFIG_VERSION,
+        "source_query_count": len(source_rows),
+        "source_query_ids": [row["query_row"]["query_id"] for row in source_rows],
+        "source_type_distribution": source_query_counts,
+        "source_type_share": share_distribution(source_query_counts, len(source_rows)),
+        "train_base_record_count": len(train_base_records),
+        "dev_base_record_count": len(dev_base_records),
+        "train_grounded_record_count_raw": len(train_grounded_records_raw),
+        "dev_grounded_record_count_raw": len(dev_grounded_records_raw),
+        "train_grounded_record_count_final": len(train_grounded_records_final),
+        "train_grounded_share_of_final_manifest": round(
+            len(train_grounded_records_final) / max(len(train_base_records) + len(train_grounded_records_final), 1),
+            4,
+        ),
+        "train_task_distribution": task_distribution(train_base_records + train_grounded_records_final),
+        "dev_task_distribution": task_distribution(dev_base_records + dev_grounded_records_raw),
+        "train_grounded_slice_distribution": train_grounded_slice_counts,
+        "dev_grounded_slice_distribution": dev_grounded_slice_counts,
+        "train_grounded_slice_share": share_distribution(train_grounded_slice_counts, len(train_grounded_records_final)),
+        "dev_grounded_slice_share": share_distribution(dev_grounded_slice_counts, len(dev_grounded_records_raw)),
+        "train_grounded_source_distribution": train_grounded_source_counts,
+        "dev_grounded_source_distribution": dev_grounded_source_counts,
+        "train_grounded_source_share": share_distribution(train_grounded_source_counts, len(train_grounded_records_final)),
+        "dev_grounded_source_share": share_distribution(dev_grounded_source_counts, len(dev_grounded_records_raw)),
+        "dropped_reason_counts": dict(sorted(dropped_reason_counts.items())),
+    }
+
+
+def build_sft_manifest_records_v3() -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    train_records_base, dev_records_base = build_sft_manifest_records()
+
+    cfg = load_config()
+    frozen_config = load_json(EXPERIMENT_ASSETS_DIR / "frozen_config.yaml")
+    split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
+    review_df = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
+    profile_df = pd.read_pickle("data/intermediate/hotel_profiles.pkl")
+    evidence_df = pd.read_pickle("data/intermediate/evidence_index.pkl")
+
+    hotel_summary = build_hotel_summary(review_df)
+    profile_current, profile_alt = build_profile_tables(profile_df)
+    del profile_alt
+    evidence_lookup = build_evidence_lookup(evidence_df)
+    split_hotel_lookup = build_split_hotel_lookup(split_manifest)
+    train_city_lookup = split_hotel_lookup.get("train", {})
+
+    source_rows = build_e10_v3_judged_grounded_source_rows() + build_e10_v3_synthetic_grounded_source_rows(
+        review_df,
+        split_hotel_lookup,
+    )
+
+    behavior_runtime_config, behavior_api_key = resolve_behavior_runtime_config(cfg, frozen_config)
+    validate_runtime_base_model(
+        behavior_runtime_config.model_id,
+        str(frozen_config["behavior"]["base_model"]),
+    )
+    llm_runner = build_behavior_backend(behavior_runtime_config, behavior_api_key)
+
+    from chromadb import PersistentClient
+    from sentence_transformers import SentenceTransformer
+
+    client = PersistentClient(path=cfg["embedding"]["chroma_persist_dir"])
+    collection = client.get_collection(cfg["embedding"]["chroma_collection"])
+    try:
+        bi_encoder = SentenceTransformer(cfg["embedding"]["model"], local_files_only=True)
+    except Exception as exc:
+        raise RuntimeError(
+            "E10 v3 manifest 生成需要本地可用的 embedding 模型缓存；当前环境未能在离线模式下加载 "
+            f"{cfg['embedding']['model']}。请先在有网环境缓存该模型后再重试。"
+        ) from exc
+    normalize_embeddings = bool(cfg["embedding"].get("normalize", True))
+
+    manifest_config = {
+        "task": "E10_manifest_v3",
+        "version": E10_V3_MANIFEST_CONFIG_VERSION,
+        "grounded_recommendation": True,
+        "retrieval_mode": E9_RETRIEVAL_MODE,
+        "candidate_policy": E9_CANDIDATE_POLICY,
+        "dense_top_k": cfg["reranker"]["top_k_before_rerank"],
+        "final_top_k": cfg["reranker"]["top_k_after_rerank"],
+        "embedding_model": cfg["embedding"]["model"],
+        "collection": cfg["embedding"]["chroma_collection"],
+        "generator_model_id": behavior_runtime_config.model_id,
+    }
+
+    train_grounded_records_raw: list[dict[str, Any]] = []
+    dev_grounded_records_raw: list[dict[str, Any]] = []
+    dropped_reason_counts: dict[str, int] = defaultdict(int)
+
+    for source_row in source_rows:
+        query_row = source_row["query_row"]
+        slot_row = source_row["slot_row"]
+        query_id = query_row["query_id"]
+        manifest_split = assign_manifest_split(query_id)
+        allowed_hotel_ids = set(train_city_lookup.get(slot_row["city"], []))
+        if not allowed_hotel_ids:
+            dropped_reason_counts[f"{manifest_split}:no_train_hotels_in_city"] += 1
+            continue
+        candidate_hotels = build_candidate_hotels_for_slot(
+            hotel_summary=hotel_summary,
+            profile_current=profile_current,
+            slot_row=slot_row,
+            allowed_hotel_ids=allowed_hotel_ids,
+        )
+        if not candidate_hotels:
+            dropped_reason_counts[f"{manifest_split}:no_ranked_candidates"] += 1
+            continue
+        if source_row["template_kind"] == "multi_hotel_pack_boundary" and len(candidate_hotels) < 2:
+            dropped_reason_counts[f"{manifest_split}:insufficient_multi_hotel_candidates"] += 1
+            continue
+
+        unit = build_generation_eval_unit_for_slot(
+            query_row=query_row,
+            slot_row=slot_row,
+            candidate_hotels=candidate_hotels,
+            collection=collection,
+            bi_encoder=bi_encoder,
+            normalize_embeddings=normalize_embeddings,
+            evidence_lookup=evidence_lookup,
+            dense_top_k=cfg["reranker"]["top_k_before_rerank"],
+            final_top_k=cfg["reranker"]["top_k_after_rerank"],
+            stable_asset_config=manifest_config | {"split": manifest_split},
+        )
+        response, verification, _audit_rows, debug_payload = generate_training_grounded_response_v3(
+            llm_runner=llm_runner,
+            unit=unit,
+            evidence_lookup=evidence_lookup,
+        )
+        is_valid, drop_reason = validate_grounded_recommendation_example(
+            unit,
+            response,
+            verification,
+            debug_payload,
+        )
+        if not is_valid:
+            dropped_reason_counts[f"{manifest_split}:{drop_reason}"] += 1
+            continue
+        if (
+            source_row["template_kind"] == "multi_hotel_pack_boundary"
+            and len(response.recommendations) < 2
+        ):
+            dropped_reason_counts[f"{manifest_split}:insufficient_multi_hotel_output"] += 1
+            continue
+
+        source_asset = (
+            f"synthetic_grounded_recommendation_v3::{source_row['template_kind']}"
+            if source_row["source_type"] == "synthetic"
+            else "judged_grounded_recommendation_v3::judged_grounded"
+        )
+        record = SFTManifestRecord(
+            record_id=stable_hash(
+                {
+                    "task_type": "grounded_recommendation",
+                    "query_id": query_id,
+                    "split": manifest_split,
+                    "candidate_hotels": [hotel.hotel_id for hotel in candidate_hotels],
+                    "template_kind": source_row["template_kind"],
+                }
+            ),
+            split=manifest_split,
+            task_type="grounded_recommendation",
+            hotel_id=None,
+            query_id=query_id,
+            source_asset=source_asset,
+            input_payload=build_grounded_recommendation_input_payload(unit),
+            target_payload=build_grounded_recommendation_target_payload(response),
+            config_hash=stable_hash(
+                manifest_config
+                | {
+                    "task_type": "grounded_recommendation",
+                    "query_id": query_id,
+                    "split": manifest_split,
+                    "source_type": source_row["source_type"],
+                    "template_kind": source_row["template_kind"],
+                }
+            ),
+        ).model_dump()
+        if manifest_split == "train":
+            train_grounded_records_raw.append(record)
+        else:
+            dev_grounded_records_raw.append(record)
+
+    train_grounded_records_final = rebalance_grounded_train_records_v3(
+        train_grounded_records_raw,
+        len(train_records_base),
+    )
+    train_records = sorted(
+        train_records_base + train_grounded_records_final,
+        key=lambda row: (row["task_type"], row["query_id"], row["record_id"]),
+    )
+    dev_records = sorted(
+        dev_records_base + dev_grounded_records_raw,
+        key=lambda row: (row["task_type"], row["query_id"], row["record_id"]),
+    )
+    manifest_report = build_grounded_manifest_report_v3(
+        source_rows=source_rows,
+        train_base_records=train_records_base,
+        dev_base_records=dev_records_base,
+        train_grounded_records_raw=train_grounded_records_raw,
+        dev_grounded_records_raw=dev_grounded_records_raw,
+        train_grounded_records_final=train_grounded_records_final,
+        dropped_reason_counts=dropped_reason_counts,
+    )
+    return train_records, dev_records, manifest_report
+
+
 def prepare_e10_manifests() -> tuple[Path, Path]:
     train_records, dev_records = build_sft_manifest_records()
     write_jsonl(SFT_TRAIN_MANIFEST_PATH, train_records)
@@ -2131,6 +2860,14 @@ def prepare_e10_manifests_v2() -> tuple[Path, Path, Path]:
     write_jsonl(SFT_DEV_MANIFEST_V2_PATH, dev_records)
     write_json(E10_V2_MANIFEST_REPORT_PATH, manifest_report)
     return SFT_TRAIN_MANIFEST_V2_PATH, SFT_DEV_MANIFEST_V2_PATH, E10_V2_MANIFEST_REPORT_PATH
+
+
+def prepare_e10_manifests_v3() -> tuple[Path, Path, Path]:
+    train_records, dev_records, manifest_report = build_sft_manifest_records_v3()
+    write_jsonl(SFT_TRAIN_MANIFEST_V3_PATH, train_records)
+    write_jsonl(SFT_DEV_MANIFEST_V3_PATH, dev_records)
+    write_json(E10_V3_MANIFEST_REPORT_PATH, manifest_report)
+    return SFT_TRAIN_MANIFEST_V3_PATH, SFT_DEV_MANIFEST_V3_PATH, E10_V3_MANIFEST_REPORT_PATH
 
 
 def run_e10_base_vs_peft(

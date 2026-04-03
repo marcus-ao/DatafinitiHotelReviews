@@ -9,7 +9,7 @@
 3. 回传 adapter 与 metadata
 4. 在云端按同后端协议分别运行 base / peft
 5. 在本地或云端生成正式 compare 报告
-6. 在 `E10 v1` 正式负结果基础上，准备 `E10 v2` grounded manifest 并训练 `exp02`
+6. 在 `E10 v1` 正式负结果与 `E10 v2` 阶段性结果基础上，准备 `E10 v3` grounded manifest 并训练 `exp03`
 
 当前不覆盖：
 
@@ -23,7 +23,8 @@
   - `experiments/runs/e10cmp_28598dfb8434c1ba_20260402T020734+0000/`
 - 当前正式结论：
   - `PEFT exp01` 未优于 base
-  - 下一步进入 `E10 v2` 的数据方案，而不是直接改训练超参
+  - `PEFT exp02` 已追平 citation 但仍存在 schema 边界问题
+  - 下一步进入 `E10 v3` 的数据+约束修复，而不是直接改训练超参
 
 ## 1. 当前固定前提
 
@@ -207,9 +208,64 @@ python -m scripts.evaluation.run_experiment_suite \
   --peft-run-dir /abs/path/to/peft_run
 ```
 
-## 6.1 E10 v2 如何开始
+## 6.1 E10 v2 当前定位
 
-先在 strongest base 环境下生成 `v2` manifest：
+`E10 v2` 当前已经完成，定位固定为：
+
+- 阶段性改进结果
+- 不是最终正结果
+- 主要新问题：
+  - `q018 / q022` 的 partial-support schema 失稳
+  - `q085` 的 multi-hotel pack boundary 错误
+
+可引用目录：
+
+- `experiments/runs/e10_a2dd1a0bd73c57b5_20260402T073127+0000/`
+- `experiments/runs/e10cmp_7cf0c9c0a9830796_20260402T074331+0000/`
+
+## 6.2 E10 v3 如何开始
+
+先在 strongest base 环境下生成 `v3` manifest：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v3
+```
+
+然后在云端训练：
+
+```bash
+accelerate launch -m scripts.training.train_e10_peft \
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v3.json
+```
+
+训练完成并 merge 后，只重跑 PEFT 组，再复用当前 base formal run 做 compare。
+
+当前 `v3` 固定修复目标为：
+
+- `q018 / q022`
+  - `partial_support_keep_recommendation`
+- `q085`
+  - `multi_hotel_pack_boundary`
+- grounded abstain
+  - 只保留真正 evidence gap，不再混入 unsupported-request 驱动 abstain
+
+## 6.3 v3 的最短执行顺序
+
+```bash
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v3
+accelerate launch -m scripts.training.train_e10_peft \
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v3.json
+python -m scripts.evaluation.run_experiment_suite \
+  --task e10_base_vs_peft \
+  --group-id B_peft_4b_grounded
+python -m scripts.evaluation.run_experiment_suite \
+  --task e10_compare_runs \
+  --base-run-dir /abs/path/to/e10_0dc5c2e6f867c66f_20260402T015230+0000 \
+  --peft-run-dir /abs/path/to/new_peft_v3_run
+```
+
+## 6.4 E10 v2 如何回看
+先在 strongest base 环境下回看 `v2` manifest：
 
 ```bash
 python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v2

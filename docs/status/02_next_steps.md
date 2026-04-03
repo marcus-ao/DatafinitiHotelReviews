@@ -13,7 +13,7 @@
 5. 仅在论文或答辩需要时，追加 `Qwen3.5-9B` 附录对比
 6. 将 `E9` 第二轮结果视为当前正式冻结结果，不再改 retrieval 主线
 7. 冻结 `E10 v1` 正式负结果，不再把 `PEFT exp01` 视为待确认结果
-8. 进入 `E10 v2` 数据方案，生成 `v2` manifest、训练 `exp02` 并复评
+8. 冻结 `E10 v2` 阶段性结果，进入 `E10 v3` 数据+约束修复，生成 `v3` manifest、训练 `exp03` 并复评
 
 ## 第一优先级：立即要做
 
@@ -110,12 +110,12 @@
   - `Qwen/Qwen3.5-4B`
   - `E2 B_final_aspect_score Top5`
 
-### 任务 5：冻结 `E10 v1` 正式结论并转入 `E10 v2`
+### 任务 5：冻结 `E10 v2` 阶段性结果并转入 `E10 v3`
 
 目标：
 
-- 将当前 `E10 v1` compare 固定为论文可引用的正式负结果
-- 在不改 retrieval、不改评测协议的前提下，推进 `E10 v2` 数据方案与复训
+- 将 `E10 v2` 固定为“比 `v1` 更好但仍未超过 base”的阶段性结果
+- 在不改 retrieval、不改评测协议的前提下，推进 `E10 v3` 数据+约束修复与复训
 
 当前推荐顺序为：
 
@@ -123,25 +123,27 @@
    - `e10_0dc5c2e6f867c66f_20260402T015230+0000`
    - `e10_0ef381420c1bd19a_20260402T020120+0000`
    - `e10cmp_28598dfb8434c1ba_20260402T020734+0000`
-2. 确认以下 `v2` 资产/入口存在且内容正确：
-   - `experiments/assets/e10_train_config.qwen35_4b_peft_v2.json`
-   - `scripts/evaluation/run_experiment_suite.py` 中的 `e10_prepare_manifests_v2`
+   - `e10_a2dd1a0bd73c57b5_20260402T073127+0000`
+   - `e10cmp_7cf0c9c0a9830796_20260402T074331+0000`
+2. 确认以下 `v3` 资产/入口存在且内容正确：
+   - `experiments/assets/e10_train_config.qwen35_4b_peft_v3.json`
+   - `scripts/evaluation/run_experiment_suite.py` 中的 `e10_prepare_manifests_v3`
    - `docs/plans/03_generation_and_peft_phase_plan.md`
-   - `experiments/reports/07_generation_stage_2_e10_formal_summary.md`
-3. 在云端基于 strongest base 生成 `v2 grounded` silver manifest：
+   - `experiments/reports/08_generation_stage_3_e10_v2_iteration_summary.md`
+3. 在云端基于 strongest base 生成 `v3 grounded` silver manifest：
 
 ```bash
-python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v2
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v3
 ```
 
-4. 在云端训练 `exp02`：
+4. 在云端训练 `exp03`：
 
 ```bash
 accelerate launch -m scripts.training.train_e10_peft \
-  --config experiments/assets/e10_train_config.qwen35_4b_peft_v2.json
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v3.json
 ```
 
-5. merge `exp02` 后，只重跑：
+5. merge `exp03` 后，只重跑：
 
 ```bash
 python -m scripts.evaluation.run_experiment_suite \
@@ -164,13 +166,16 @@ python -m scripts.evaluation.run_experiment_suite \
 - 不改 `E9` eval units
 - 不改正式 base baseline
 - 不改评测 prompt 与 compare 协议
-- `v2` 训练配方保持不变，只扩展训练数据
-- `v2` task_types 扩展为：
+- `v3` 训练配方保持不变，只扩展/修复训练数据
+- `v3` task_types 继续为：
   - `preference_parse`
   - `clarification`
   - `constraint_honesty`
   - `feedback_update`
   - `grounded_recommendation`
+- `v3` 优先修复：
+  - `q018 / q022` 的 partial-support schema 问题
+  - `q085` 的 multi-hotel pack boundary 问题
 
 ## 当前不建议启动的内容
 
@@ -183,4 +188,4 @@ python -m scripts.evaluation.run_experiment_suite \
 
 ## 一句话版本
 
-你现在最该做的，是冻结 `E10 v1` 的正式负结果，然后用新增的 `grounded_recommendation` 数据方案推进 `E10 v2`，而不是继续修改 retrieval 或更换评测协议。
+你现在最该做的，是把 `E10 v2` 作为阶段性改进结果写入材料，然后用 `v3` 的数据+约束修复方案继续推进，而不是回头修改 retrieval 或更换评测协议。

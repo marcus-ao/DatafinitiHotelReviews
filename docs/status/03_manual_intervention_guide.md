@@ -6,7 +6,7 @@
 
 ## 当前结论
 
-当前最可能的人工阻塞点，已经从“补跑行为实验”切换成了“冻结 `E10 v1` 正式结论，并开始执行 `E10 v2` 的数据方案、云端训练与复评”。
+当前最可能的人工阻塞点，已经从“补跑行为实验”切换成了“归档 `E10 v2` 阶段性结果，并开始执行 `E10 v3` 的数据+约束修复、云端训练与复评”。
 
 也就是说：
 
@@ -23,7 +23,7 @@
   - `experiments/runs/e10_0dc5c2e6f867c66f_20260402T015230+0000/`
   - `experiments/runs/e10_0ef381420c1bd19a_20260402T020120+0000/`
   - `experiments/runs/e10cmp_28598dfb8434c1ba_20260402T020734+0000/`
-- 现在最需要你做的是：准备 `E10 v2` 的 grounded manifest、训练 `exp02`、重跑 PEFT v2 并生成新的 compare
+- 现在最需要你做的是：准备 `E10 v3` 的 grounded manifest、训练 `exp03`、重跑 PEFT v3 并生成新的 compare
 
 ## 手册 A：你现在最该先做什么
 
@@ -41,13 +41,14 @@
   - `experiments/reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
   - `experiments/reports/05_behavior_stage_3_chapter_materials.md`
 
-### 第二步：优先把 `E10 v2` 的执行入口按顺序跑起来
+### 第二步：优先把 `E10 v3` 的执行入口按顺序跑起来
 
 你现在最值得亲自打开和执行的是：
 
 - `experiments/reports/07_generation_stage_2_e10_formal_summary.md`
+- `experiments/reports/08_generation_stage_3_e10_v2_iteration_summary.md`
 - `scripts/evaluation/evaluate_e9_e10_generation.py`
-- `experiments/assets/e10_train_config.qwen35_4b_peft_v2.json`
+- `experiments/assets/e10_train_config.qwen35_4b_peft_v3.json`
 - `docs/deployment/02_e10_peft_runbook.md`
 - `docs/plans/03_generation_and_peft_phase_plan.md`
 
@@ -59,29 +60,32 @@
 source venv/bin/activate
 ```
 
-2. 在云端 strongest base 环境下生成 `v2` manifest：
+2. 在云端 strongest base 环境下生成 `v3` manifest：
 
 ```bash
-python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v2
+python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v3
 ```
 
 补充说明：
 
-- 当前仓库里“非官方 `E9` 且无需澄清的可直接执行 query”实际上为 `0`
-- 因此 `v2` grounded manifest 会使用：
-  - 非官方 `E9`
-  - 但已具备 `city + focus/avoid aspects` gold slot 的 query
-  - 并在输入中显式提供 `user_preference_gold`
-- 这属于当前最严谨、同时避免官方 `E9` 泄漏的实现方式
+- `v3` 继续保留非官方 judged grounded 来源
+- 同时新增基于 `train` 酒店证据 pack 的 synthetic grounded query
+- synthetic query 只服务于：
+  - `partial_support_keep_recommendation`
+  - `multi_hotel_pack_boundary`
+  - `focus_and_avoid`
+- 当前目的是修复：
+  - `q018 / q022`
+  - `q085`
 
-3. 用 `v2` config 训练 `exp02`：
+3. 用 `v3` config 训练 `exp03`：
 
 ```bash
 accelerate launch -m scripts.training.train_e10_peft \
-  --config experiments/assets/e10_train_config.qwen35_4b_peft_v2.json
+  --config experiments/assets/e10_train_config.qwen35_4b_peft_v3.json
 ```
 
-4. merge `exp02` 后，只重跑 PEFT：
+4. merge `exp03` 后，只重跑 PEFT：
 
 ```bash
 python -m scripts.evaluation.run_experiment_suite --task e10_base_vs_peft --group-id B_peft_4b_grounded
@@ -96,7 +100,7 @@ python -m scripts.evaluation.run_experiment_suite \
   --peft-run-dir /abs/path/to/new_peft_v2_run
 ```
 
-### 第三步：`E10 v2` 跑完后，按固定步骤做人工审计
+### 第三步：`E10 v3` 跑完后，按固定步骤做人工审计
 
 1. 打开：
    - 新的 `experiments/runs/e10_*/summary.csv`
@@ -129,7 +133,7 @@ python -m scripts.evaluation.run_experiment_suite \
   - `1`：基本相关但支持偏弱
   - `0`：证据不支持或明显越权
 
-### 第四步：执行 `E10 v2` 时，你最该注意什么
+### 第四步：执行 `E10 v3` 时，你最该注意什么
 
 你现在最该记住的固定约束是：
 
@@ -137,28 +141,28 @@ python -m scripts.evaluation.run_experiment_suite \
 - 不要把 `fallback` 接回默认主流程
 - 不要把 `candidate_hotels` 改成 `city_test_all`
 - `E9` 当前正式冻结输入继续固定使用 `E2 B_final_aspect_score Top5`
-- `E10 v2` 当前 base 组直接复用：
+- `E10 v3` 当前 base 组直接复用：
   - `e10_0dc5c2e6f867c66f_20260402T015230+0000`
-- `E10 v2` 当前只重跑：
+- `E10 v3` 当前只重跑：
   - `B_peft_4b_grounded`
-- `E10 v2` 当前新增训练任务：
+- `E10 v3` 当前新增训练任务：
   - `grounded_recommendation`
 
 如果 `e10_base_vs_peft` 报错，优先按下面方式判断：
 
-1. 如果 `e10_prepare_manifests_v2` 报 `grounded pool` 为空：
-   - 说明当前生成器未能在非官方 E9 query 池中产生合格 silver target
+1. 如果 `e10_prepare_manifests_v3` 报 `grounded pool` 为空：
+   - 说明当前 judged + synthetic 两路来源都没有产出合格 silver target
    - 先检查：
      - `BEHAVIOR_MODEL_ID`
      - `BEHAVIOR_ENABLE_THINKING=false`
      - strongest base 是否已经就绪
 2. 如果报 base_model_id 不匹配：
    - 说明 adapter 不是从当前主线 `Qwen/Qwen3.5-4B` 训练出来的
-3. 如果 `grounded_recommendation` 样本里继续出现英文长串：
-   - 当前 v2 设计会自动过滤
-   - 若过滤后样本过少，再回头扩充 slice，而不是放宽语言约束
-4. 如果 `PEFT v2` compare 仍落后于 base 超过 `0.01`：
-   - 将 `v2` 记为第二轮负结果
+3. 如果 `grounded_recommendation` 样本里继续出现 `sentence_id=null` 或 “无直接证据支持” 写进 `reasons[]`：
+   - 说明 `partial_support_keep_recommendation` 样本仍然不够
+   - 先检查 `v3` synthetic 样本是否真正进入 manifest
+4. 如果 `PEFT v3` compare 仍落后于 base 超过 `0.01`：
+   - 将 `v3` 记为“数据+约束修复仍不足”
    - 这时再考虑进入“数据+训练配方”路线，而不是在同一轮里继续混改
 
 ## 手册 B：如果你确实要补 `9B` 附录，该怎么做
@@ -196,9 +200,9 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 
 如果你决定不先补 `9B`，那么下一步人工动作固定是下面四件：
 
-1. 用 `07_generation_stage_2_e10_formal_summary.md` 把 `E10 v1` 结论写进论文
-2. 运行 `e10_prepare_manifests_v2`
-3. 按 `02_e10_peft_runbook.md` 训练 `exp02`
+1. 用 `07_generation_stage_2_e10_formal_summary.md` 和 `08_generation_stage_3_e10_v2_iteration_summary.md` 把 `E10 v1 / v2` 结论写进论文
+2. 运行 `e10_prepare_manifests_v3`
+3. 按 `02_e10_peft_runbook.md` 训练 `exp03`
 4. 重跑 `B_peft_4b_grounded` 并生成 compare
 
 在进入 `E9` 之前，你当前不需要再手动做：
