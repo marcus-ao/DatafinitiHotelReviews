@@ -1,0 +1,4 @@
+﻿candidate_mode,query_count,candidate_hit_at_5_proxy,avg_latency_ms,avg_retrieval_calls,avg_evidence_pool_size
+A_rating_review_count,3,1.0,643.003,1.333,500.0
+B_final_aspect_score,3,1.0,192.272,1.333,500.0
+C_no_controversy_penalty,3,1.0,172.935,1.333,500.0
