@@ -1,6 +1,6 @@
 # 下一步该做什么
 
-更新时间：2026-04-02
+更新时间：2026-04-04
 
 ## 当前推荐推进顺序
 
@@ -11,7 +11,7 @@
 3. 保留已有 baseline、诊断 run 和 `4B` 全量正式 run，不覆盖、不删除
 4. 以 `experiments/reports/05_behavior_stage_3_chapter_materials.md` 为主入口，完成行为章节正文写作
 5. 仅在论文或答辩需要时，追加 `Qwen3.5-9B` 附录对比
-6. 将 `E9` 第二轮结果视为当前正式冻结结果，不再改 retrieval 主线
+6. 将 `E9` 第二轮结果与有无 RAG 正式 compare 一并视为当前正式冻结结果，不再改 retrieval 主线
 7. 冻结 `E10 v1` 正式负结果，不再把 `PEFT exp01` 视为待确认结果
 8. 冻结 `E10 v2` 阶段性结果，进入 `E10 v3` 数据+约束修复，生成 `v3` manifest、训练 `exp03` 并复评
 
@@ -83,27 +83,35 @@
 
 ## 第二优先级：行为章节收口后立刻做
 
-### 任务 4：冻结 `E9` 第二轮正式结果
+### 任务 4：冻结并引用 `E9` 正式结果与有无 RAG 对比
 
 目标：
 
-- 将 `e9_ecbcdbab690dc503_20260401T025012+0000` 视为当前正式 `E9` 结果
+- 将 `e9_ecbcdbab690dc503_20260401T025012+0000` 视为当前正式 `E9` 稳定结果
+- 将 `e9_8449c12a50585e42_20260404T081010+0000` 视为当前正式 `E9` 有无 RAG compare
 - 不再继续改 retrieval 主线
 - 把 `E9` 的主结论写进状态文档、阶段计划和论文章节材料
 
 当前固定结果：
 
-- 正式 run：
+- 正式稳定 run：
   - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- 有无 RAG compare run：
+  - `experiments/runs/e9_8449c12a50585e42_20260404T081010+0000/`
 - 诊断 run：
   - `experiments/runs/e9_80e05af30f45b1f2_20260401T021215+0000/`
 - 推荐直接引用：
   - `experiments/reports/06_generation_stage_1_e9_formal_summary.md`
+  - `experiments/reports/09_generation_stage_4_e9_rag_ablation_summary.md`
 
 当前默认解读：
 
-- `q021 / q023` 是证据缺口诚实暴露，不视为系统失败
-- `q079` 是 verifier 误杀残留边界，不再触发 retrieval 主线变更
+- `B_grounded_generation` 相比 `D_no_evidence_generation` 的主收益是：
+  - 更高的 `recommendation_coverage`
+  - 更高的 `schema_valid_rate`
+- `q003 / q008 / q013 / q033 / q043 / q081` 是代表性 recovery cases
+- `q023` 是 matched abstention，不视为系统失败
+- `q021` 虽表面上是 no-RAG win，但其 `D` 组输出为 `schema_invalid`，不应计为有效胜例
 - `E9` 当前正式口径继续固定为：
   - `aspect_main_no_rerank`
   - `fallback=false`

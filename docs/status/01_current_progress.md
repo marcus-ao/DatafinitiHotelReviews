@@ -1,10 +1,10 @@
 # 当前工作进度
 
-更新时间：2026-04-02
+更新时间：2026-04-04
 
 ## 总体阶段判断
 
-当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进入“`E9` 第二轮正式结果已冻结 + `E10 v1` 正式对照已完成 + `E10 v2` 阶段性结果已归档 + `E10 v3` 数据/约束修复准备”阶段。
+当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进一步补齐了 `E9` 的正式有无 RAG 对比。当前工作区里，`E9` 已形成“第二轮正式稳定结果 + `B_grounded_generation vs D_no_evidence_generation` 正式 compare”两层冻结结论。
 
 目前整体处于：
 
@@ -20,7 +20,7 @@
 - 最新 `E4` 审计：已完成首轮人工评分并冻结 reviewed 快照
 - 行为章节材料：已形成 `E3 / E4 / E5` 汇总初稿
 - `Qwen3.5-9B`：可作为附录或扩展对比，当前不是主线阻塞项
-- `E9 / E10 / PEFT`：`E9` 第二轮正式结果已完成并冻结，`E10 v1` 正式 compare 已完成，`E10 v2` 已形成阶段性改进结果，当前转入 `E10 v3` 数据+约束修复阶段
+- `E9 / E10 / PEFT`：`E9` 第二轮正式结果与有无 RAG 正式 compare 已完成并冻结，`E10 v1` 正式 compare 已完成，`E10 v2` 已形成阶段性改进结果，当前继续以已归档的 `E10` 结果为主线参考
 
 ## 已完成的核心内容
 
@@ -220,15 +220,19 @@
 - `experiments/reports/05_behavior_stage_3_chapter_materials.md`
 - `experiments/reports/07_generation_stage_2_e10_formal_summary.md`
 - `experiments/reports/08_generation_stage_3_e10_v2_iteration_summary.md`
+- `experiments/reports/09_generation_stage_4_e9_rag_ablation_summary.md`
 
 ## 5. E9 / E10 当前正式状态
 
 ### `E9` 冻结状态
 
-- 正式 run：
+- 第二轮正式稳定 run：
   - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- 有无 RAG 正式 compare run：
+  - `experiments/runs/e9_8449c12a50585e42_20260404T081010+0000/`
 - 结论：
   - 当前生成层已达到可审计、可冻结状态
+  - `B_grounded_generation` 相比 `D_no_evidence_generation`，主收益体现在更高的推荐覆盖率与更稳定的 schema
   - retrieval 主线不再继续变更
 
 ### `E10 v1` 正式状态
@@ -316,6 +320,7 @@
 - `experiments/assets/e9_generation_eval_units.jsonl`
 - `experiments/assets/e9_generation_eval_query_ids.json`
 - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- `experiments/runs/e9_8449c12a50585e42_20260404T081010+0000/`
 - `experiments/labels/e9_generation/citation_verifiability_audit.csv`
 
 当前仍未完成的部分：
@@ -333,39 +338,69 @@
 - `candidate_hotels` 固定使用 `E2 B_final_aspect_score Top5`
 - `E9` 资产冻结当前优先只读本地 embedding 缓存，不新增 live PostgreSQL 依赖
 
-## 6. `E9` 第二轮正式结果
+## 6. `E9` 正式结果与有无 RAG 对比
 
-当前正式 `E9` run 固定为：
+当前 `E9` 已形成两层正式冻结材料：
 
-- `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- 第二轮正式稳定 run：
+  - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- 有无 RAG 正式 compare run：
+  - `experiments/runs/e9_8449c12a50585e42_20260404T081010+0000/`
 
-第一轮 run 保留为历史诊断对照：
+推荐直接引用：
 
-- `experiments/runs/e9_80e05af30f45b1f2_20260401T021215+0000/`
+- `experiments/reports/06_generation_stage_1_e9_formal_summary.md`
+- `experiments/reports/09_generation_stage_4_e9_rag_ablation_summary.md`
 
-第二轮正式指标：
+当前四组正式指标：
 
 - `A_free_generation`
   - `Citation Precision = 0.9437`
-  - `Evidence Verifiability Mean = 1.9697`
-  - `Schema Valid Rate = 1.0000`
-- `B_grounded_generation`
-  - `Citation Precision = 0.9437`
   - `Evidence Verifiability Mean = 1.9773`
   - `Schema Valid Rate = 1.0000`
-- `C_grounded_generation_with_verifier`
-  - `Citation Precision = 0.9250`
-  - `Evidence Verifiability Mean = 1.9922`
+  - `Recommendation Coverage = 0.9500`
+- `B_grounded_generation`
+  - `Citation Precision = 0.9500`
+  - `Evidence Verifiability Mean = 1.9924`
   - `Schema Valid Rate = 1.0000`
-  - `retry_trigger_rate = 0.025`
-  - `fallback_to_honest_notice_rate = 0.025`
+  - `Recommendation Coverage = 0.9500`
+- `C_grounded_generation_with_verifier`
+  - `Citation Precision = 0.9500`
+  - `Evidence Verifiability Mean = 1.9924`
+  - `Schema Valid Rate = 1.0000`
+  - `Recommendation Coverage = 0.9500`
+- `D_no_evidence_generation`
+  - `Citation Precision = 0.0000`
+  - `Evidence Verifiability Mean = 0.0000`
+  - `Schema Valid Rate = 0.9750`
+  - `Recommendation Coverage = 0.8250`
+
+`B_grounded_generation` vs `D_no_evidence_generation` 的当前正式结论为：
+
+- `recommendation_coverage`
+  - `0.9500 vs 0.8250`
+  - 差值 `+0.1250`
+- `schema_valid_rate`
+  - `1.0000 vs 0.9750`
+  - 差值 `+0.0250`
+- `citation_precision` 与 `evidence_verifiability_mean`
+  - 只作辅助解释，不作为主结论
+  - 因为 `D` 组本来就不看证据
 
 当前正式解读固定为：
 
-- 第二轮 `E9` 已经解决第一轮的主要格式稳定性问题
-- `q021 / q023` 属于证据覆盖边界的诚实空输出，不视为系统失败
-- `q079` 是 verifier 过严的单点残留边界，应保留到误差分析
-- 当前 `E9` 已达到可审计、可复现、可冻结的稳定度
+- `E9` 生成层已达到可审计、可复现、可冻结的稳定度
+- 有无 RAG 的正式 compare 已经补齐
+- RAG 的主要收益不是平凡地提高 citation，而是更稳定地保留可审计推荐
+- 代表性 recovery cases 包括：
+  - `q003`
+  - `q008`
+  - `q013`
+  - `q033`
+  - `q043`
+  - `q081`
+- `q023` 属于 matched abstention，应视为 evidence gap honesty
+- `q021` 虽表面上是 no-RAG win，但其 `D` 组输出实际为 `schema_invalid`，不应视为有效胜例
 
 ## 当前最值得关注的事实
 
@@ -373,7 +408,7 @@
 2. 默认检索后端仍固定为 `aspect_main_no_rerank`，`reranker` 与 `fallback` 不回到主流程。
 3. 行为实验当前正式主模型已经切换为 `Qwen/Qwen3.5-4B`，`2B` 保留为弱基线。
 4. 最新 `E4` 审计已经补齐，行为章节材料已经具备写论文的基本条件。
-5. 当前阶段更像“冻结 `E9` 与 `E10 v1` 正式结果，并进入 `E10 v2` 数据方案阶段”，而不是“继续追着 retrieval 或 `E9` prompt 大改阶段”。
+5. 当前阶段对 `E9` 来说已经不再是“继续改 prompt 或 retrieval”，而是“直接复用已冻结的稳定结果与有无 RAG compare 写论文材料”。
 
 ## 7. `E10 v1` 正式结果
 

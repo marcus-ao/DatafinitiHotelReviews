@@ -1,6 +1,6 @@
 # 证据约束生成与 PEFT 阶段推进方案
 
-更新时间：2026-04-02
+更新时间：2026-04-04
 
 本文件用于冻结行为章节收口后的后续主线。当前顺序固定为：`E9` 第二轮正式结果冻结后，完成 `E10 v1` Base vs PEFT 正式对照，再完成 `E10 v2` 数据方案验证，当前进入 `E10 v3` 数据+约束修复。`Qwen/Qwen3.5-4B` 是当前默认基座模型；`Qwen/Qwen3.5-9B` 只作为可选附录上界，不进入默认训练与实现主线。
 
@@ -43,6 +43,20 @@
   - 与 `B` 相同
   - 但输出后经过 Citation Verifier
   - 若引用不存在或不属于当前 `EvidencePack`，则重试一次；仍失败则降级为诚实说明
+- `D_no_evidence_generation`
+  - 输入固定候选酒店
+  - 不提供任何评论证据
+  - 不允许输出证据引用
+  - `sentence_id` 统一为 `null`
+
+当前 `E9` 的主 compare 固定为：
+
+- with RAG：
+  - `B_grounded_generation`
+- without RAG：
+  - `D_no_evidence_generation`
+
+`A` 与 `C` 保留在同一 run 中，但只作为上下文组，不作为“有无 RAG”主结论主体。
 
 ### 2.3 固定资产与实现入口
 
@@ -83,11 +97,18 @@
 
 - 第二轮正式 run 已冻结为：
   - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
+- 有无 RAG 正式 compare run 已冻结为：
+  - `experiments/runs/e9_8449c12a50585e42_20260404T081010+0000/`
 - 第一轮 run 保留为诊断对照：
   - `experiments/runs/e9_80e05af30f45b1f2_20260401T021215+0000/`
 - 当前正式结论固定为：
-  - `q021 / q023` 是 evidence gap honesty
-  - `q079` 是 verifier 过严残留边界
+  - 生成层已经稳定到可审计、可冻结状态
+  - `B_grounded_generation` 相比 `D_no_evidence_generation` 的主收益是：
+    - 更高的 `recommendation_coverage`
+    - 更高的 `schema_valid_rate`
+  - `q003 / q008 / q013 / q033 / q043 / q081` 是代表性 recovery cases
+  - `q023` 是 matched abstention
+  - `q021` 不计为有效 no-RAG win，因为其 `D` 组输出本身是 `schema_invalid`
   - retrieval 主线不再继续调整
 
 ### 2.4 复用与新增的数据契约
@@ -135,6 +156,7 @@
 - `Evidence Verifiability`
 - `Unsupported Honesty Rate`
 - `Schema Valid Rate`
+- `Recommendation Coverage`
 - `avg_latency_ms`
 
 新增人工资产目录：
@@ -181,6 +203,9 @@
 - `results.jsonl`
 - `summary.csv`
 - `analysis.md`
+- `rag_ablation_summary.csv`
+- `rag_ablation_comparison.jsonl`
+- `rag_ablation_analysis.md`
 
 ## 3. E10：Base vs PEFT 行为对照
 

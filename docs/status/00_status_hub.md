@@ -20,11 +20,13 @@
 ## 当前推荐先读
 
 - `01_current_progress.md`
-  先看当前已经完成到哪里，尤其是 `E9` 第二轮正式结果已经冻结这一事实。
+  先看当前已经完成到哪里，尤其是 `E9` 第二轮正式结果和有无 RAG 正式对比都已经冻结这一事实。
 - `../../experiments/reports/05_behavior_stage_3_chapter_materials.md`
   当前行为章节最值得直接拿来写论文的汇总文档。
 - `../../experiments/reports/06_generation_stage_1_e9_formal_summary.md`
   当前生成章节最值得直接复用到论文正文的 `E9` 汇总文档。
+- `../../experiments/reports/09_generation_stage_4_e9_rag_ablation_summary.md`
+  当前 `E9` 有无 RAG 正式对比的冻结结论，重点回答 `B_grounded_generation` vs `D_no_evidence_generation`。
 - `../../experiments/reports/07_generation_stage_2_e10_formal_summary.md`
   当前 `E10 v1` 正式对照的冻结结论与 `v2` 数据方案动机。
 - `02_next_steps.md`
@@ -44,4 +46,4 @@
 
 ## 最近更新时间
 
-- 2026-04-02
+- 2026-04-04
