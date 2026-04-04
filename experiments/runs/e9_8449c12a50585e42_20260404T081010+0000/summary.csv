@@ -1,0 +1,5 @@
+﻿group_id,query_count,citation_precision,evidence_verifiability_mean,unsupported_honesty_rate,schema_valid_rate,recommendation_coverage,avg_latency_ms,retry_trigger_rate,fallback_to_honest_notice_rate,config_hash
+A_free_generation,40,0.9437,1.9773,1.0,1.0,0.95,2180.3,0.0,0.0,a02eee685d569bda
+B_grounded_generation,40,0.95,1.9924,1.0,1.0,0.95,2182.405,0.0,0.0,1360500f65c2aa26
+C_grounded_generation_with_verifier,40,0.95,1.9924,1.0,1.0,0.95,2185.01,0.0,0.0,25d4dbb89dc34f17
+D_no_evidence_generation,40,0.0,0.0,1.0,0.975,0.825,1052.184,0.0,0.0,01226814e2603934
