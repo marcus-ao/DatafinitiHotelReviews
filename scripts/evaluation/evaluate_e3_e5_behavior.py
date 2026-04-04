@@ -81,6 +81,9 @@ REASONING_LEAK_PREFIXES = (
     "Thought Process:",
     "Chain of Thought:",
 )
+OPENAI_COMPAT_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+OPENAI_COMPAT_MAX_RETRIES = 3
+OPENAI_COMPAT_RETRY_BACKOFF_SECONDS = 1.5
 
 
 class BehaviorLLMBackend(Protocol):
@@ -393,21 +396,48 @@ class OpenAICompatibleModel:
             timeout=runtime_config.api_timeout_seconds,
         )
 
+    @staticmethod
+    def _is_retryable_generation_error(exc: Exception) -> bool:
+        status_code = getattr(exc, "status_code", None)
+        if status_code in OPENAI_COMPAT_RETRYABLE_STATUS_CODES:
+            return True
+        exc_name = exc.__class__.__name__
+        return exc_name in {
+            "APIConnectionError",
+            "APITimeoutError",
+            "InternalServerError",
+            "RateLimitError",
+        }
+
     def generate_json(self, system_prompt: str, user_prompt: str, max_new_tokens: int | None = None) -> str:
-        response = self.client.chat.completions.create(
-            model=self.model_id,
-            temperature=self.runtime_config.temperature,
-            max_tokens=max_new_tokens or self.runtime_config.max_new_tokens,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            extra_body={
-                "chat_template_kwargs": {
-                    "enable_thinking": self.runtime_config.enable_thinking,
-                }
-            },
-        )
+        last_error: Exception | None = None
+        for attempt in range(OPENAI_COMPAT_MAX_RETRIES):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model_id,
+                    temperature=self.runtime_config.temperature,
+                    max_tokens=max_new_tokens or self.runtime_config.max_new_tokens,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                    extra_body={
+                        "chat_template_kwargs": {
+                            "enable_thinking": self.runtime_config.enable_thinking,
+                        }
+                    },
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+                is_last_attempt = attempt == OPENAI_COMPAT_MAX_RETRIES - 1
+                if is_last_attempt or not self._is_retryable_generation_error(exc):
+                    raise
+                time.sleep(OPENAI_COMPAT_RETRY_BACKOFF_SECONDS * (attempt + 1))
+        else:
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("OpenAI-compatible generation failed without a concrete exception.")
         flattened = flatten_openai_content(response.choices[0].message.content)
         self.last_generation_debug = {
             "response_error_type": detect_reasoning_leak(flattened),

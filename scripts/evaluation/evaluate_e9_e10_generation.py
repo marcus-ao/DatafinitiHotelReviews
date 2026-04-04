@@ -71,8 +71,12 @@ E9_GROUPS = [
     "A_free_generation",
     "B_grounded_generation",
     "C_grounded_generation_with_verifier",
+    "D_no_evidence_generation",
 ]
 E10_GROUPS = ["A_base_4b_grounded", "B_peft_4b_grounded"]
+E9_NO_EVIDENCE_GROUP_ID = "D_no_evidence_generation"
+E9_RAG_ABLATION_WITH_RAG_GROUP_ID = "B_grounded_generation"
+E9_RAG_ABLATION_NO_RAG_GROUP_ID = E9_NO_EVIDENCE_GROUP_ID
 
 E9_RETRIEVAL_MODE = "aspect_main_no_rerank"
 E9_CANDIDATE_POLICY = "E2_B_final_aspect_score_top5"
@@ -261,6 +265,14 @@ def canonical_model_id_name(model_id: str) -> str:
     if not normalized:
         return ""
     return Path(normalized).name
+
+
+def generation_group_allows_null_sentence_id(group_id: str) -> bool:
+    return group_id in {"A_free_generation", E9_NO_EVIDENCE_GROUP_ID}
+
+
+def generation_group_forbids_evidence_citation(group_id: str) -> bool:
+    return group_id == E9_NO_EVIDENCE_GROUP_ID
 
 
 def review_id_from_sentence_id(sentence_id: str) -> str:
@@ -1324,12 +1336,41 @@ def format_evidence_pack_lines(unit: GenerationEvalUnit, grounded_mode: bool) ->
 def build_generation_prompts(unit: GenerationEvalUnit, group_id: str) -> tuple[str, str]:
     preference_payload = json.dumps(unit.user_preference_gold.model_dump(), ensure_ascii=False)
     candidate_lines = "\n".join(format_candidate_lines(unit))
+    no_evidence_mode = group_id == E9_NO_EVIDENCE_GROUP_ID
     grounded_mode = group_id in {
         "B_grounded_generation",
         "C_grounded_generation_with_verifier",
         "A_base_4b_grounded",
         "B_peft_4b_grounded",
     }
+    if no_evidence_mode:
+        system_prompt = (
+            "你是酒店推荐工作流里的推荐解释生成器。\n"
+            "你只返回 JSON，不要解释。\n"
+            "统一输出 schema："
+            f"{E9_OUTPUT_FIELDS}\n"
+            f"最多返回 {E9_MAX_RECOMMENDATIONS} 家酒店；每家酒店最多 {E9_MAX_REASONS_PER_ITEM} 条理由。\n"
+            "summary 只写一句短句，尽量不超过 50 个汉字。\n"
+            "reason_text 必须短。\n"
+            "recommendation item 里只允许 hotel_id、hotel_name、reasons 三个字段。\n"
+            "不要输出空的 reasons 数组；没有把握的酒店直接省略。\n"
+            "unsupported_notice 只能出现在根级字段，不能出现在酒店项内部。\n"
+            "不得输出证据引用；所有 reason 的 sentence_id 都应统一为 null。\n"
+            "你没有任何评论证据可以参考。请仅基于酒店名称和用户偏好尝试生成推荐，"
+            "如果你无法提供有依据的推荐，请在 unsupported_notice 中诚实说明。"
+        )
+        user_prompt = (
+            f"Query ID: {unit.query_id}\n"
+            f"用户中文需求: {unit.query_text_zh}\n"
+            f"结构化偏好: {preference_payload}\n"
+            f"Unsupported requests: {', '.join(unit.unsupported_requests) or 'none'}\n"
+            "候选酒店如下：\n"
+            f"{candidate_lines}\n\n"
+            "注意：当前没有任何评论证据可供参考。\n"
+            "请基于你的判断给出推荐，或在 unsupported_notice 中说明缺乏证据。"
+        )
+        return system_prompt, user_prompt
+
     evidence_lines = "\n".join(format_evidence_pack_lines(unit, grounded_mode=grounded_mode))
     if group_id == "A_free_generation":
         system_prompt = (
@@ -1428,6 +1469,8 @@ def coerce_generation_payload(
     notice_fragments = [unsupported_notice] if unsupported_notice else []
     recommendations_raw = payload.get("recommendations", [])
     schema_valid = True
+    allows_null_sentence_id = generation_group_allows_null_sentence_id(group_id)
+    forbids_evidence_citation = generation_group_forbids_evidence_citation(group_id)
     if not isinstance(recommendations_raw, list):
         recommendations_raw = []
         schema_valid = False
@@ -1462,8 +1505,11 @@ def coerce_generation_payload(
             if aspect is None or not reason_text:
                 schema_valid = False
                 continue
-            if group_id != "A_free_generation" and sentence_id is None:
+            if sentence_id is None and not allows_null_sentence_id:
                 schema_valid = False
+            if forbids_evidence_citation and sentence_id is not None:
+                schema_valid = False
+                sentence_id = None
             reasons.append(
                 RecommendationReason(
                     aspect=aspect,
@@ -1510,6 +1556,7 @@ def verify_response_citations(
     retry_triggered: bool = False,
     fallback_to_honest_notice: bool = False,
 ) -> tuple[CitationVerificationResult, list[dict[str, Any]]]:
+    no_evidence_mode = generation_group_forbids_evidence_citation(response.group_id)
     pack_lookup = {pack.hotel_id: set(pack.all_sentence_ids) for pack in unit.evidence_packs}
     invalid_sentence_ids: list[str] = []
     out_of_pack_sentence_ids: list[str] = []
@@ -1524,7 +1571,7 @@ def verify_response_citations(
             citation_exists = 0
             in_current_pack = 0
             support_score = 0
-            if sentence_id:
+            if sentence_id and not no_evidence_mode:
                 citation_count += 1
                 if sentence_id in evidence_lookup:
                     citation_exists = 1
@@ -1547,7 +1594,7 @@ def verify_response_citations(
                     "citation_exists": citation_exists,
                     "in_current_evidence_pack": in_current_pack,
                     "support_score": support_score,
-                    "notes": "",
+                    "notes": "no_evidence_group_no_citation_credit" if no_evidence_mode else "",
                 }
             )
 
@@ -1670,6 +1717,9 @@ def build_e9_metric_row(
         for row in rows
         for audit_row in row["audit_rows"]
     ]
+    queries_with_recommendations = sum(
+        1 for row in rows if row["response"].recommendations
+    )
     return {
         "group_id": group_id,
         "query_count": len(rows),
@@ -1683,6 +1733,7 @@ def build_e9_metric_row(
             4,
         ),
         "schema_valid_rate": round(sum(int(row["response"].schema_valid) for row in rows) / max(len(rows), 1), 4),
+        "recommendation_coverage": round(queries_with_recommendations / max(len(rows), 1), 4),
         "avg_latency_ms": round(sum(row["latency_ms"] for row in rows) / max(len(rows), 1), 3),
         "retry_trigger_rate": round(
             sum(int(row["verification"].retry_triggered) for row in rows) / max(len(rows), 1),
@@ -1694,6 +1745,202 @@ def build_e9_metric_row(
         ),
         "config_hash": stable_hash(stable_run_config | {"group_id": group_id}),
     }
+
+
+def build_e9_rag_ablation_rows(
+    grouped_rows: dict[str, list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    rag_rows = {
+        row["query_id"]: row
+        for row in grouped_rows.get(E9_RAG_ABLATION_WITH_RAG_GROUP_ID, [])
+    }
+    no_rag_rows = {
+        row["query_id"]: row
+        for row in grouped_rows.get(E9_RAG_ABLATION_NO_RAG_GROUP_ID, [])
+    }
+    if not rag_rows or not no_rag_rows:
+        raise ValueError("E9 RAG ablation 需要同时包含 B_grounded_generation 与 D_no_evidence_generation。")
+    if set(rag_rows) != set(no_rag_rows):
+        raise ValueError("E9 RAG ablation 的 with-RAG / no-RAG query_id 集合不一致。")
+
+    comparison_rows: list[dict[str, Any]] = []
+    for query_id in sorted(rag_rows):
+        rag_row = rag_rows[query_id]
+        no_rag_row = no_rag_rows[query_id]
+        rag_evidence_mean = compute_query_evidence_mean(rag_row)
+        no_rag_evidence_mean = compute_query_evidence_mean(no_rag_row)
+        rag_recommendations = len(rag_row["response"].recommendations)
+        no_rag_recommendations = len(no_rag_row["response"].recommendations)
+        comparison_rows.append(
+            {
+                "query_id": query_id,
+                "rag_group_id": E9_RAG_ABLATION_WITH_RAG_GROUP_ID,
+                "no_rag_group_id": E9_RAG_ABLATION_NO_RAG_GROUP_ID,
+                "rag_recommendations": rag_recommendations,
+                "no_rag_recommendations": no_rag_recommendations,
+                "delta_recommendations": rag_recommendations - no_rag_recommendations,
+                "rag_schema_valid": bool(rag_row["response"].schema_valid),
+                "no_rag_schema_valid": bool(no_rag_row["response"].schema_valid),
+                "delta_schema_valid": int(rag_row["response"].schema_valid) - int(no_rag_row["response"].schema_valid),
+                "rag_citation_precision": rag_row["verification"].citation_precision,
+                "no_rag_citation_precision": no_rag_row["verification"].citation_precision,
+                "delta_citation_precision": round(
+                    rag_row["verification"].citation_precision - no_rag_row["verification"].citation_precision,
+                    4,
+                ),
+                "rag_evidence_verifiability": rag_evidence_mean,
+                "no_rag_evidence_verifiability": no_rag_evidence_mean,
+                "delta_evidence_verifiability": round(rag_evidence_mean - no_rag_evidence_mean, 4),
+                "rag_latency_ms": rag_row["latency_ms"],
+                "no_rag_latency_ms": no_rag_row["latency_ms"],
+                "delta_latency_ms": round(rag_row["latency_ms"] - no_rag_row["latency_ms"], 3),
+                "rag_summary": rag_row["response"].summary or "",
+                "no_rag_summary": no_rag_row["response"].summary or "",
+                "rag_unsupported_notice": rag_row["response"].unsupported_notice or "",
+                "no_rag_unsupported_notice": no_rag_row["response"].unsupported_notice or "",
+                "rag_response_error_type": rag_row.get("response_error_type"),
+                "no_rag_response_error_type": no_rag_row.get("response_error_type"),
+            }
+        )
+    return comparison_rows
+
+
+def build_e9_rag_ablation_summary_rows(
+    grouped_rows: dict[str, list[dict[str, Any]]],
+    stable_run_config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    summary_rows: list[dict[str, Any]] = []
+    for group_id, compare_role in [
+        (E9_RAG_ABLATION_WITH_RAG_GROUP_ID, "with_rag"),
+        (E9_RAG_ABLATION_NO_RAG_GROUP_ID, "without_rag"),
+    ]:
+        row = build_e9_metric_row(group_id, grouped_rows[group_id], stable_run_config)
+        summary_rows.append(
+            {
+                "group_id": row["group_id"],
+                "compare_role": compare_role,
+                "query_count": row["query_count"],
+                "citation_precision": row["citation_precision"],
+                "evidence_verifiability_mean": row["evidence_verifiability_mean"],
+                "unsupported_honesty_rate": row["unsupported_honesty_rate"],
+                "schema_valid_rate": row["schema_valid_rate"],
+                "recommendation_coverage": row["recommendation_coverage"],
+                "avg_latency_ms": row["avg_latency_ms"],
+                "retry_trigger_rate": row["retry_trigger_rate"],
+                "fallback_to_honest_notice_rate": row["fallback_to_honest_notice_rate"],
+                "config_hash": row["config_hash"],
+            }
+        )
+    return summary_rows
+
+
+def build_e9_rag_ablation_analysis_md(
+    run_dir: Path,
+    summary_rows: list[dict[str, Any]],
+    comparison_rows: list[dict[str, Any]],
+) -> None:
+    summary_rows_for_md: list[dict[str, Any]] = []
+    for row in summary_rows:
+        summary_rows_for_md.append(
+            {
+                key: (
+                    format_analysis_value(
+                        value,
+                        none_text="n/a (no applicable unsupported-request queries)",
+                    )
+                    if key == "unsupported_honesty_rate"
+                    else format_analysis_value(value)
+                )
+                for key, value in row.items()
+            }
+        )
+
+    rag_summary = next(
+        row for row in summary_rows
+        if row["group_id"] == E9_RAG_ABLATION_WITH_RAG_GROUP_ID
+    )
+    no_rag_summary = next(
+        row for row in summary_rows
+        if row["group_id"] == E9_RAG_ABLATION_NO_RAG_GROUP_ID
+    )
+    recovery_rows = [
+        row for row in comparison_rows
+        if row["rag_recommendations"] > 0 and row["no_rag_recommendations"] == 0
+    ]
+    matched_abstentions = [
+        row for row in comparison_rows
+        if row["rag_recommendations"] == 0 and row["no_rag_recommendations"] == 0
+    ]
+    suspicious_no_rag_wins = [
+        row for row in comparison_rows
+        if row["no_rag_recommendations"] > row["rag_recommendations"]
+    ]
+    recovery_rows.sort(
+        key=lambda row: (
+            row["delta_recommendations"],
+            row["delta_citation_precision"],
+            row["delta_evidence_verifiability"],
+        ),
+        reverse=True,
+    )
+    suspicious_no_rag_wins.sort(
+        key=lambda row: (
+            row["no_rag_recommendations"] - row["rag_recommendations"],
+            row["no_rag_citation_precision"] - row["rag_citation_precision"],
+        ),
+        reverse=True,
+    )
+
+    lines = [
+        "# E9 RAG Ablation Result",
+        "",
+        "## Summary Table",
+        "",
+    ]
+    lines.extend(markdown_table(summary_rows_for_md))
+    lines.extend(
+        [
+            "",
+            "## Primary Conclusion",
+            "",
+            f"- primary compare: `{E9_RAG_ABLATION_WITH_RAG_GROUP_ID}` vs `{E9_RAG_ABLATION_NO_RAG_GROUP_ID}`",
+            f"- recommendation_coverage: with-RAG={rag_summary['recommendation_coverage']} | without-RAG={no_rag_summary['recommendation_coverage']} | Δ={round(rag_summary['recommendation_coverage'] - no_rag_summary['recommendation_coverage'], 4)}",
+            f"- schema_valid_rate: with-RAG={rag_summary['schema_valid_rate']} | without-RAG={no_rag_summary['schema_valid_rate']} | Δ={round(rag_summary['schema_valid_rate'] - no_rag_summary['schema_valid_rate'], 4)}",
+            f"- citation_precision (auxiliary only): with-RAG={rag_summary['citation_precision']} | without-RAG={no_rag_summary['citation_precision']}",
+            f"- evidence_verifiability_mean (auxiliary only): with-RAG={rag_summary['evidence_verifiability_mean']} | without-RAG={no_rag_summary['evidence_verifiability_mean']}",
+            "- interpretation: `D_no_evidence_generation` 不看证据，因此 citation/evidence 指标只作辅助解释；主判断应放在 recommendation coverage 与 schema stability。",
+            "",
+            "## Recommendation Recovery Cases",
+            "",
+        ]
+    )
+    if recovery_rows:
+        for row in recovery_rows[:5]:
+            lines.append(
+                f"- `{row['query_id']}` | rag_recs={row['rag_recommendations']} | no_rag_recs={row['no_rag_recommendations']} | Δrecs={row['delta_recommendations']} | rag_summary={row['rag_summary'] or 'n/a'} | no_rag_summary={row['no_rag_summary'] or 'n/a'}"
+            )
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Matched Abstentions", ""])
+    if matched_abstentions:
+        for row in matched_abstentions[:5]:
+            lines.append(
+                f"- `{row['query_id']}` | rag_notice={row['rag_unsupported_notice'] or 'n/a'} | no_rag_notice={row['no_rag_unsupported_notice'] or 'n/a'}"
+            )
+    else:
+        lines.append("- none")
+
+    lines.extend(["", "## Suspicious No-RAG Wins", ""])
+    if suspicious_no_rag_wins:
+        for row in suspicious_no_rag_wins[:5]:
+            lines.append(
+                f"- `{row['query_id']}` | rag_recs={row['rag_recommendations']} | no_rag_recs={row['no_rag_recommendations']} | rag_summary={row['rag_summary'] or 'n/a'} | no_rag_summary={row['no_rag_summary'] or 'n/a'}"
+            )
+    else:
+        lines.append("- none")
+
+    (run_dir / "rag_ablation_analysis.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 def select_representative_rows(group_rows: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
@@ -1896,6 +2143,15 @@ def run_e9_generation_constraints(
     pd.DataFrame(audit_rows).to_csv(run_dir / "citation_verifiability_audit.csv", index=False, encoding="utf-8-sig")
     pd.DataFrame(audit_rows).to_csv(E9_LABELS_DIR / "citation_verifiability_audit.csv", index=False, encoding="utf-8-sig")
     build_e9_analysis_md(run_dir, summary_rows, grouped_rows)
+    rag_ablation_summary_rows = build_e9_rag_ablation_summary_rows(grouped_rows, stable_run_config)
+    rag_ablation_rows = build_e9_rag_ablation_rows(grouped_rows)
+    pd.DataFrame(rag_ablation_summary_rows).to_csv(
+        run_dir / "rag_ablation_summary.csv",
+        index=False,
+        encoding="utf-8-sig",
+    )
+    write_jsonl(run_dir / "rag_ablation_comparison.jsonl", rag_ablation_rows)
+    build_e9_rag_ablation_analysis_md(run_dir, rag_ablation_summary_rows, rag_ablation_rows)
     return run_dir
 
 

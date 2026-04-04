@@ -9,6 +9,7 @@ import pandas as pd
 
 from scripts.evaluation import evaluate_e9_e10_generation as generation_mod
 from scripts.shared.experiment_schemas import (
+    BehaviorRuntimeConfig,
     CitationVerificationResult,
     EvidencePack,
     GenerationEvalUnit,
@@ -250,6 +251,40 @@ class E9E10GenerationTestCase(unittest.TestCase):
         self.assertEqual(verification.out_of_pack_sentence_ids, ["s_other_pack"])
         self.assertEqual([row["support_score"] for row in audit_rows], [2, 0, 0])
 
+    def test_verify_response_citations_group_d_does_not_award_citation_credit(self):
+        unit = _build_eval_unit()
+        response = RecommendationResponse(
+            query_id="q001",
+            group_id="D_no_evidence_generation",
+            summary="推荐结果",
+            recommendations=[
+                RecommendationItem(
+                    hotel_id="hotel_1",
+                    hotel_name="Hotel One",
+                    reasons=[
+                        RecommendationReason(
+                            aspect="location_transport",
+                            reason_text="位置方便。",
+                            sentence_id="s_valid",
+                        )
+                    ],
+                )
+            ],
+            unsupported_notice="",
+            schema_valid=False,
+            raw_response="{}",
+        )
+        verification, audit_rows = generation_mod.verify_response_citations(
+            response=response,
+            unit=unit,
+            evidence_lookup={"s_valid": {"aspect": "location_transport"}},
+        )
+        self.assertEqual(verification.citation_precision, 0.0)
+        self.assertEqual(verification.invalid_sentence_ids, [])
+        self.assertEqual(verification.out_of_pack_sentence_ids, [])
+        self.assertEqual(audit_rows[0]["support_score"], 0)
+        self.assertEqual(audit_rows[0]["notes"], "no_evidence_group_no_citation_credit")
+
     def test_coerce_generation_payload_lifts_item_level_unsupported_notice(self):
         unit = _build_eval_unit()
         payload = {
@@ -273,6 +308,62 @@ class E9E10GenerationTestCase(unittest.TestCase):
         self.assertTrue(response.schema_valid)
         self.assertEqual(response.recommendations, [])
         self.assertEqual(response.unsupported_notice, "该酒店缺少足够证据。")
+
+    def test_coerce_generation_payload_group_d_allows_null_sentence_id(self):
+        unit = _build_eval_unit()
+        payload = {
+            "summary": "推荐结果",
+            "recommendations": [
+                {
+                    "hotel_id": "hotel_1",
+                    "hotel_name": "Hotel One",
+                    "reasons": [
+                        {
+                            "aspect": "location_transport",
+                            "reason_text": "位置比较方便。",
+                            "sentence_id": None,
+                        }
+                    ],
+                }
+            ],
+            "unsupported_notice": "",
+        }
+        response = generation_mod.coerce_generation_payload(
+            payload=payload,
+            unit=unit,
+            group_id="D_no_evidence_generation",
+            raw_response=json.dumps(payload, ensure_ascii=False),
+        )
+        self.assertTrue(response.schema_valid)
+        self.assertEqual(response.recommendations[0].reasons[0].sentence_id, None)
+
+    def test_coerce_generation_payload_group_d_normalizes_non_null_sentence_id_and_marks_invalid(self):
+        unit = _build_eval_unit()
+        payload = {
+            "summary": "推荐结果",
+            "recommendations": [
+                {
+                    "hotel_id": "hotel_1",
+                    "hotel_name": "Hotel One",
+                    "reasons": [
+                        {
+                            "aspect": "location_transport",
+                            "reason_text": "位置比较方便。",
+                            "sentence_id": "s_valid",
+                        }
+                    ],
+                }
+            ],
+            "unsupported_notice": "",
+        }
+        response = generation_mod.coerce_generation_payload(
+            payload=payload,
+            unit=unit,
+            group_id="D_no_evidence_generation",
+            raw_response=json.dumps(payload, ensure_ascii=False),
+        )
+        self.assertFalse(response.schema_valid)
+        self.assertEqual(response.recommendations[0].reasons[0].sentence_id, None)
 
     def test_generate_group_response_falls_back_after_repeat_invalid_citations(self):
         unit = _build_eval_unit()
@@ -707,6 +798,100 @@ class E9E10GenerationTestCase(unittest.TestCase):
             self.assertIn("E10 Base vs PEFT Compare Result", analysis_text)
             self.assertIn("base_run", analysis_text)
             self.assertIn("peft_run", analysis_text)
+
+    def test_run_e9_generation_constraints_writes_rag_ablation_outputs(self):
+        unit = _build_eval_unit()
+        runtime_config = BehaviorRuntimeConfig(
+            llm_backend="local",
+            model_id="/tmp/model",
+        )
+
+        def _fake_generate_group_response(llm_runner, unit, group_id, max_new_tokens, evidence_lookup):
+            if group_id == "D_no_evidence_generation":
+                response = RecommendationResponse(
+                    query_id=unit.query_id,
+                    group_id=group_id,
+                    summary="",
+                    recommendations=[],
+                    unsupported_notice="缺乏评论证据。",
+                    schema_valid=True,
+                    raw_response="{}",
+                )
+                verification = CitationVerificationResult(
+                    query_id=unit.query_id,
+                    group_id=group_id,
+                    citation_precision=0.0,
+                    invalid_sentence_ids=[],
+                    out_of_pack_sentence_ids=[],
+                    retry_triggered=False,
+                    fallback_to_honest_notice=False,
+                )
+                return response, verification, [], {"response_error_type": None}
+
+            response = RecommendationResponse(
+                query_id=unit.query_id,
+                group_id=group_id,
+                summary="有证据推荐。",
+                recommendations=[
+                    RecommendationItem(
+                        hotel_id="hotel_1",
+                        hotel_name="Hotel One",
+                        reasons=[
+                            RecommendationReason(
+                                aspect="location_transport",
+                                reason_text="位置方便。",
+                                sentence_id="s_valid",
+                            )
+                        ],
+                    )
+                ],
+                unsupported_notice="",
+                schema_valid=True,
+                raw_response="{}",
+            )
+            verification = CitationVerificationResult(
+                query_id=unit.query_id,
+                group_id=group_id,
+                citation_precision=1.0,
+                invalid_sentence_ids=[],
+                out_of_pack_sentence_ids=[],
+                retry_triggered=(group_id == "C_grounded_generation_with_verifier"),
+                fallback_to_honest_notice=False,
+            )
+            return response, verification, [{"support_score": 2}], {"response_error_type": None}
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            eval_units_path = tmp_path / "e9_units.jsonl"
+            labels_dir = tmp_path / "labels"
+            labels_dir.mkdir()
+            generation_mod.write_jsonl(eval_units_path, [unit.model_dump()])
+
+            def _fake_load_json(path):
+                if str(path).endswith("frozen_split_manifest.json"):
+                    return {"meta": {"config_hash": "splitcfg"}}
+                return {"behavior": {"base_model": "/tmp/model"}}
+
+            with mock.patch.object(generation_mod, "E9_UNITS_PATH", eval_units_path), \
+                 mock.patch.object(generation_mod, "E9_LABELS_DIR", labels_dir), \
+                 mock.patch.object(generation_mod, "load_config", return_value={}), \
+                 mock.patch.object(generation_mod, "load_json", side_effect=_fake_load_json), \
+                 mock.patch.object(generation_mod, "resolve_behavior_runtime_config", return_value=(runtime_config, None)), \
+                 mock.patch.object(generation_mod.pd, "read_pickle", return_value=object()), \
+                 mock.patch.object(generation_mod, "build_evidence_lookup", return_value={"s_valid": {"aspect": "location_transport"}}), \
+                 mock.patch.object(generation_mod, "build_behavior_backend", return_value=object()), \
+                 mock.patch.object(generation_mod, "generate_group_response", side_effect=_fake_generate_group_response):
+                run_dir = generation_mod.run_e9_generation_constraints(output_root=tmp_path)
+
+            self.assertTrue((run_dir / "summary.csv").exists())
+            self.assertTrue((run_dir / "analysis.md").exists())
+            self.assertTrue((run_dir / "rag_ablation_summary.csv").exists())
+            self.assertTrue((run_dir / "rag_ablation_comparison.jsonl").exists())
+            self.assertTrue((run_dir / "rag_ablation_analysis.md").exists())
+            summary_text = (run_dir / "summary.csv").read_text(encoding="utf-8-sig")
+            self.assertIn("D_no_evidence_generation", summary_text)
+            rag_analysis_text = (run_dir / "rag_ablation_analysis.md").read_text(encoding="utf-8")
+            self.assertIn("Recommendation Recovery Cases", rag_analysis_text)
 
     def test_build_e10_v2_grounded_query_rows_excludes_official_e9_ids(self):
         rows = generation_mod.build_e10_v2_grounded_query_rows()
@@ -1666,6 +1851,206 @@ class E9E10GenerationTestCase(unittest.TestCase):
             migrated_rows = generation_mod.load_jsonl(current_path)
             self.assertEqual(migrated_rows[0]["source_mode"], "silver_deepseek")
             self.assertIn(str(current_path), result["moved_legacy_paths"])
+
+
+    # ---- Group D: no-evidence generation prompt ----
+
+    def test_build_generation_prompts_group_d_no_evidence_excludes_evidence_lines(self):
+        unit = _build_eval_unit()
+        system_prompt, user_prompt = generation_mod.build_generation_prompts(unit, "D_no_evidence_generation")
+        self.assertIn("没有任何评论证据", system_prompt)
+        self.assertIn("不得输出证据引用", system_prompt)
+        self.assertIn("sentence_id 都应统一为 null", system_prompt)
+        self.assertNotIn("s_valid", user_prompt)
+        self.assertNotIn("evidence_by_aspect", user_prompt)
+        self.assertNotIn("当前证据如下", user_prompt)
+        self.assertIn("没有任何评论证据可供参考", user_prompt)
+        self.assertIn("Hotel One", user_prompt)
+        self.assertIn(unit.query_id, user_prompt)
+
+    def test_build_generation_prompts_group_d_still_includes_candidate_hotels(self):
+        unit = _build_eval_unit()
+        _, user_prompt = generation_mod.build_generation_prompts(unit, "D_no_evidence_generation")
+        self.assertIn("hotel_1", user_prompt)
+        self.assertIn("Hotel One", user_prompt)
+        self.assertIn("候选酒店如下", user_prompt)
+
+    def test_build_generation_prompts_group_b_still_includes_evidence(self):
+        unit = _build_eval_unit()
+        _, user_prompt = generation_mod.build_generation_prompts(unit, "B_grounded_generation")
+        self.assertIn("s_valid", user_prompt)
+        self.assertIn("当前证据如下", user_prompt)
+
+    def test_e9_groups_includes_group_d(self):
+        self.assertIn("D_no_evidence_generation", generation_mod.E9_GROUPS)
+
+    def test_build_e9_metric_row_includes_recommendation_coverage(self):
+        rows = [
+            {
+                "unsupported_honesty": None,
+                "response": RecommendationResponse(
+                    query_id="q001", group_id="D_no_evidence_generation",
+                    summary="test", recommendations=[], unsupported_notice="无证据",
+                    schema_valid=True, raw_response="{}",
+                ),
+                "verification": CitationVerificationResult(
+                    query_id="q001", group_id="D_no_evidence_generation",
+                    citation_precision=0.0, invalid_sentence_ids=[],
+                    out_of_pack_sentence_ids=[], retry_triggered=False,
+                    fallback_to_honest_notice=False,
+                ),
+                "audit_rows": [],
+                "latency_ms": 100.0,
+            },
+        ]
+        metric_row = generation_mod.build_e9_metric_row(
+            "D_no_evidence_generation", rows, {"task": "E9"},
+        )
+        self.assertIn("recommendation_coverage", metric_row)
+        self.assertEqual(metric_row["recommendation_coverage"], 0.0)
+
+    def test_build_e9_rag_ablation_rows_captures_recovery_case(self):
+        grouped_rows = {
+            "B_grounded_generation": [
+                {
+                    "query_id": "q001",
+                    "latency_ms": 100.0,
+                    "response": RecommendationResponse(
+                        query_id="q001",
+                        group_id="B_grounded_generation",
+                        summary="有证据推荐。",
+                        recommendations=[
+                            RecommendationItem(
+                                hotel_id="hotel_1",
+                                hotel_name="Hotel One",
+                                reasons=[
+                                    RecommendationReason(
+                                        aspect="location_transport",
+                                        reason_text="位置方便。",
+                                        sentence_id="s_valid",
+                                    )
+                                ],
+                            )
+                        ],
+                        unsupported_notice="",
+                        schema_valid=True,
+                        raw_response="{}",
+                    ),
+                    "verification": CitationVerificationResult(
+                        query_id="q001",
+                        group_id="B_grounded_generation",
+                        citation_precision=1.0,
+                        invalid_sentence_ids=[],
+                        out_of_pack_sentence_ids=[],
+                        retry_triggered=False,
+                        fallback_to_honest_notice=False,
+                    ),
+                    "audit_rows": [{"support_score": 2}],
+                    "unsupported_honesty": None,
+                    "response_error_type": None,
+                }
+            ],
+            "D_no_evidence_generation": [
+                {
+                    "query_id": "q001",
+                    "latency_ms": 90.0,
+                    "response": RecommendationResponse(
+                        query_id="q001",
+                        group_id="D_no_evidence_generation",
+                        summary="",
+                        recommendations=[],
+                        unsupported_notice="缺乏证据。",
+                        schema_valid=True,
+                        raw_response="{}",
+                    ),
+                    "verification": CitationVerificationResult(
+                        query_id="q001",
+                        group_id="D_no_evidence_generation",
+                        citation_precision=0.0,
+                        invalid_sentence_ids=[],
+                        out_of_pack_sentence_ids=[],
+                        retry_triggered=False,
+                        fallback_to_honest_notice=False,
+                    ),
+                    "audit_rows": [],
+                    "unsupported_honesty": None,
+                    "response_error_type": None,
+                }
+            ],
+        }
+        rows = generation_mod.build_e9_rag_ablation_rows(grouped_rows)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["query_id"], "q001")
+        self.assertEqual(rows[0]["rag_recommendations"], 1)
+        self.assertEqual(rows[0]["no_rag_recommendations"], 0)
+        self.assertEqual(rows[0]["delta_recommendations"], 1)
+
+    def test_build_e9_rag_ablation_analysis_md_writes_expected_sections(self):
+        summary_rows = [
+            {
+                "group_id": "B_grounded_generation",
+                "compare_role": "with_rag",
+                "query_count": 1,
+                "citation_precision": 1.0,
+                "evidence_verifiability_mean": 2.0,
+                "unsupported_honesty_rate": 1.0,
+                "schema_valid_rate": 1.0,
+                "recommendation_coverage": 1.0,
+                "avg_latency_ms": 100.0,
+                "retry_trigger_rate": 0.0,
+                "fallback_to_honest_notice_rate": 0.0,
+                "config_hash": "cfg_b",
+            },
+            {
+                "group_id": "D_no_evidence_generation",
+                "compare_role": "without_rag",
+                "query_count": 1,
+                "citation_precision": 0.0,
+                "evidence_verifiability_mean": 0.0,
+                "unsupported_honesty_rate": 1.0,
+                "schema_valid_rate": 1.0,
+                "recommendation_coverage": 0.0,
+                "avg_latency_ms": 90.0,
+                "retry_trigger_rate": 0.0,
+                "fallback_to_honest_notice_rate": 0.0,
+                "config_hash": "cfg_d",
+            },
+        ]
+        comparison_rows = [
+            {
+                "query_id": "q001",
+                "rag_recommendations": 1,
+                "no_rag_recommendations": 0,
+                "delta_recommendations": 1,
+                "rag_schema_valid": True,
+                "no_rag_schema_valid": True,
+                "delta_schema_valid": 0,
+                "rag_citation_precision": 1.0,
+                "no_rag_citation_precision": 0.0,
+                "delta_citation_precision": 1.0,
+                "rag_evidence_verifiability": 2.0,
+                "no_rag_evidence_verifiability": 0.0,
+                "delta_evidence_verifiability": 2.0,
+                "rag_latency_ms": 100.0,
+                "no_rag_latency_ms": 90.0,
+                "delta_latency_ms": 10.0,
+                "rag_summary": "有证据推荐。",
+                "no_rag_summary": "",
+                "rag_unsupported_notice": "",
+                "no_rag_unsupported_notice": "缺乏证据。",
+                "rag_response_error_type": None,
+                "no_rag_response_error_type": None,
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            run_dir = Path(tmp_dir)
+            generation_mod.build_e9_rag_ablation_analysis_md(run_dir, summary_rows, comparison_rows)
+            analysis_text = (run_dir / "rag_ablation_analysis.md").read_text(encoding="utf-8")
+        self.assertIn("E9 RAG Ablation Result", analysis_text)
+        self.assertIn("Primary Conclusion", analysis_text)
+        self.assertIn("Recommendation Recovery Cases", analysis_text)
+        self.assertIn("Matched Abstentions", analysis_text)
+        self.assertIn("Suspicious No-RAG Wins", analysis_text)
 
 
 if __name__ == "__main__":

@@ -459,6 +459,173 @@ python -m scripts.evaluation.run_experiment_suite --task e4_clarification
 - 先跑完 2B 后，4B 顺手改了 prompt
 - 一个模型只跑了 `E3` 没跑 `E4`
 
+## 11. E9 有无 RAG 对比如何在 AutoDL 云端执行
+
+这一节只覆盖当前新增的 `E9` 正式对比：
+
+- with RAG：
+  - `B_grounded_generation`
+- without RAG：
+  - `D_no_evidence_generation`
+
+这里必须特别记住：
+
+- `E9` 的 `Qwen3.5-4B` 运行也属于 **云端行为实验**
+- 继续使用 **AutoDL 上本地启动的 OpenAI-compatible / vLLM 服务**
+- 不要在本地桌面直接跑正式 `e9_generation_constraints`
+- `frozen_config.yaml` 里的 `http://127.0.0.1:8000/v1` 指的是 **云端容器内的本地服务地址**
+
+### 11.1 先在云端启动 4B 服务
+
+推荐命令：
+
+```bash
+cd /root/autodl-tmp/workspace/DatafinitiHotelReviews
+source .venv/bin/activate
+
+export HF_HOME=/root/autodl-tmp/hf-cache
+export HUGGINGFACE_HUB_CACHE=/root/autodl-tmp/hf-cache
+export VLLM_CACHE_ROOT=/root/autodl-tmp/vllm-cache
+export OPENAI_API_KEY=EMPTY
+export OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+export BEHAVIOR_LLM_BACKEND=api
+export BEHAVIOR_MODEL_ID=Qwen/Qwen3.5-4B
+export BEHAVIOR_ENABLE_THINKING=false
+
+vllm serve Qwen/Qwen3.5-4B \
+  --served-model-name Qwen/Qwen3.5-4B \
+  --host 127.0.0.1 \
+  --port 8000 \
+  --dtype auto \
+  --gpu-memory-utilization 0.90 \
+  --max-model-len 4096 \
+  --trust-remote-code \
+  2>&1 | tee /root/autodl-tmp/logs/qwen35_4b_e9_vllm.log
+```
+
+如果你用的是另一套已经验证过的 `vllm serve` 参数，可以沿用，但必须保证：
+
+- 服务地址仍是 `http://127.0.0.1:8000/v1`
+- `served-model-name` 与 `BEHAVIOR_MODEL_ID` 一致
+- `enable_thinking=false`
+
+### 11.2 新开一个终端做 API 冒烟
+
+不要在服务启动的同一个终端里直接跑实验。
+
+新开终端后执行：
+
+```bash
+cd /root/autodl-tmp/workspace/DatafinitiHotelReviews
+source .venv/bin/activate
+
+export OPENAI_API_KEY=EMPTY
+export OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+export BEHAVIOR_LLM_BACKEND=api
+export BEHAVIOR_MODEL_ID=Qwen/Qwen3.5-4B
+export BEHAVIOR_ENABLE_THINKING=false
+
+python scripts/evaluation/smoke_test_qwen_api.py
+```
+
+成功标准：
+
+- 请求能返回
+- 输出里不出现 `<think>`
+
+### 11.3 正式运行 E9 generation constraints
+
+确认冒烟成功后，在同一个新终端里执行：
+
+```bash
+cd /root/autodl-tmp/workspace/DatafinitiHotelReviews
+source .venv/bin/activate
+
+export OPENAI_API_KEY=EMPTY
+export OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+export BEHAVIOR_LLM_BACKEND=api
+export BEHAVIOR_MODEL_ID=Qwen/Qwen3.5-4B
+export BEHAVIOR_ENABLE_THINKING=false
+
+python -m scripts.evaluation.run_experiment_suite --task e9_generation_constraints
+```
+
+如果你只想先做一次短冒烟，可以先限制 query 数：
+
+```bash
+python -m scripts.evaluation.run_experiment_suite \
+  --task e9_generation_constraints \
+  --limit-queries 3
+```
+
+### 11.4 跑完后应该检查什么
+
+进入最新的 `e9_*` 目录，至少确认这些文件存在：
+
+```bash
+cd /root/autodl-tmp/workspace/DatafinitiHotelReviews
+ls -lt experiments/runs | head -n 10
+```
+
+然后查看新目录中的：
+
+- `summary.csv`
+- `analysis.md`
+- `rag_ablation_summary.csv`
+- `rag_ablation_comparison.jsonl`
+- `rag_ablation_analysis.md`
+
+建议命令：
+
+```bash
+cat /root/autodl-tmp/workspace/DatafinitiHotelReviews/experiments/runs/最新e9目录/summary.csv
+sed -n '1,260p' /root/autodl-tmp/workspace/DatafinitiHotelReviews/experiments/runs/最新e9目录/analysis.md
+cat /root/autodl-tmp/workspace/DatafinitiHotelReviews/experiments/runs/最新e9目录/rag_ablation_summary.csv
+sed -n '1,260p' /root/autodl-tmp/workspace/DatafinitiHotelReviews/experiments/runs/最新e9目录/rag_ablation_analysis.md
+```
+
+成功标准：
+
+- `summary.csv` 里能看到四组：
+  - `A_free_generation`
+  - `B_grounded_generation`
+  - `C_grounded_generation_with_verifier`
+  - `D_no_evidence_generation`
+- `rag_ablation_summary.csv` 能直接比较：
+  - `B_grounded_generation`
+  - `D_no_evidence_generation`
+- `rag_ablation_analysis.md` 包含：
+  - `Primary Conclusion`
+  - `Recommendation Recovery Cases`
+  - `Matched Abstentions`
+  - `Suspicious No-RAG Wins`
+
+### 11.5 同步回本地
+
+跑完后，把新的 `e9_*` 目录同步回本地：
+
+```bash
+rsync -av \
+  /root/autodl-tmp/workspace/DatafinitiHotelReviews/experiments/runs/最新e9目录/ \
+  /path/to/local/DatafinitiHotelReviews/experiments/runs/最新e9目录/
+```
+
+如果你是从本地拉取云端：
+
+```bash
+rsync -av \
+  <SSH_USER>@<SSH_HOST>:/root/autodl-tmp/workspace/DatafinitiHotelReviews/experiments/runs/最新e9目录/ \
+  /Users/marcusao/vscode/GraduationDesign/DatafinitiHotelReviews/experiments/runs/最新e9目录/
+```
+
+### 11.6 这一步最容易犯的错
+
+- 在本地桌面直接跑 `e9_generation_constraints`
+- 云端没先起 `Qwen3.5-4B` 服务就直接跑脚本
+- `OPENAI_BASE_URL` 不是 `http://127.0.0.1:8000/v1`
+- `BEHAVIOR_MODEL_ID` 和 `served-model-name` 不一致
+- 看到旧的 `E9` 目录还在，就误以为本轮 `rag_ablation_*` 已经生成
+
 ## 11. 结果回传与归档
 
 每轮实验结束后，请把新的结果目录同步回本地仓库。
