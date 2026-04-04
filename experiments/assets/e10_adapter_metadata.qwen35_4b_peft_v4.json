@@ -1,0 +1,21 @@
+{
+  "adapter_name": "exp04",
+  "base_model_id": "/root/autodl-tmp/models/base/Qwen3.5-4B",
+  "served_model_id": "Qwen3.5-4B-PEFT-exp04",
+  "adapter_path": "/root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp04",
+  "backend": "api",
+  "adapter_type": "qlora",
+  "train_manifest_path": "experiments/assets/sft_train_manifest_v4.jsonl",
+  "dev_manifest_path": "experiments/assets/sft_dev_manifest_v4.jsonl",
+  "task_types": [
+    "preference_parse",
+    "clarification",
+    "constraint_honesty",
+    "feedback_update",
+    "grounded_recommendation"
+  ],
+  "train_sample_count": 394,
+  "dev_sample_count": 94,
+  "generated_at": "2026-04-04T02:41:09+00:00",
+  "config_hash": "4eace0d5a2889eff"
+}
