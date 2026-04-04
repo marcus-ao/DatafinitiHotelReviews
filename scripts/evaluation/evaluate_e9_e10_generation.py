@@ -83,6 +83,7 @@ E9_MAX_RECOMMENDATIONS = 2
 E9_MAX_REASONS_PER_ITEM = 2
 E9_PROMPT_SENTENCE_LIMIT_FREE = 2
 E9_PROMPT_SENTENCE_LIMIT_GROUNDED = 3
+E10_TRAIN_SENTENCE_LIMIT_GROUNDED = 2
 E9_RETRY_LIMIT = 1
 E9_OUTPUT_FIELDS = '{"summary":"","recommendations":[{"hotel_id":"","hotel_name":"","reasons":[{"aspect":"service","reason_text":"","sentence_id":null}]}],"unsupported_notice":""}'
 E9_QUERY_IDS_PATH = EXPERIMENT_ASSETS_DIR / "e9_generation_eval_query_ids.json"
@@ -2071,6 +2072,7 @@ def build_grounded_recommendation_target_payload(response: RecommendationRespons
 
 
 def build_grounded_recommendation_input_payload(unit: GenerationEvalUnit) -> dict[str, Any]:
+    relevant_aspects = set(unit.user_preference_gold.focus_aspects) | set(unit.user_preference_gold.avoid_aspects)
     compact_candidate_hotels = [
         {
             "hotel_id": hotel.hotel_id,
@@ -2083,8 +2085,10 @@ def build_grounded_recommendation_input_payload(unit: GenerationEvalUnit) -> dic
         compact_aspects: dict[str, list[dict[str, str]]] = {}
         allowed_sentence_ids: list[str] = []
         for aspect in sorted(pack.evidence_by_aspect):
+            if relevant_aspects and aspect not in relevant_aspects:
+                continue
             compact_rows = []
-            for sentence in pack.evidence_by_aspect[aspect][:E9_PROMPT_SENTENCE_LIMIT_GROUNDED]:
+            for sentence in pack.evidence_by_aspect[aspect][:E10_TRAIN_SENTENCE_LIMIT_GROUNDED]:
                 compact_rows.append(
                     {
                         "sentence_id": sentence.sentence_id,
@@ -2092,7 +2096,8 @@ def build_grounded_recommendation_input_payload(unit: GenerationEvalUnit) -> dic
                     }
                 )
                 allowed_sentence_ids.append(sentence.sentence_id)
-            compact_aspects[aspect] = compact_rows
+            if compact_rows:
+                compact_aspects[aspect] = compact_rows
         compact_evidence_packs.append(
             {
                 "hotel_id": pack.hotel_id,

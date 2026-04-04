@@ -91,6 +91,101 @@ class TrainingUtilsTestCase(unittest.TestCase):
         self.assertIn('"query_text_zh": "测试输入"', sample["text"])
         self.assertIn('"city": "Anaheim"', sample["text"])
 
+    def test_compact_grounded_input_payload_for_training_limits_sentences_and_aspects(self):
+        payload = {
+            "query_id": "qg001",
+            "query_text_zh": "测试 grounded",
+            "user_preference_gold": {
+                "city": "Anaheim",
+                "focus_aspects": ["quiet_sleep"],
+                "avoid_aspects": ["value"],
+            },
+            "unsupported_requests": [],
+            "candidate_hotels": [
+                {"hotel_id": "h1", "hotel_name": "Hotel One", "extra": "x"},
+                {"hotel_id": "h2", "hotel_name": "Hotel Two", "extra": "y"},
+                {"hotel_id": "h3", "hotel_name": "Hotel Three", "extra": "z"},
+            ],
+            "evidence_packs": [
+                {
+                    "hotel_id": "h1",
+                    "evidence_by_aspect": {
+                        "quiet_sleep": [
+                            {"sentence_id": "qs1", "sentence_text": "quiet 1"},
+                            {"sentence_id": "qs2", "sentence_text": "quiet 2"},
+                            {"sentence_id": "qs3", "sentence_text": "quiet 3"},
+                        ],
+                        "value": [
+                            {"sentence_id": "v1", "sentence_text": "value 1"},
+                            {"sentence_id": "v2", "sentence_text": "value 2"},
+                            {"sentence_id": "v3", "sentence_text": "value 3"},
+                        ],
+                        "service": [
+                            {"sentence_id": "s1", "sentence_text": "service 1"},
+                        ],
+                    },
+                    "allowed_sentence_ids": ["qs1", "qs2", "qs3", "v1", "v2", "v3", "s1"],
+                },
+                {
+                    "hotel_id": "h2",
+                    "evidence_by_aspect": {"quiet_sleep": [{"sentence_id": "qs4", "sentence_text": "quiet 4"}]},
+                    "allowed_sentence_ids": ["qs4"],
+                },
+                {
+                    "hotel_id": "h3",
+                    "evidence_by_aspect": {"quiet_sleep": [{"sentence_id": "qs5", "sentence_text": "quiet 5"}]},
+                    "allowed_sentence_ids": ["qs5"],
+                },
+            ],
+        }
+        compact = training_mod.compact_grounded_input_payload_for_training(payload)
+        self.assertEqual([hotel["hotel_id"] for hotel in compact["candidate_hotels"]], ["h1", "h2"])
+        self.assertEqual(len(compact["evidence_packs"]), 2)
+        self.assertEqual(sorted(compact["evidence_packs"][0]["evidence_by_aspect"].keys()), ["quiet_sleep", "value"])
+        self.assertEqual(len(compact["evidence_packs"][0]["evidence_by_aspect"]["quiet_sleep"]), 2)
+        self.assertEqual(len(compact["evidence_packs"][0]["evidence_by_aspect"]["value"]), 2)
+
+    def test_build_sft_text_sample_compacts_grounded_recommendation_payload(self):
+        row = {
+            "record_id": "rec_grounded",
+            "query_id": "qg001",
+            "task_type": "grounded_recommendation",
+            "input_payload": {
+                "query_id": "qg001",
+                "query_text_zh": "测试 grounded",
+                "user_preference_gold": {
+                    "city": "Anaheim",
+                    "focus_aspects": ["quiet_sleep"],
+                    "avoid_aspects": [],
+                },
+                "unsupported_requests": [],
+                "candidate_hotels": [
+                    {"hotel_id": "h1", "hotel_name": "Hotel One"},
+                ],
+                "evidence_packs": [
+                    {
+                        "hotel_id": "h1",
+                        "evidence_by_aspect": {
+                            "quiet_sleep": [
+                                {"sentence_id": "s1", "sentence_text": "quiet 1"},
+                                {"sentence_id": "s2", "sentence_text": "quiet 2"},
+                                {"sentence_id": "s3", "sentence_text": "quiet 3"},
+                            ],
+                            "service": [
+                                {"sentence_id": "s4", "sentence_text": "service 1"},
+                            ],
+                        },
+                        "allowed_sentence_ids": ["s1", "s2", "s3", "s4"],
+                    }
+                ],
+            },
+            "target_payload": {"summary": "ok", "recommendations": [], "unsupported_notice": "none"},
+        }
+        sample = training_mod.build_sft_text_sample(row)
+        self.assertIn('"quiet_sleep"', sample["text"])
+        self.assertNotIn('"service"', sample["text"])
+        self.assertNotIn('"sentence_id": "s3"', sample["text"])
+
     def test_build_sft_trainer_kwargs_supports_processing_class_signature(self):
         class FakeTrainer:
             def __init__(

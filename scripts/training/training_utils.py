@@ -103,12 +103,64 @@ def load_manifest_records(path: str | Path, allowed_task_types: set[str]) -> lis
     return filtered
 
 
+def compact_grounded_input_payload_for_training(
+    input_payload: dict[str, Any],
+    *,
+    max_hotels: int = 2,
+    max_sentences_per_aspect: int = 2,
+) -> dict[str, Any]:
+    compact_payload = dict(input_payload)
+    compact_payload["candidate_hotels"] = [
+        {
+            "hotel_id": hotel["hotel_id"],
+            "hotel_name": hotel["hotel_name"],
+        }
+        for hotel in input_payload.get("candidate_hotels", [])[:max_hotels]
+    ]
+
+    user_preference = input_payload.get("user_preference_gold", {})
+    relevant_aspects = set(user_preference.get("focus_aspects", [])) | set(
+        user_preference.get("avoid_aspects", [])
+    )
+
+    compact_packs: list[dict[str, Any]] = []
+    for pack in input_payload.get("evidence_packs", [])[:max_hotels]:
+        compact_aspects: dict[str, list[dict[str, str]]] = {}
+        allowed_sentence_ids: list[str] = []
+        for aspect in sorted(pack.get("evidence_by_aspect", {})):
+            if relevant_aspects and aspect not in relevant_aspects:
+                continue
+            compact_rows = []
+            for sentence in pack["evidence_by_aspect"][aspect][:max_sentences_per_aspect]:
+                compact_rows.append(
+                    {
+                        "sentence_id": sentence["sentence_id"],
+                        "sentence_text": sentence["sentence_text"],
+                    }
+                )
+                allowed_sentence_ids.append(sentence["sentence_id"])
+            if compact_rows:
+                compact_aspects[aspect] = compact_rows
+        compact_packs.append(
+            {
+                "hotel_id": pack["hotel_id"],
+                "evidence_by_aspect": compact_aspects,
+                "allowed_sentence_ids": allowed_sentence_ids,
+            }
+        )
+    compact_payload["evidence_packs"] = compact_packs
+    return compact_payload
+
+
 def build_sft_text_sample(row: dict[str, Any]) -> dict[str, str]:
     instruction = (
         f"Task: {row['task_type']}\n"
         "Return only JSON that satisfies the required target schema."
     )
-    user_payload = json.dumps(row["input_payload"], ensure_ascii=False, sort_keys=True)
+    input_payload = row["input_payload"]
+    if row["task_type"] == "grounded_recommendation":
+        input_payload = compact_grounded_input_payload_for_training(input_payload)
+    user_payload = json.dumps(input_payload, ensure_ascii=False, sort_keys=True)
     target_payload = json.dumps(row["target_payload"], ensure_ascii=False, sort_keys=True)
     text = (
         "<|system|>\n"

@@ -880,6 +880,69 @@ class E9E10GenerationTestCase(unittest.TestCase):
             ["allowed_sentence_ids", "evidence_by_aspect", "hotel_id"],
         )
 
+    def test_build_grounded_recommendation_input_payload_filters_irrelevant_aspects_and_limits_sentences(self):
+        unit = _build_eval_unit().model_copy(
+            update={
+                "user_preference_gold": _build_eval_unit().user_preference_gold.model_copy(
+                    update={
+                        "focus_aspects": ["location_transport"],
+                        "avoid_aspects": ["service"],
+                    }
+                ),
+                "evidence_packs": [
+                    EvidencePack(
+                        hotel_id="hotel_1",
+                        query_en="hotel in Anaheim",
+                        evidence_by_aspect={
+                            "location_transport": [
+                                SentenceCandidate(
+                                    sentence_id=f"s_loc_{idx}",
+                                    sentence_text=f"location sentence {idx}",
+                                    aspect="location_transport",
+                                    sentiment="positive",
+                                    review_date="2018-01-01",
+                                    score_dense=0.1,
+                                    score_rerank=None,
+                                )
+                                for idx in range(3)
+                            ],
+                            "service": [
+                                SentenceCandidate(
+                                    sentence_id=f"s_srv_{idx}",
+                                    sentence_text=f"service sentence {idx}",
+                                    aspect="service",
+                                    sentiment="positive",
+                                    review_date="2018-01-01",
+                                    score_dense=0.1,
+                                    score_rerank=None,
+                                )
+                                for idx in range(3)
+                            ],
+                            "cleanliness": [
+                                SentenceCandidate(
+                                    sentence_id=f"s_clean_{idx}",
+                                    sentence_text=f"clean sentence {idx}",
+                                    aspect="cleanliness",
+                                    sentiment="positive",
+                                    review_date="2018-01-01",
+                                    score_dense=0.1,
+                                    score_rerank=None,
+                                )
+                                for idx in range(3)
+                            ],
+                        },
+                        all_sentence_ids=[],
+                        retrieval_trace={"mode": "aspect_main_no_rerank"},
+                    )
+                ],
+            }
+        )
+        payload = generation_mod.build_grounded_recommendation_input_payload(unit)
+        aspect_rows = payload["evidence_packs"][0]["evidence_by_aspect"]
+        self.assertEqual(sorted(aspect_rows.keys()), ["location_transport", "service"])
+        self.assertEqual(len(aspect_rows["location_transport"]), 2)
+        self.assertEqual(len(aspect_rows["service"]), 2)
+
     def test_sanitize_grounded_recommendation_response_for_training_removes_null_and_missing_evidence_reasons(self):
         unit = _build_eval_unit().model_copy(
             update={
