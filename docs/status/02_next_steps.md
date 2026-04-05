@@ -1,209 +1,145 @@
-# 下一步该做什么
-
-更新时间：2026-04-04
+更新时间：2026-04-05
 
 ## 当前推荐推进顺序
 
 请按下面顺序推进，不建议跳步：
 
-1. 确认并保持默认检索配置固定为 `aspect_main_no_rerank`
-2. 确认当前正式行为模型固定为 `Qwen/Qwen3.5-4B`
-3. 保留已有 baseline、诊断 run 和 `4B` 全量正式 run，不覆盖、不删除
-4. 以 `experiments/reports/05_behavior_stage_3_chapter_materials.md` 为主入口，完成行为章节正文写作
-5. 仅在论文或答辩需要时，追加 `Qwen3.5-9B` 附录对比
-6. 将 `E9` 第二轮结果与有无 RAG 正式 compare 一并视为当前正式冻结结果，不再改 retrieval 主线
-7. 冻结 `E10 v1` 正式负结果，不再把 `PEFT exp01` 视为待确认结果
-8. 冻结 `E10 v2` 阶段性结果，进入 `E10 v3` 数据+约束修复，生成 `v3` manifest、训练 `exp03` 并复评
+1. 继续保持 `E1-E10` 历史 run 与报告冻结，不再回头改旧实验主体
+2. 补齐 `exp02 / v2` adapter metadata 的本地资产
+3. 正式生成 `G` 系列 retrieval assets
+4. 在云端跑完 `G1 / G2 / G3 / G4`
+5. 回本地完成统计检验、Judge、盲评导出与章节总报告
+6. 在首轮全流程结果产出后，再进入一天的定向优化
 
-## 第一优先级：立即要做
+## 8 小时目标：跑通完整实验闭环
 
-### 任务 1：保持当前主线冻结状态不变
+### 任务 1：补齐 `exp02` metadata
 
 目标：
 
-- 将 `2B` baseline、两轮诊断 run 和 `4B` 全量正式 run 一并视为冻结资产，不覆盖原目录
+- 在本地资产目录中补齐 `experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v2.json`
+
+原因：
+
+- `G3 / G4` 默认使用 `exp02`
+- 当前本地缺少 `v2` metadata，会直接阻塞 PEFT 组运行
 
 完成标准：
 
-- `experiments/runs/e3_244aca8abf6345ad_20260331T072527+0000/` 保持不变
-- `experiments/runs/e4_4a15a89128a90d11_20260331T073016+0000/` 保持不变
-- `experiments/runs/e3_da541f84770ed8ed_20260331T090311+0000/` 保持不变
-- `experiments/runs/e4_96e0e4afb24dab2d_20260331T091021+0000/` 保持不变
-- `experiments/runs/e3_f62d907e600cfc14_20260331T120756+0000/` 保持不变
-- `experiments/runs/e4_f928a37444c1bf52_20260331T121012+0000/` 保持不变
-- `experiments/runs/e3_14928d821d811e86_20260331T122611+0000/` 保持不变
-- `experiments/runs/e4_55c8021e1119fb77_20260331T122648+0000/` 保持不变
-- `experiments/labels/e4_clarification/clarification_question_audit_e4_55c8021e1119fb77_qwen35_4b_reviewed.csv` 已作为 reviewed 副本保留
-- `configs/params.yaml` 与 `experiments/assets/frozen_config.yaml` 继续保持：
-  - `default_retrieval_mode = aspect_main_no_rerank`
-  - `behavior.base_model = Qwen/Qwen3.5-4B`
+- `scripts/evaluation/g_workflow_closure.py` 中的 `validate_exp02_metadata` 能通过
+- `G3 / G4` 不再因 metadata 缺失而无法启动
 
-### 任务 2：用 `05_behavior_stage_3_chapter_materials.md` 收口行为章节
+### 任务 2：正式冻结 `G` 系列 retrieval assets
 
 目标：
 
-- 将 `E3 / E4 / E5` 的结果和案例直接映射到论文正文，不再分散地从多个 run 目录手工拼材料
+- 生成并写入：
+  - `experiments/assets/g_plain_generation_eval_units.jsonl`
+  - `experiments/assets/g_aspect_generation_eval_units.jsonl`
 
 完成标准：
 
-- `E3` 表、`E4` 表、`E5` 表都已从 `05` 号汇总文档进入论文草稿
-- 至少引用：
-  - `q048`
-  - `q062`
-  - `q013`
-  - `q043`
-- 当前章节主结论固定为：
-  - `2B` 是弱基线
-  - `4B` 是当前正式主模型
-  - `E5` 证明中英桥接是必要条件
+- 两份资产都存在
+- 检索模式与 candidate policy 和组定义一致
+- 70 条 query 覆盖完整，不缺、不重
 
-### 任务 3：决定是否真的需要 `9B` 附录
-
-默认选择：
-
-- 不先补 `9B`
-
-只有在以下情况满足时才执行：
-
-- 论文需要“模型规模继续增大是否还有收益”的附录
-- 或答辩需要更强上界参照
-
-执行要求：
-
-- 不改 prompt
-- 不改 query 集
-- 不改 schema
-- 不改检索配置
-- 仅替换 `BEHAVIOR_MODEL_ID=Qwen/Qwen3.5-9B`
-
-若执行，则额外产物固定为：
-
-- 新的 `e3_*` / `e4_*` run
-- `experiments/reports/06_behavior_stage_4_qwen35_9b_appendix.md`
-
-## 第二优先级：行为章节收口后立刻做
-
-### 任务 4：冻结并引用 `E9` 正式结果与有无 RAG 对比
+### 任务 3：云端跑完 `G1-G4`
 
 目标：
 
-- 将 `e9_ecbcdbab690dc503_20260401T025012+0000` 视为当前正式 `E9` 稳定结果
-- 将 `e9_8449c12a50585e42_20260404T081010+0000` 视为当前正式 `E9` 有无 RAG compare
-- 不再继续改 retrieval 主线
-- 把 `E9` 的主结论写进状态文档、阶段计划和论文章节材料
+- 生成四个正式 `ggen_*` 运行目录
 
-当前固定结果：
+当前四组定义固定为：
 
-- 正式稳定 run：
-  - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
-- 有无 RAG compare run：
-  - `experiments/runs/e9_8449c12a50585e42_20260404T081010+0000/`
-- 诊断 run：
-  - `experiments/runs/e9_80e05af30f45b1f2_20260401T021215+0000/`
-- 推荐直接引用：
-  - `experiments/reports/06_generation_stage_1_e9_formal_summary.md`
-  - `experiments/reports/09_generation_stage_4_e9_rag_ablation_summary.md`
+- `G1 = Plain Retrieval + Base`
+- `G2 = Aspect Retrieval + Base`
+- `G3 = Plain Retrieval + PEFT exp02`
+- `G4 = Aspect Retrieval + PEFT exp02`
 
-当前默认解读：
+完成标准：
 
-- `B_grounded_generation` 相比 `D_no_evidence_generation` 的主收益是：
-  - 更高的 `recommendation_coverage`
-  - 更高的 `schema_valid_rate`
-- `q003 / q008 / q013 / q033 / q043 / q081` 是代表性 recovery cases
-- `q023` 是 matched abstention，不视为系统失败
-- `q021` 虽表面上是 no-RAG win，但其 `D` 组输出为 `schema_invalid`，不应计为有效胜例
-- `E9` 当前正式口径继续固定为：
-  - `aspect_main_no_rerank`
-  - `fallback=false`
-  - `Qwen/Qwen3.5-4B`
-  - `E2 B_final_aspect_score Top5`
+- `G1-G4` 全部有 `results.jsonl / summary.csv / citation_verifiability_audit.csv / analysis.md`
+- 四组 query 集一致，都是 70 条
 
-### 任务 5：冻结 `E10 v2` 阶段性结果并转入 `E10 v3`
+### 任务 4：生成核心 pairwise compare
 
 目标：
 
-- 将 `E10 v2` 固定为“比 `v1` 更好但仍未超过 base”的阶段性结果
-- 在不改 retrieval、不改评测协议的前提下，推进 `E10 v3` 数据+约束修复与复训
+- 至少产出以下 compare：
+  - `G2 vs G1`
+  - `G4 vs G3`
+  - `G3 vs G1`
+  - `G4 vs G2`
 
-当前推荐顺序为：
+建议额外产出：
 
-1. 先冻结并引用当前正式 run：
-   - `e10_0dc5c2e6f867c66f_20260402T015230+0000`
-   - `e10_0ef381420c1bd19a_20260402T020120+0000`
-   - `e10cmp_28598dfb8434c1ba_20260402T020734+0000`
-   - `e10_a2dd1a0bd73c57b5_20260402T073127+0000`
-   - `e10cmp_7cf0c9c0a9830796_20260402T074331+0000`
-2. 确认以下 `v3` 资产/入口存在且内容正确：
-   - `experiments/assets/e10_train_config.qwen35_4b_peft_v3.json`
-   - `scripts/evaluation/run_experiment_suite.py` 中的 `e10_prepare_manifests_v3`
-   - `docs/plans/03_generation_and_peft_phase_plan.md`
-   - `experiments/reports/08_generation_stage_3_e10_v2_iteration_summary.md`
-3. 在云端基于 strongest base 生成 `v3 grounded` silver manifest：
+- `G4 vs G3`
+- `G4 vs G1`
 
-```bash
-python -m scripts.evaluation.run_experiment_suite --task e10_prepare_manifests_v3
-python -m scripts.evaluation.run_experiment_suite --task e10_validate_manifest_v3
-```
+完成标准：
 
-4. 在云端训练 `exp03`：
+- 每组 compare 都有独立 `gcmp_*` 目录
+- compare 结果能直接回答 `RQ1 / RQ2 / RQ3`
 
-```bash
-accelerate launch -m scripts.training.train_e10_peft \
-  --config experiments/assets/e10_train_config.qwen35_4b_peft_v3.json
-```
+### 任务 5：完成统计检验、Judge 与盲评材料导出
 
-5. merge `exp03` 后，只重跑：
+目标：
 
-```bash
-python -m scripts.training.merge_e10_peft_adapter \
-  --base-model-path /root/autodl-tmp/models/base/Qwen3.5-4B \
-  --adapter-path /root/autodl-tmp/models/adapters/qwen35_4b_qlora/exp03 \
-  --merged-output-path /root/autodl-tmp/models/merged/qwen35_4b_merged_exp03 \
-  --report-dir /root/autodl-tmp/training/reports/qwen35_4b_qlora/exp03 \
-  --repo-metadata-path experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v3.json
-```
+- 从四组正式 run 中提取 score map
+- 跑完 pairwise tests
+- 跑完 LLM Judge
+- 导出人工盲评包
 
-```bash
-python -m scripts.evaluation.run_experiment_suite \
-  --task e10_base_vs_peft \
-  --group-id B_peft_4b_grounded
-```
+当前代码状态：
 
-6. 最后复用 base formal run，生成 compare：
+- `statistical_tests.py` 已可用
+- `llm_judge.py` 已可用
+- `blind_review_export.py` 已可用
+- `g_workflow_closure.py` 已实现：
+  - score map 提取
+  - 批量 Judge
+  - blind review 结果聚合
+  - 章节报告生成
 
-```bash
-python -m scripts.evaluation.run_experiment_suite \
-  --task e10_compare_runs \
-  --base-run-dir /abs/path/to/e10_0dc5c2e6f867c66f_20260402T015230+0000 \
-  --peft-run-dir /abs/path/to/new_peft_v3_run
-```
+完成标准：
 
-当前固定约束：
+- `pairwise_tests.csv`
+- `judge_scores.csv / judge_summary.csv`
+- `blind_review_pack.csv`
+- `blind_review_worksheet.csv`
 
-- 不改 retrieval 主线
-- 不改 `E9` eval units
-- 不改正式 base baseline
-- 不改评测 prompt 与 compare 协议
-- `v3` 训练配方保持不变，只扩展/修复训练数据
-- `v3` task_types 继续为：
-  - `preference_parse`
-  - `clarification`
-  - `constraint_honesty`
-  - `feedback_update`
-  - `grounded_recommendation`
-- `v3` 优先修复：
-  - `q018 / q022` 的 partial-support schema 问题
-  - `q085` 的 multi-hotel pack boundary 问题
+### 任务 6：生成 G1-G4 统一章节报告
 
-## 当前不建议启动的内容
+目标：
 
-在下面这些条件未满足前，不建议提前进入：
+- 把四组 summary、统计检验、Judge 结果和盲评结果整合成 chapter-ready 输出
 
-- 行为章节还没真正写进论文前：不要启动 `G1-G4`
-- 在未生成 `sft_train_manifest_v3.jsonl / sft_dev_manifest_v3.jsonl` 前：不要直接启动 `exp03`
-- 当前阶段：不要把 `reranker` 或 `fallback` 再接回默认主流程
-- 当前阶段：不要为了追求更高指标而覆盖 `2B` baseline、`4B` 正式 run、或 `E9` 第二轮正式 run
+完成标准：
+
+- 至少生成：
+  - `g_retrieval_summary.csv`
+  - `g_generation_summary.csv`
+  - `analysis.md`
+
+## 32 小时目标：产出论文首版全流程结果
+
+在 8 小时内跑通完整闭环之后，再用接下来的时间做定向优化：
+
+1. 先看 `G1-G4` 首轮结果是否满足论文级可用性
+2. 若某一组明显异常，只对对应资产、metadata 或运行配置做最小修复
+3. 若 Judge 或统计检验暴露出明显短板，再做第二轮精修
+4. 保持 `E5-E10` 历史结果冻结，不把“优化”扩散回旧实验主线
+
+## 当前不建议做的事
+
+以下内容当前都不建议插队：
+
+- 不回头继续扩写 `E10 v3 / v4`
+- 不再追加新的 PEFT 轮次作为主线
+- 不把 `reranker` 或 `fallback` 接回默认主流程
+- 不为了跑快而跳过 `G` 资产冻结与 metadata 校验
+- 不在没有四组正式 run 的情况下先写第七章最终结论
 
 ## 一句话版本
 
-你现在最该做的，是把 `E10 v2` 作为阶段性改进结果写入材料，然后用 `v3` 的数据+约束修复方案继续推进，而不是回头修改 retrieval 或更换评测协议。
+当前最重要的，不是继续做历史实验，而是把 `G1-G4` 的资产、运行、统计检验、Judge、盲评和章节总报告完整接成一条线，然后一次性上云跑通。

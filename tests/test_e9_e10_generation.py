@@ -97,6 +97,7 @@ def _build_generation_log_row(
     latency_ms: float = 100.0,
     llm_backend: str = "local",
     model_id: str = "/tmp/model",
+    eval_unit: GenerationEvalUnit | None = None,
 ) -> dict[str, object]:
     support_scores = support_scores or []
     reasons = []
@@ -156,6 +157,7 @@ def _build_generation_log_row(
         "config_hash": "cfg",
         "latency_ms": latency_ms,
         "intermediate_objects": {
+            "eval_unit": (eval_unit or _build_eval_unit()).model_dump(),
             "response": response.model_dump(),
             "citation_verification": verification.model_dump(),
             "audit_rows": audit_rows,
@@ -685,6 +687,262 @@ class E9E10GenerationTestCase(unittest.TestCase):
         self.assertIsNone(metric_row["unsupported_honesty_rate"])
         self.assertEqual(metric_row["reasoning_leak_rate"], 1.0)
         self.assertEqual(metric_row["auditable_query_rate"], 0.0)
+        self.assertIn("recommendation_coverage", metric_row)
+        self.assertIn("aspect_alignment_rate", metric_row)
+        self.assertIn("hallucination_rate", metric_row)
+
+    def test_compute_aspect_alignment_rate_handles_full_partial_and_zero_match(self):
+        unit = _build_eval_unit().model_copy(
+            update={
+                "user_preference_gold": _build_eval_unit().user_preference_gold.model_copy(
+                    update={"focus_aspects": ["location_transport", "service"]}
+                )
+            }
+        )
+        full_row = {
+            "response": RecommendationResponse(
+                query_id="q001",
+                group_id="B_grounded_generation",
+                summary="full",
+                recommendations=[
+                    RecommendationItem(
+                        hotel_id="hotel_1",
+                        hotel_name="Hotel One",
+                        reasons=[
+                            RecommendationReason(aspect="location_transport", reason_text="位置方便。", sentence_id="s1"),
+                            RecommendationReason(aspect="service", reason_text="服务好。", sentence_id="s2"),
+                        ],
+                    )
+                ],
+                unsupported_notice="",
+                schema_valid=True,
+                raw_response="{}",
+            ),
+            "audit_rows": [],
+            "eval_unit": unit,
+        }
+        partial_row = {
+            **full_row,
+            "response": full_row["response"].model_copy(
+                update={
+                    "recommendations": [
+                        RecommendationItem(
+                            hotel_id="hotel_1",
+                            hotel_name="Hotel One",
+                            reasons=[
+                                RecommendationReason(aspect="location_transport", reason_text="位置方便。", sentence_id="s1"),
+                            ],
+                        )
+                    ]
+                }
+            ),
+        }
+        zero_row = {
+            **full_row,
+            "response": full_row["response"].model_copy(
+                update={
+                    "recommendations": [
+                        RecommendationItem(
+                            hotel_id="hotel_1",
+                            hotel_name="Hotel One",
+                            reasons=[
+                                RecommendationReason(aspect="cleanliness", reason_text="干净。", sentence_id="s3"),
+                            ],
+                        )
+                    ]
+                }
+            ),
+        }
+        self.assertEqual(generation_mod.compute_aspect_alignment_rate(full_row), 1.0)
+        self.assertEqual(generation_mod.compute_aspect_alignment_rate(partial_row), 0.5)
+        self.assertEqual(generation_mod.compute_aspect_alignment_rate(zero_row), 0.0)
+
+    def test_compute_hallucination_rate_counts_missing_and_unsupported_reasons(self):
+        audit_rows = [
+            {"citation_exists": 1, "support_score": 2},
+            {"citation_exists": 0, "support_score": 0},
+            {"citation_exists": 1, "support_score": 0},
+        ]
+        self.assertEqual(generation_mod.compute_hallucination_rate(audit_rows), 0.6667)
+
+    def test_build_e9_metric_row_includes_new_generation_metrics(self):
+        unit = _build_eval_unit()
+        row = {
+            "query_id": "q001",
+            "latency_ms": 100.0,
+            "response": RecommendationResponse(
+                query_id="q001",
+                group_id="B_grounded_generation",
+                summary="ok",
+                recommendations=[
+                    RecommendationItem(
+                        hotel_id="hotel_1",
+                        hotel_name="Hotel One",
+                        reasons=[
+                            RecommendationReason(aspect="location_transport", reason_text="位置方便。", sentence_id="s_valid")
+                        ],
+                    )
+                ],
+                unsupported_notice="",
+                schema_valid=True,
+                raw_response="{}",
+            ),
+            "verification": CitationVerificationResult(
+                query_id="q001",
+                group_id="B_grounded_generation",
+                citation_precision=1.0,
+                invalid_sentence_ids=[],
+                out_of_pack_sentence_ids=[],
+                retry_triggered=False,
+                fallback_to_honest_notice=False,
+            ),
+            "audit_rows": [
+                {
+                    "query_id": "q001",
+                    "group_id": "B_grounded_generation",
+                    "hotel_id": "hotel_1",
+                    "aspect": "location_transport",
+                    "sentence_id": "s_valid",
+                    "reason_text": "位置方便。",
+                    "citation_exists": 1,
+                    "in_current_evidence_pack": 1,
+                    "support_score": 2,
+                    "notes": "",
+                }
+            ],
+            "unsupported_honesty": None,
+            "response_error_type": None,
+            "eval_unit": unit,
+        }
+        metric_row = generation_mod.build_e9_metric_row("B_grounded_generation", [row], {"task": "E9"})
+        self.assertEqual(metric_row["recommendation_coverage"], 1.0)
+        self.assertEqual(metric_row["aspect_alignment_rate"], 1.0)
+        self.assertEqual(metric_row["hallucination_rate"], 0.0)
+
+    def test_summarize_generation_run_reconstructs_new_metrics_from_existing_log_shape(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            run_dir = tmp_path / "gen_run"
+            run_dir.mkdir()
+            unit = _build_eval_unit()
+            log_rows = [
+                _build_generation_log_row(
+                    "gen_run",
+                    "B_grounded_generation",
+                    citation_precision=1.0,
+                    support_scores=[2],
+                    eval_unit=unit,
+                )
+            ]
+            (run_dir / "run_meta.json").write_text(
+                json.dumps({"run_id": "gen_run", "stable_run_config": {"task": "E9"}}),
+                encoding="utf-8",
+            )
+            (run_dir / "results.jsonl").write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in log_rows),
+                encoding="utf-8",
+            )
+
+            summary_payload = generation_mod.summarize_generation_run(
+                run_dir,
+                include_retry_fields=True,
+            )
+        self.assertEqual(len(summary_payload["summary_rows"]), 1)
+        summary_row = summary_payload["summary_rows"][0]
+        self.assertIn("aspect_alignment_rate", summary_row)
+        self.assertIn("hallucination_rate", summary_row)
+        self.assertEqual(summary_row["aspect_alignment_rate"], 1.0)
+
+    def test_compare_generation_runs_builds_generic_delta_rows(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            left_run_dir = tmp_path / "left_run"
+            right_run_dir = tmp_path / "right_run"
+            left_run_dir.mkdir()
+            right_run_dir.mkdir()
+            unit = _build_eval_unit()
+
+            left_log_rows = [
+                _build_generation_log_row(
+                    "left_run",
+                    "G1",
+                    citation_precision=0.5,
+                    support_scores=[1],
+                    eval_unit=unit,
+                )
+            ]
+            right_log_rows = [
+                _build_generation_log_row(
+                    "right_run",
+                    "G2",
+                    citation_precision=1.0,
+                    support_scores=[2],
+                    eval_unit=unit,
+                )
+            ]
+            (left_run_dir / "run_meta.json").write_text(
+                json.dumps({"run_id": "left_run", "stable_run_config": {"task": "G"}}),
+                encoding="utf-8",
+            )
+            (right_run_dir / "run_meta.json").write_text(
+                json.dumps({"run_id": "right_run", "stable_run_config": {"task": "G"}}),
+                encoding="utf-8",
+            )
+            (left_run_dir / "results.jsonl").write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in left_log_rows),
+                encoding="utf-8",
+            )
+            (right_run_dir / "results.jsonl").write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in right_log_rows),
+                encoding="utf-8",
+            )
+            payload = generation_mod.compare_generation_runs(
+                left_run_dir,
+                right_run_dir,
+                left_prefix="g1",
+                right_prefix="g2",
+            )
+        self.assertEqual(payload["left_group_id"], "G1")
+        self.assertEqual(payload["right_group_id"], "G2")
+        self.assertEqual(payload["comparison_rows"][0]["delta_citation_precision"], 0.5)
+        self.assertIn("g1_aspect_alignment_rate", payload["comparison_rows"][0])
+        self.assertIn("g2_hallucination_rate", payload["comparison_rows"][0])
+
+    def test_compare_generation_runs_rejects_empty_results(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            left_run_dir = tmp_path / "left_run"
+            right_run_dir = tmp_path / "right_run"
+            left_run_dir.mkdir()
+            right_run_dir.mkdir()
+            (left_run_dir / "run_meta.json").write_text(
+                json.dumps({"run_id": "left_run", "stable_run_config": {"task": "G"}}),
+                encoding="utf-8",
+            )
+            (right_run_dir / "run_meta.json").write_text(
+                json.dumps({"run_id": "right_run", "stable_run_config": {"task": "G"}}),
+                encoding="utf-8",
+            )
+            (left_run_dir / "results.jsonl").write_text("", encoding="utf-8")
+            (right_run_dir / "results.jsonl").write_text("", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "生成运行目录为空|空结果集"):
+                generation_mod.compare_generation_runs(left_run_dir, right_run_dir)
+
+    def test_validate_g_generation_eval_units_rejects_mismatched_asset_signature(self):
+        valid_unit = _build_eval_unit().model_copy(
+            update={
+                "retrieval_mode": "plain_city_test_rerank",
+                "candidate_policy": "G_plain_retrieval_top5",
+            }
+        )
+        generation_mod.validate_g_generation_eval_units([valid_unit], group_id="G1")
+
+        mismatched_unit = valid_unit.model_copy(update={"candidate_policy": "G_aspect_retrieval_top5"})
+        with self.assertRaisesRegex(ValueError, "candidate_policy"):
+            generation_mod.validate_g_generation_eval_units([mismatched_unit], group_id="G1")
+
+        with self.assertRaisesRegex(ValueError, "不包含任何 GenerationEvalUnit"):
+            generation_mod.validate_g_generation_eval_units([], group_id="G1")
 
     def test_build_e10_analysis_md_marks_single_group_sections_as_not_applicable(self):
         grouped_rows = {

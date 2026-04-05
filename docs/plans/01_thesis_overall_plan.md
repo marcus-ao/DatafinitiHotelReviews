@@ -1,8 +1,8 @@
 # 基于酒店评论知识库与参数高效微调的有状态会话式酒店推荐工作流研究
 
-## 论文总体规划稿（v3.1 深化版）
+## 论文总体规划稿（v3.2 同步版）
 
-更新时间：2026-04-04
+更新时间：2026-04-05
 
 ---
 
@@ -546,9 +546,25 @@
 | G2 复跑 | Aspect 检索 + Base 模型推荐生成（扩展到 70 条） | AutoDL GPU | 3-4 小时 |
 | G3 | Plain Retrieval + PEFT exp02 推荐生成（70 条查询） | AutoDL GPU + exp02 适配器 | 3-4 小时 |
 | G4 复跑 | Aspect 检索 + PEFT exp02 推荐生成（扩展到 70 条） | AutoDL GPU | 3-4 小时 |
-| LLM Judge | GPT-4o 盲评 4×70 条回复 | GPT-4o API | 2-3 小时 |
+| LLM Judge | DeepSeek 盲评 4×70 条回复 | DeepSeek API | 2-3 小时 |
 | 人工盲评 | 4×15-20 条抽样盲评 | 人工标注 | 3-5 小时 |
 | 统计检验 | 所有组间 Wilcoxon + Bootstrap CI | 本地计算 | 1-2 小时 |
+
+截至 `2026-04-05` 的工作区状态是：
+
+- `G1-G4` 仍然没有正式云端结果，因此“实验结果”维度依然视为未完成
+- 但围绕 `G1-G4` 的代码底座已经不是空白状态，而是进入了“代码基本就绪、正式结果待跑”的阶段
+- 当前已落地的模块包括：
+  - `g_eval_query_ids_70.json`
+  - `g_run_generation / g_compare_runs`
+  - `statistical_tests.py`
+  - `llm_judge.py`
+  - `blind_review_export.py`
+  - `g_workflow_closure.py`
+- 当前仍阻塞正式闭环的关键点主要是：
+  - 正式 `g_plain_generation_eval_units.jsonl / g_aspect_generation_eval_units.jsonl` 尚未同步回资产目录
+  - `exp02 / v2` adapter metadata 尚未补齐到本地资产目录
+  - `g_workflow_closure.py` 目前仍以 helper 方式存在，尚未完全接入统一 runner
 
 ---
 
@@ -574,6 +590,45 @@
 
 **设计逻辑**：E5-E10 的已有结果作为各核心章节的"辅助/消融证据"保留（不浪费已完成的工作），G1-G4 在 70 条查询 + 完整指标体系上运行，作为第七章统一对比的"决定性证据"。这样既保留了已有工作的价值，又确保核心对比（G1-G4）使用最严格的评估标准。
 
+#### 6.1.1 按实验划分的代码优化调整清单
+
+下表用于回答一个更具体的问题：**在当前工作区与新版论文规划并存的前提下，哪些实验需要真的改代码，哪些实验只保留结果不再继续改实现。**
+
+| 实验 / 实验组 | 当前工作区状态 | 是否需要调整实验实现 | 是否需要同步新指标口径 | 调整级别 | 需要调整的核心内容 | 处理结论 |
+| --- | --- | --- | --- | --- | --- | --- |
+| E1 方面分类 | 已完成，且与查询规模扩展无直接耦合 | 否 | 否 | 无 | 保持 `macro-F1 / Jaccard / sentiment F1` 这一任务原生指标，不引入检索层/生成层新指标 | 直接复用，不重跑 |
+| E2 候选筛选 | 已完成，且不依赖 E9/E10 的查询规模 | 否 | 否 | 无 | 保持候选筛选阶段原生指标，不强行套用检索句级或生成层指标 | 直接复用，不重跑 |
+| E3 偏好解析 | 已完成，86 条查询已覆盖完整 judged query 集 | 否 | 否 | 无 | 保持 `Exact-Match / Slot-F1 / Unsupported Detection Recall` 口径 | 直接复用，不重跑 |
+| E4 澄清决策 | 已完成，86 条查询已覆盖完整 judged query 集 | 否 | 否 | 无 | 保持 `Accuracy / Precision / Recall / F1 / Over-clarification / Under-clarification` 口径 | 直接复用，不重跑 |
+| E5 查询桥接 | 已完成，40 条查询 | 否 | 是 | 报告层同步 | 作为检索层实验，应补齐到新版 `6` 项检索指标口径与统一统计呈现方式 | 保留现有结果；必要时后处理补指标 |
+| E6 Aspect vs Plain 检索 | 已完成，40 条查询 + 80 检索单元 | 否 | 是 | 报告层同步 | 作为检索层核心正结果，应统一输出新版 `6` 项检索指标与统计检验 | 保留现有结果；必要时后处理补指标 |
+| E7 Reranker 消融 | 已完成 | 否 | 是 | 报告层同步 | 作为检索层消融，应同步到新版 `6` 项检索指标，保证与 E6/G1-G4 可横向比较 | 保留现有结果；必要时后处理补指标 |
+| E8 Fallback 消融 | 已完成 | 否 | 是 | 报告层同步 | 作为检索层消融，应同步到新版 `6` 项检索指标，保证与 E6/G1-G4 可横向比较 | 保留现有结果；必要时后处理补指标 |
+| E9 RAG 消融（B vs D） | 已完成，且当前代码已支持 `D_no_evidence_generation` | 否 | 是 | 局部优化 | 共享生成评测层需补 `70` 条查询加载、统一 `G` 系列报告字段、`Aspect Alignment Rate`、`Hallucination Rate`、Judge/人工评测衔接字段 | 保留现有 `n=40` 结果；代码按 G1/G2 共用需求升级 |
+| E10 v1/v2/v3/v4 迭代链 | 已完成，`v2/v3/v4` 结果已同步回本地 | 否 | 是 | 局部优化 | compare 汇总逻辑需扩展为 `G3/G4` 共用底座，支持新版生成层指标与统一矩阵输出 | 保留现有 `n=40` 结果；不重跑 exp01-exp04 旧轮次 |
+| G1 | 检索资产冻结与 generation 运行入口已实现，但正式 `70` 条 run 未产出 | 是 | 是 | 新增实现已基本落地 | `Plain Retrieval + Base` 的资产冻结、运行入口和生成侧汇总已接通；当前缺正式资产与正式云端 run | 必须新跑 |
+| G2 | `Aspect + Base` 的 `40` 条辅助结果已存在，`70` 条统一框架代码已接通 | 是 | 是 | 中等扩展已基本落地 | Aspect 路线已具备扩展到 `70` 条的资产冻结和运行入口；当前缺正式复跑结果 | 必须复跑 |
+| G3 | `Plain Retrieval + PEFT exp02` 的代码路径已实现，但受 `exp02` metadata 缺失阻塞 | 是 | 是 | 新增实现已基本落地 | `Plain Retrieval + PEFT exp02` 的运行入口、compare 与后处理已接通；当前缺 `v2/exp02` metadata 与正式 run | 必须新跑 |
+| G4 | `Aspect + PEFT exp02` 的 `40` 条辅助结果已存在，`70` 条统一框架代码已接通 | 是 | 是 | 中等扩展已基本落地 | Aspect + PEFT 路线已具备统一框架入口；当前缺正式 `70` 条复跑与 `exp02` metadata | 必须复跑 |
+| 统计检验 | 已实现 | 是 | 是 | 新增实现已完成 | `statistical_tests.py` 已支持 Wilcoxon / Bootstrap CI / Cohen's d / rank-biserial / 显著性标注 / 多重比较校正 | 待接正式 G1-G4 结果 |
+| LLM-as-Judge | 已实现 | 是 | 是 | 新增实现已完成 | `llm_judge.py` 已支持 blind prompt、单组批量评分与 group-level 聚合 | 待真实 API 运行 |
+| 人工盲评抽样导出 | 已实现，且已开始补 blind review 汇总 | 是 | 是 | 轻量新增已完成 | `blind_review_export.py` 已可导出匿名 blind pack，`g_workflow_closure.py` 已补 blind review 结果聚合 | 待正式人工标注 |
+| G1-G4 工作流收口 | 已开始实现 | 是 | 是 | 新增实现进行中 | `g_workflow_closure.py` 已包含 `exp02` metadata 校验、score map 提取、批量 Judge、blind review 聚合和章节报告生成；当前仍待统一 runner 接线 | 需继续收口 |
+
+**据此形成的总清单如下：**
+
+- `[A] 无需同步新版检索/生成指标、直接复用任务原生指标`：`E1 / E2 / E3 / E4`
+- `[B] 不改实验主体逻辑，但需要同步新版指标口径与报告模板`：`E5 / E6 / E7 / E8 / E9 / E10 v1 / v2 / v3 / v4`
+- `[C] 必须新增或重构代码并重新运行`：`G1 / G2 / G3 / G4`
+- `[D] 已完成代码实现但待正式运行/待正式接线`：`统计检验 / LLM Judge / 人工盲评导出 / G 工作流收口`
+
+**当前代码改造的优先级应固定为：**
+
+1. 先补齐 `exp02 / v2` metadata，并正式同步 `G` 系列 retrieval assets。
+2. 再正式运行 `G1 / G2 / G3 / G4` 四组云端实验。
+3. 然后把 `g_workflow_closure.py` 这层收口任务真正跑完：统计检验、Judge、盲评与章节总报告。
+4. 最后再进入一轮针对结果薄弱项的定向优化，而不是继续扩展旧实验链。
+
 ### 6.2 查询集扩展的实施细节
 
 #### 6.2.1 当前查询集分层
@@ -585,7 +640,7 @@
 │   ├── multi_aspect × 10 城市
 │   ├── focus_and_avoid × 10 城市
 │   └── multi_aspect_strong × 10 城市
-├── 鲁棒性层（30 条）—— 需新建 eval units，不需 qrels
+├── 鲁棒性层（30 条）—— 需生成正式 eval units，不需 qrels
 │   ├── unsupported_budget × 10 城市
 │   ├── unsupported_distance × 10 城市
 │   └── unsupported_heavy × 10 城市
@@ -605,7 +660,7 @@
 
 #### 6.2.3 扩展后的评测查询集文件
 
-需新建 `experiments/assets/g_eval_query_ids_70.json`，包含 40 核心 + 30 鲁棒性共 70 条 query_id。
+当前 `experiments/assets/g_eval_query_ids_70.json` 已经落地，包含 40 核心 + 30 鲁棒性共 70 条 query_id。
 
 ### 6.3 新增指标的代码实现方案
 
@@ -623,16 +678,16 @@
 
 | 指标 | 代码现状 | 实现方案 | 实现难度 |
 | --- | --- | --- | --- |
-| Aspect Alignment Rate | **未实现** | 在 `build_e9_metric_row` 中从 `audit_rows` 的 aspect 字段统计命中率 | 低（~15 行） |
-| Hallucination Rate | **未实现** | 在 `build_e9_metric_row` 中统计 `citation_exists==0` 的比例 | 低（~10 行） |
+| Aspect Alignment Rate | **已实现** | 生成侧已支持从 `response + eval_unit` 计算 focus-aspect 命中率，并进入 E9/E10/G compare summary | 已完成 |
+| Hallucination Rate | **已实现** | 生成侧已支持从 `audit_rows` 统计 citation 不存在或 support 为 0 的比例 | 已完成 |
 | Unsupported Honesty Rate | **已有**（在 E9 metric row 中） | 直接复用 | 无 |
 | Recommendation Coverage | **已有** | 直接复用 | 无 |
 
-生成层 7 项指标中，5 项已有，2 项需新增（Aspect Alignment Rate、Hallucination Rate），工作量约 25 行代码。
+生成层 7 项指标当前已经全部在共享生成评测底座中落地，重点已经从“补指标”切换到“正式运行 G1-G4 并把结果汇总进章节报告”。
 
 #### 6.3.3 统计检验代码
 
-需新建 `scripts/evaluation/statistical_tests.py`，包含：
+当前已实现 `scripts/evaluation/statistical_tests.py`，核心能力包括：
 
 ```
 def wilcoxon_signed_rank(group_a_scores, group_b_scores) -> dict:
@@ -648,15 +703,23 @@ def compute_pairwise_tests(g1, g2, g3, g4, metrics) -> pd.DataFrame:
     """G1-G4 所有配对的统计检验汇总"""
 ```
 
-依赖：`scipy.stats.wilcoxon`、`numpy`。约 80-100 行代码。
+当前版本已额外补齐：
+
+- `query_id` 对齐配对
+- `significance` / `significance_adj` 标注
+- `Holm / Bonferroni` 多重比较校正
+- `rank_biserial` 非参数效应量
+- `better_group / higher_is_better` 结果解释字段
+
+因此统计检验模块当前不再是“待实现项”，而是“待接正式 G1-G4 结果并实际运行”的状态。
 
 #### 6.3.4 LLM-as-Judge 代码
 
-需新建 `scripts/evaluation/llm_judge.py`，包含：
+当前已实现 `scripts/evaluation/llm_judge.py`，核心能力包括：
 
 ```
 def build_judge_prompt(query_text, recommendation_response) -> str:
-    """构建 GPT-4o 评审 Prompt（盲评，不含组别标签）"""
+    """构建 DeepSeek 评审 Prompt（盲评，不含组别标签）"""
 
 def score_single_response(query, response, api_client) -> dict:
     """对单条回复评分，返回 5 维度 1-5 分"""
@@ -668,7 +731,28 @@ def aggregate_judge_scores(g1_scores, g2_scores, g3_scores, g4_scores) -> pd.Dat
     """汇总四组 LLM Judge 分数"""
 ```
 
-依赖：`openai` SDK。约 150-200 行代码。
+另外，当前还已实现：
+
+- `blind_review_export.py`
+- `g_workflow_closure.py` 中的批量 Judge、blind review 聚合和章节报告 helper
+
+因此 Judge 侧当前也不是“待从零实现”，而是“代码已基本具备，待真实 API 批量执行”的状态。
+
+#### 6.3.5 G 工作流收口代码
+
+当前工作区已新增 `scripts/evaluation/g_workflow_closure.py`，用于承接之前规划里分散的 6 个收口任务，当前已包含：
+
+- `extract_g_group_score_map`
+- `run_g_batch_llm_judge`
+- `aggregate_blind_review_results`
+- `validate_exp02_metadata`
+- `ensure_exp02_metadata_placeholder`
+- `build_g_chapter_report`
+
+当前缺口不再是“没有收口代码”，而是：
+
+- 该文件尚未完全接入统一 runner
+- 其输出还没有和正式 `G1-G4` 云端产物形成一轮完整闭环
 
 ### 6.4 G1-G4 实验的完整实施路径
 
@@ -676,21 +760,21 @@ def aggregate_judge_scores(g1_scores, g2_scores, g3_scores, g4_scores) -> pd.Dat
 Phase 1: 代码准备（本地）
 │
 ├── 1.1 扩展查询集
-│   ├── 新建 g_eval_query_ids_70.json（40 核心 + 30 鲁棒性）
-│   └── 修改 load_generation_eval_units 支持 70 条查询
+│   ├── `g_eval_query_ids_70.json` 已生成（40 核心 + 30 鲁棒性）
+│   └── 共享加载与校验逻辑已支持 70 条查询
 │
 ├── 1.2 实现 Plain RAG 基线
 │   ├── 新增 build_evidence_pack_plain_for_candidate（~30 行）
 │   ├── 在 run_experiment_suite.py 注册 g_plain_rag_freeze_assets task
 │   └── 测试：本地 dry-run 确认 EvidencePack 格式正确
 │
-├── 1.3 新增生成层指标
-│   ├── Aspect Alignment Rate（~15 行）
-│   └── Hallucination Rate（~10 行）
+├── 1.3 补齐生成层指标
+│   ├── Aspect Alignment Rate（已完成）
+│   └── Hallucination Rate（已完成）
 │
-├── 1.4 新建统计检验模块（~100 行）
+├── 1.4 统计检验模块（已完成）
 │
-└── 1.5 新建 LLM-as-Judge 模块（~200 行）
+└── 1.5 LLM-as-Judge 模块（已完成）
 
 Phase 2: 实验运行（AutoDL 云端）
 │
@@ -711,10 +795,16 @@ Phase 3: 评估与分析（本地 + API）
 │
 ├── 3.1 计算硬指标（检索层 6 项 + 生成层 7 项）
 ├── 3.2 运行统计检验（Wilcoxon + Bootstrap CI + Cohen's d）
-├── 3.3 运行 LLM-as-Judge（GPT-4o，4 × 70 = 280 条评审）
+├── 3.3 运行 LLM-as-Judge（DeepSeek，4 × 70 = 280 条评审）
 ├── 3.4 组织人工盲评（4 × 15-20 条抽样）
 └── 3.5 生成 G1-G4 统一对比报告
 ```
+
+截至 `2026-04-05`，这条路径的当前进度可概括为：
+
+- `Phase 1`：已基本完成
+- `Phase 2`：代码入口已具备，但四组正式 run 尚未产出
+- `Phase 3`：模块已基本具备，但正式统计/Judge/盲评/章节报告尚未基于真实四组结果跑完
 
 ### 6.5 已有 E5-E10 结果的论文使用规范
 
@@ -733,17 +823,16 @@ Phase 3: 评估与分析（本地 + API）
 
 ### 6.6 各项代码改动的工作量汇总
 
-| 改动项 | 涉及文件 | 新增/修改代码量 | 依赖 |
+| 改动项 | 当前状态 | 主要文件 | 当前结论 |
 | --- | --- | --- | --- |
-| 查询集扩展 | evaluate_e9_e10_generation.py + 新文件 | ~40 行 | 无 |
-| Plain RAG EvidencePack | evaluate_e9_e10_generation.py | ~30 行 | 已有 dense_query_hotel |
-| 新 task 注册 | run_experiment_suite.py | ~20 行 | 无 |
-| Aspect Alignment Rate | evaluate_e9_e10_generation.py | ~15 行 | 已有 audit_rows |
-| Hallucination Rate | evaluate_e9_e10_generation.py | ~10 行 | 已有 audit_rows |
-| 统计检验模块 | 新建 statistical_tests.py | ~100 行 | scipy |
-| LLM-as-Judge 模块 | 新建 llm_judge.py | ~200 行 | openai |
-| G1-G4 对比报告生成 | evaluate_e9_e10_generation.py 或新文件 | ~150 行 | 无 |
-| **合计** | — | **~565 行** | scipy, openai |
+| 查询集扩展 | 已完成 | `evaluate_e6_e8_retrieval.py` + `g_eval_query_ids_70.json` | 已可供 G 系列共用 |
+| Plain / Aspect Retrieval Assets | 已完成入口，待正式落地资产 | `evaluate_e6_e8_retrieval.py` | 正式 `g_plain/g_aspect` assets 仍待同步 |
+| G 系列 generation 入口 | 已完成 | `evaluate_e9_e10_generation.py` + `run_experiment_suite.py` | 可运行，待正式云端结果 |
+| 生成层 7 指标 | 已完成 | `evaluate_e9_e10_generation.py` | 已进入 E9/E10/G 共用底座 |
+| 统计检验模块 | 已完成 | `statistical_tests.py` | 待接正式 G1-G4 结果 |
+| LLM-as-Judge 模块 | 已完成 | `llm_judge.py` | 待真实 API 执行 |
+| 人工盲评导出 | 已完成 | `blind_review_export.py` | 待正式人工标注 |
+| G 工作流收口 / 章节报告 | 进行中 | `g_workflow_closure.py` | helper 已具备，待统一接线与正式运行 |
 
 ---
 

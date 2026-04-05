@@ -10,6 +10,7 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Protocol
+from typing import cast
 
 import pandas as pd
 import torch
@@ -18,11 +19,14 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from scripts.evaluation.evaluate_e6_e8_retrieval import (
     build_city_test_hotels,
+    build_retrieval_summary_row,
     build_evidence_lookup,
     build_target_units,
     evaluate_ranked_rows,
     load_qrels_lookup,
     markdown_table,
+    require_chromadb_client,
+    require_retrieval_backends,
     retrieve_official_mode,
 )
 from scripts.shared.experiment_schemas import (
@@ -1137,6 +1141,7 @@ def run_e4_clarification_eval(
     def metric_row(rows: list[dict[str, Any]], group_id: str) -> dict[str, Any]:
         gold_flags = [int(row["gold"]["clarify_needed"]) for row in rows]
         pred_flags = [int(row["result"]["clarify_needed"]) for row in rows]
+        latency_values = [float(row["latency_ms"]) for row in rows]
         tp = sum(int(g == 1 and p == 1) for g, p in zip(gold_flags, pred_flags))
         fp = sum(int(g == 0 and p == 1) for g, p in zip(gold_flags, pred_flags))
         fn = sum(int(g == 1 and p == 0) for g, p in zip(gold_flags, pred_flags))
@@ -1154,10 +1159,7 @@ def run_e4_clarification_eval(
             "over_clarification_rate": round(fp / max((fp + tn), 1), 4),
             "under_clarification_rate": round(fn / max((tp + fn), 1), 4),
             "schema_valid_rate": round(sum(int(row["result"]["schema_valid"]) for row in rows) / max(len(rows), 1), 4),
-            "avg_latency_ms": round(
-                sum(row["latency_ms"] for row in log_rows if row["group_id"] == group_id) / max(len(rows), 1),
-                3,
-            ),
+            "avg_latency_ms": round(sum(latency_values) / max(len(latency_values), 1), 3),
             "config_hash": stable_hash(stable_run_config | {"group_id": group_id}),
         }
 
@@ -1238,19 +1240,18 @@ def run_e5_query_bridge_eval(output_root: Path, limit_queries: int | None = None
     cfg = load_config()
     frozen_config = load_json(EXPERIMENT_ASSETS_DIR / "frozen_config.yaml")
     split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
-    review_df = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
-    evidence_df = pd.read_pickle("data/intermediate/evidence_index.pkl")
+    review_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/cleaned_reviews.pkl"))
+    evidence_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/evidence_index.pkl"))
     city_test_hotels = build_city_test_hotels(split_manifest, review_df)
     evidence_lookup = build_evidence_lookup(evidence_df)
     target_units = build_target_units(limit_queries=limit_queries)
     qrels_lookup = load_qrels_lookup(E6_LABELS_DIR / "qrels_evidence.jsonl")
 
-    from chromadb import PersistentClient
-    from sentence_transformers import SentenceTransformer
-
+    PersistentClient = require_chromadb_client()
+    sentence_transformer_cls, cross_encoder_cls = require_retrieval_backends()
     client = PersistentClient(path=cfg["embedding"]["chroma_persist_dir"])
     collection = client.get_collection(cfg["embedding"]["chroma_collection"])
-    bi_encoder = SentenceTransformer(cfg["embedding"]["model"])
+    bi_encoder = sentence_transformer_cls(cfg["embedding"]["model"])
     normalize_embeddings = bool(cfg["embedding"].get("normalize", True))
 
     stable_run_config = {
@@ -1284,9 +1285,7 @@ def run_e5_query_bridge_eval(output_root: Path, limit_queries: int | None = None
             indent=2,
         )
 
-    from sentence_transformers import CrossEncoder
-
-    reranker = CrossEncoder(cfg["reranker"]["model"])
+    reranker = cross_encoder_cls(cfg["reranker"]["model"])
     from scripts.evaluation.evaluate_e6_e8_retrieval import warm_up_models
 
     warm_up_models(collection, bi_encoder, reranker, normalize_embeddings)
@@ -1305,7 +1304,11 @@ def run_e5_query_bridge_eval(output_root: Path, limit_queries: int | None = None
                 if group_id == "A_zh_direct_dense_no_rerank"
                 else query_unit["query_en_target"]
             )
-            city_hotels = city_test_hotels[query_unit["city"]]
+            city_hotels = city_test_hotels.get(query_unit["city"])
+            if city_hotels is None:
+                raise KeyError(
+                    f"City '{query_unit['city']}' for query {query_unit['query_id']} is missing from city_test_hotels during E5."
+                )
             mode_result = retrieve_official_mode(
                 unit=query_unit,
                 mode="aspect_main_no_rerank",
@@ -1356,17 +1359,14 @@ def run_e5_query_bridge_eval(output_root: Path, limit_queries: int | None = None
             )
 
         summary_rows.append(
-            {
-                "group_id": group_id,
-                "query_count": len({unit["query_id"] for unit in target_units}),
-                "target_unit_count": len(target_units),
-                "avg_latency_ms": round(sum(latencies) / max(len(latencies), 1), 3),
-                "aspect_recall_at_5": round(sum(row["aspect_recall_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                "ndcg_at_5": round(sum(row["ndcg_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                "mrr_at_5": round(sum(row["mrr_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                "precision_at_5": round(sum(row["precision_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                "config_hash": stable_hash(stable_run_config | {"group_id": group_id}),
-            }
+            build_retrieval_summary_row(
+                group_id=group_id,
+                query_count=len({unit["query_id"] for unit in target_units}),
+                target_unit_count=len(target_units),
+                latencies=latencies,
+                metric_rows=metric_rows,
+                config_hash=stable_hash(stable_run_config | {"group_id": group_id}),
+            )
         )
 
     write_jsonl(run_dir / "results.jsonl", log_rows)
@@ -1393,11 +1393,19 @@ def run_e5_query_bridge_eval(output_root: Path, limit_queries: int | None = None
         lines.append("")
         for role in sorted(by_group_role[group_id]):
             metrics = by_group_role[group_id][role]
+            metric_summary = {
+                "aspect_recall_at_5": round(sum(item["aspect_recall_at_5"] for item in metrics) / len(metrics), 4),
+                "ndcg_at_5": round(sum(item["ndcg_at_5"] for item in metrics) / len(metrics), 4),
+                "precision_at_5": round(sum(item["precision_at_5"] for item in metrics) / len(metrics), 4),
+                "mrr_at_5": round(sum(item["mrr_at_5"] for item in metrics) / len(metrics), 4),
+                "evidence_diversity_at_5": round(sum(item["evidence_diversity_at_5"] for item in metrics) / len(metrics), 4),
+            }
             lines.append(
-                f"- {role}: nDCG@5={round(sum(item['ndcg_at_5'] for item in metrics) / len(metrics), 4)}, "
-                f"Precision@5={round(sum(item['precision_at_5'] for item in metrics) / len(metrics), 4)}"
+                f"- {role}: Recall@5={metric_summary['aspect_recall_at_5']}, "
+                f"nDCG@5={metric_summary['ndcg_at_5']}, Precision@5={metric_summary['precision_at_5']}, "
+                f"MRR@5={metric_summary['mrr_at_5']}, Diversity@5={metric_summary['evidence_diversity_at_5']}"
             )
-        lines.append("")
+            lines.append("")
     lines.extend(["## Aspect Dependence", ""])
     for group_id in E5_GROUPS:
         aspect_scores = []
@@ -1419,6 +1427,7 @@ def run_e5_query_bridge_eval(output_root: Path, limit_queries: int | None = None
             "## Interpretation",
             "",
             "- This run compares direct Chinese dense retrieval against structured English retrieval under the same candidate set and `aspect_main_no_rerank` backend.",
+            "- All retrieval-side summaries now follow the unified six-metric schema: Aspect Recall@5, nDCG@5, Precision@5, MRR@5, Evidence Diversity@5, Retrieval Latency.",
             "- If `avoid` and `quiet_sleep` remain weak in both groups, the bottleneck is evidence coverage rather than bridge language alone.",
         ]
     )

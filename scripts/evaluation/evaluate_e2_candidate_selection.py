@@ -6,9 +6,13 @@ import argparse
 import json
 import time
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
-from sentence_transformers import SentenceTransformer
+try:
+    from sentence_transformers import SentenceTransformer
+except ImportError:  # pragma: no cover - optional runtime dependency for candidate retrieval execution
+    SentenceTransformer = None  # type: ignore[assignment]
 
 from scripts.shared.experiment_schemas import RunLogEntry
 from scripts.shared.experiment_utils import EXPERIMENT_ASSETS_DIR, load_jsonl, stable_hash, utc_now_iso
@@ -24,6 +28,24 @@ ALLOWED_QUERY_TYPES = {
 DEFAULT_CANDIDATE_MODES = ["A_rating_review_count", "B_final_aspect_score"]
 OPTIONAL_CANDIDATE_MODES = ["C_no_controversy_penalty"]
 RETRIEVAL_MODE = "aspect_filtered_dense_no_rerank"
+
+
+def require_sentence_transformer() -> Any:
+    if SentenceTransformer is None:
+        raise ImportError(
+            "Missing retrieval dependency 'sentence-transformers'. Please install it to run candidate selection retrieval tasks."
+        )
+    return SentenceTransformer
+
+
+def require_chromadb_client() -> Any:
+    try:
+        from chromadb import PersistentClient
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency for candidate retrieval execution
+        raise ImportError(
+            "Missing retrieval dependency 'chromadb'. Please install ChromaDB to run candidate selection retrieval tasks."
+        ) from exc
+    return PersistentClient
 
 
 def load_json(path: str | Path) -> dict:
@@ -186,11 +208,11 @@ def run_e2(
     profile_current, profile_alt = build_profile_tables(profile_df)
     hotel_summary = hotel_summary[hotel_summary["hotel_id"].isin(set(split_manifest["splits"]["test"]))].copy()
 
-    from chromadb import PersistentClient
-
+    PersistentClient = require_chromadb_client()
+    sentence_transformer_cls = require_sentence_transformer()
     client = PersistentClient(path=cfg["embedding"]["chroma_persist_dir"])
     collection = client.get_collection(cfg["embedding"]["chroma_collection"])
-    model = SentenceTransformer(cfg["embedding"]["model"])
+    model = sentence_transformer_cls(cfg["embedding"]["model"])
     normalize_embeddings = bool(cfg["embedding"].get("normalize", True))
     warm_up_retrieval(collection, model, normalize_embeddings)
 
@@ -205,7 +227,7 @@ def run_e2(
         if row["query_type"] not in ALLOWED_QUERY_TYPES:
             continue
         eligible_queries.append((row, slot))
-    if limit_queries:
+    if limit_queries is not None:
         eligible_queries = eligible_queries[:limit_queries]
 
     stable_run_config = {

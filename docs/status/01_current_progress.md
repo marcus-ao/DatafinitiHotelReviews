@@ -1,58 +1,24 @@
-# 当前工作进度
-
-更新时间：2026-04-04
+更新时间：2026-04-05
 
 ## 总体阶段判断
 
-当前项目已经完成 Aspect-KB 章节与行为实验主线的首轮正式收口，并进一步补齐了 `E9` 的正式有无 RAG 对比。当前工作区里，`E9` 已形成“第二轮正式稳定结果 + `B_grounded_generation vs D_no_evidence_generation` 正式 compare”两层冻结结论。
+当前项目已经完成两类工作：
 
-目前整体处于：
+- 历史实验层：`E1-E10` 的主要结果已经形成可冻结、可写论文的基础材料
+- 新计划工程层：面向 `G1-G4` 的统一检索/生成/统计检验/Judge/盲评导出底座已经大体接通
 
-- 数据底座：已完成
-- 实验底座：已完成并冻结
-- `E1`：已完成正式评估
-- `E2`：已完成首轮正式结果与失败分析
-- `E6-E8`：已完成正式检索评测并已收口为论文材料
-- 默认检索配置：已冻结为 `aspect_main_no_rerank`
-- `E5`：已完成正式首轮结果
-- `E3/E4`：`Qwen3.5-4B` 全量正式结果已完成，`Qwen3.5-2B` 第一轮结果作为弱基线归档保留
-- 当前正式行为模型：已冻结为 `Qwen/Qwen3.5-4B`
-- 最新 `E4` 审计：已完成首轮人工评分并冻结 reviewed 快照
-- 行为章节材料：已形成 `E3 / E4 / E5` 汇总初稿
-- `Qwen3.5-9B`：可作为附录或扩展对比，当前不是主线阻塞项
-- `E9 / E10 / PEFT`：`E9` 第二轮正式结果与有无 RAG 正式 compare 已完成并冻结，`E10 v1` 正式 compare 已完成，`E10 v2` 已形成阶段性改进结果，当前继续以已归档的 `E10` 结果为主线参考
+当前真正所处阶段不是“继续改 E10”，而是：
 
-## 已完成的核心内容
+- 保留 `E5-E10` 作为第五章和第六章的辅助证据
+- 用 `G1-G4` 跑出 70 条查询下的统一矩阵结果
+- 在 8 小时内完成一轮完整实验闭环
+- 在后续 32 小时内形成一版可写入论文的完整结果集
 
-### 1. 数据底座
+## 已完成的冻结实验结果
 
-已完成 `scripts/pipeline/` 下的 9 步数据流水线，并通过验证。
+### 数据与实验底座
 
-当前确认结果：
-
-- 覆盖城市：10
-- 覆盖州：8
-- 酒店数：146
-- 清洗后评论数：5947
-- 句子数：51813
-- 方面情感标签数：63085
-- 酒店方面画像：876
-- `python -m scripts.pipeline.validate_kb_assets`：`28/28` 通过
-
-### 2. 实验底座
-
-已完成并冻结：
-
-- 冻结实验配置
-- 酒店级 train/dev/test 切分
-- 中文 query 集
-- `slot_gold`
-- `clarify_gold`
-- 标注 rubric
-- 实验 schema
-- 最小 batch runner
-
-关键产物位置：
+以下底座已经完成并继续视为冻结输入：
 
 - `experiments/assets/frozen_config.yaml`
 - `experiments/assets/frozen_split_manifest.json`
@@ -61,390 +27,167 @@
 - `experiments/assets/clarify_gold.jsonl`
 - `experiments/assets/annotation_rubrics.md`
 
-### 3. Aspect-KB 阶段结果
+### 检索与行为层历史实验
 
-`E1` 正式结果：
+以下实验继续作为论文辅助证据保留：
 
-- `rule_only`
-  - `Aspect macro-F1 = 0.5107`
-  - `Difficult-set Jaccard = 0.7812`
-- `zeroshot_only`
-  - `Aspect macro-F1 = 0.0932`
-  - `Difficult-set Jaccard = 0.0099`
-- `hybrid`
-  - `Aspect macro-F1 = 0.4960`
-  - `Difficult-set Jaccard = 0.7911`
-- `Sentiment macro-F1 = 0.4458`
+- `E1` 方面分类
+- `E2` 候选筛选
+- `E3` 偏好解析
+- `E4` 澄清决策
+- `E5` 查询桥接
+- `E6` Aspect vs Plain 检索
+- `E7` reranker 消融
+- `E8` fallback 消融
 
-`E2` 正式结果：
+默认冻结主线继续保持：
 
-- `A_rating_review_count`
-  - `Candidate Hit@5 (proxy) = 0.9`
-  - `avg_latency_ms = 111.641`
-- `B_final_aspect_score`
-  - `Candidate Hit@5 (proxy) = 0.9`
-  - `avg_latency_ms = 102.223`
+- 检索模式：`aspect_main_no_rerank`
+- 正式行为模型：`Qwen/Qwen3.5-4B`
 
-`E6-E8` 正式结果：
+### 生成层历史实验
 
-- `E6`
-  - `Aspect Recall@5: 0.7000 -> 0.8500`
-  - `nDCG@5: 0.3307 -> 0.6378`
-  - `MRR@5: 0.5750 -> 0.7842`
-  - `Precision@5: 0.3350 -> 0.6375`
-- `E7`
-  - `aspect_main_no_rerank`
-    - `nDCG@5 = 0.6457`
-    - `MRR@5 = 0.7781`
-    - `Precision@5 = 0.6450`
-  - `aspect_main_rerank`
-    - `nDCG@5 = 0.6378`
-    - `MRR@5 = 0.7842`
-    - `Precision@5 = 0.6375`
-- `E8`
-  - `aspect_main_rerank` 与 `aspect_main_fallback_rerank` 的 `nDCG@5 / Precision@5` 完全相同
-  - `fallback_activation_rate = 0.05`
-  - `fallback_noise_rate = 1.0`
+以下 run 已同步回本地并作为冻结证据保留：
 
-当前解读：
-
-- `E6` 是明确正结果，证明方面引导检索有效
-- `E7` 是负结果，说明当前 reranker 没有带来稳定收益
-- `E8` 是边界结果，说明当前 fallback 暴露的是证据覆盖不足而不是排序问题
-- 因此后续默认检索配置已冻结为 `aspect_main_no_rerank`
-
-## 4. 行为实验主线当前状态
-
-### `E5` 正式结果
-
-正式结果目录：
-
-- `experiments/runs/e5_9a94daa5a6a31d8a_20260330T155246+0000/`
-
-当前正式结果：
-
-- `A_zh_direct_dense_no_rerank`
-  - `Aspect Recall@5 = 0.625`
-  - `nDCG@5 = 0.2643`
-  - `MRR@5 = 0.4233`
-  - `Precision@5 = 0.2200`
-- `B_structured_query_en_dense_no_rerank`
-  - `Aspect Recall@5 = 0.850`
-  - `nDCG@5 = 0.6457`
-  - `MRR@5 = 0.7781`
-  - `Precision@5 = 0.6450`
-
-当前解读：
-
-- 结构化英文检索表达显著优于中文直检
-- 桥接收益已经被正式验证，可以直接写入论文主线
-
-### `E3 / E4` 正式结果
-
-`Qwen3.5-2B` baseline run 已冻结：
-
-- `experiments/runs/e3_244aca8abf6345ad_20260331T072527+0000/`
-- `experiments/runs/e4_4a15a89128a90d11_20260331T073016+0000/`
-
-`Qwen3.5-4B` 正式全量 run 已完成：
-
-- `experiments/runs/e3_14928d821d811e86_20260331T122611+0000/`
-- `experiments/runs/e4_55c8021e1119fb77_20260331T122648+0000/`
-
-`E3` 当前正式结果：
-
-- `A_rule_parser`
-  - `Exact-Match Rate = 1.0000`
-  - `Unsupported Detection Recall = 1.0000`
-- `B_base_llm_structured`
-  - `Exact-Match Rate = 0.9767`
-  - `Unsupported Detection Recall = 1.0000`
-  - `City Slot F1 = 1.0000`
-  - `Focus Slot F1 = 1.0000`
-  - `Avoid Slot F1 = 0.9474`
-  - `Unsupported Slot F1 = 0.9836`
-
-`E4` 当前正式结果：
-
-- `A_rule_clarify`
-  - `Accuracy = 0.9767`
-  - `Precision = 0.8889`
-  - `Recall = 1.0000`
-  - `F1 = 0.9412`
-- `B_base_llm_clarify`
-  - `Accuracy = 0.9884`
-  - `Precision = 0.9412`
-  - `Recall = 1.0000`
-  - `F1 = 0.9697`
-  - `Over-clarification Rate = 0.0143`
-  - `Under-clarification Rate = 0.0000`
-
-当前解读：
-
-- `Qwen3.5-2B` 适合作为行为层弱基线保留，但不再作为正式主模型
-- `Qwen3.5-4B` 已经足够支撑 `E3/E4` 的正式论文结果
-- `E3` 的剩余误差已收缩到极少数 `value` 边界例
-- `E4` 的残留边界已收缩到 `q013` 这类少数误澄清样本
-
-### 最新审计与材料
-
-当前新增并已完成：
-
-- 最新 `E4` 审计表：
-  - `experiments/labels/e4_clarification/clarification_question_audit.csv`
-- `4B` 原始快照：
-  - `experiments/labels/e4_clarification/clarification_question_audit_e4_55c8021e1119fb77_qwen35_4b_full.csv`
-- `4B` reviewed 快照：
-  - `experiments/labels/e4_clarification/clarification_question_audit_e4_55c8021e1119fb77_qwen35_4b_reviewed.csv`
-- 行为章节材料汇总：
-  - `experiments/reports/05_behavior_stage_3_chapter_materials.md`
-- 后续阶段规划：
-  - `docs/plans/03_generation_and_peft_phase_plan.md`
-
-## 当前已形成的可写材料
-
-当前已经具备：
-
-- `1` 组 E1 正式结果表
-- `1` 组 E2 首轮结果表
-- `1` 份 Aspect-KB 第一阶段汇总材料
-- `1` 份 Aspect-KB 第二阶段检索汇总材料
-- `1` 份 `Qwen3.5-2B` 行为弱基线归档材料
-- `1` 份 `Qwen3.5-4B` 行为正式结果归档材料
-- `1` 份 `E3 / E4 / E5` 行为章节材料汇总
-- 多组 E1 / E2 / E6-E8 代表性案例
-- 多组 E3 / E4 行为案例与审计文件
-
-推荐优先阅读：
-
-- `experiments/reports/05_behavior_stage_3_chapter_materials.md`
-- `experiments/reports/07_generation_stage_2_e10_formal_summary.md`
-- `experiments/reports/08_generation_stage_3_e10_v2_iteration_summary.md`
-- `experiments/reports/09_generation_stage_4_e9_rag_ablation_summary.md`
-
-## 5. E9 / E10 当前正式状态
-
-### `E9` 冻结状态
-
-- 第二轮正式稳定 run：
-  - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
-- 有无 RAG 正式 compare run：
+- `E9` 正式 compare：
   - `experiments/runs/e9_8449c12a50585e42_20260404T081010+0000/`
-- 结论：
-  - 当前生成层已达到可审计、可冻结状态
-  - `B_grounded_generation` 相比 `D_no_evidence_generation`，主收益体现在更高的推荐覆盖率与更稳定的 schema
-  - retrieval 主线不再继续变更
-
-### `E10 v1` 正式状态
-
-- base formal：
+- `E10` base formal：
   - `experiments/runs/e10_0dc5c2e6f867c66f_20260402T015230+0000/`
-- peft formal：
-  - `experiments/runs/e10_0ef381420c1bd19a_20260402T020120+0000/`
-- compare formal：
-  - `experiments/runs/e10cmp_28598dfb8434c1ba_20260402T020734+0000/`
-
-固定结论：
-
-- `PEFT exp01` 未优于 base
-- 主要退化集中在 `quiet_sleep` 与 `focus+avoid`
-- `v1` 的负结果主要来自训练目标错位，而不是运行时失真
-
-### `E10 v2` 当前状态
-
-- peft formal：
+- `E10` PEFT v2 / exp02：
   - `experiments/runs/e10_a2dd1a0bd73c57b5_20260402T073127+0000/`
-- compare formal：
-  - `experiments/runs/e10cmp_7cf0c9c0a9830796_20260402T074331+0000/`
+- `E10` PEFT v3 / exp03：
+  - `experiments/runs/e10_927c1d0a2fbc5870_20260403T083734+0000/`
+- `E10` PEFT v4 / exp04：
+  - `experiments/runs/e10_d749ec0796f7b365_20260404T024800+0000/`
 
-固定结论：
+当前固定结论继续保持：
 
-- `v2` 已把 `citation_precision` 从 `0.9250` 拉回到 `0.9688`
-- `q013 / q023` 已修复
-- 但 `schema_valid_rate` 从 `1.0` 降到 `0.95`
-- `q018 / q022 / q085` 成为当前最主要的 `v3` 修复对象
+- `E9`：RAG 的核心收益体现在更稳定的可审计推荐，而不仅仅是 citation 表面提升
+- `E10`：`exp02 / v2` 仍是当前综合最优 PEFT 适配器候选
+- `exp03` 与 `exp04` 保留为迭代链分析材料，不作为 G3/G4 的默认适配器
 
-当前默认正式主系统仍保持：
+## 已完成的代码侧升级
 
-- base formal `Qwen/Qwen3.5-4B`
+### 检索与生成共享评测底座
 
-`v2` 当前被定位为：
+当前工作区已经具备：
 
-- 阶段性改进结果
-- 不是最终正结果
-- `experiments/reports/04_behavior_stage_2_qwen35_4b_formal_summary.md`
-- `experiments/runs/e3_14928d821d811e86_20260331T122611+0000/analysis.md`
-- `experiments/runs/e4_55c8021e1119fb77_20260331T122648+0000/analysis.md`
-- `experiments/runs/e5_9a94daa5a6a31d8a_20260330T155246+0000/analysis.md`
-- `docs/plans/03_generation_and_peft_phase_plan.md`
+- 检索层新版 `6` 指标输出能力
+- 生成层新版 `7` 指标输出能力
+- 通用 generation summary / compare / post-hoc 重汇总能力
+- `G1-G4` 的 generation 入口与双组 compare 入口
 
-## 当前明确尚未完成的内容
+关键文件：
 
-- 决定是否需要追加 `Qwen3.5-9B` 附录对比
-- `E10 v2` 的 grounded recommendation 数据构建、复训与复评
-- `G1-G4` 主实验矩阵
-
-## 5. `E9 / E10` 当前实现进展
-
-截至 `2026-04-01`，仓库内已经新增并接通：
-
+- `scripts/evaluation/evaluate_e6_e8_retrieval.py`
 - `scripts/evaluation/evaluate_e9_e10_generation.py`
-- `scripts/evaluation/run_experiment_suite.py` 中的：
-  - `e9_freeze_assets`
-  - `e9_generation_constraints`
-  - `e10_prepare_manifests`
-  - `e10_base_vs_peft`
-- `scripts/shared/experiment_schemas.py` 中的：
-  - `RecommendationReason`
-  - `RecommendationItem`
-  - `RecommendationResponse`
-  - `CitationVerificationResult`
-  - `GenerationEvalUnit`
-  - `SFTManifestRecord`
-- `experiments/labels/e9_generation/README.md`
-- `experiments/labels/e9_generation/citation_verifiability_audit.csv`
-- `experiments/assets/sft_train_manifest.jsonl`
-- `experiments/assets/sft_dev_manifest.jsonl`
-- `tests/test_e9_e10_generation.py`
+- `scripts/evaluation/run_experiment_suite.py`
 
-当前已经完成的验证：
+### G 系列资产与运行入口
 
-- `E9` query 选择逻辑已由单元测试确认仍对应 `40` 条可执行 query
-- citation verifier 的合法 / 不存在 / 越权三类情况已由单元测试覆盖
-- verifier 二次失败后的 honest fallback 已由单元测试覆盖
-- `e10_prepare_manifests` 已成功生成 `train/dev` 两份 manifest
-- `e9_freeze_assets --limit-queries 2` 已成功跑通本地 smoke
+当前已经落地：
 
-当前已经完成并冻结的部分：
+- `experiments/assets/g_eval_query_ids_70.json`
+- `g_build_query_ids_70`
+- `g_freeze_plain_retrieval_assets`
+- `g_freeze_aspect_retrieval_assets`
+- `g_run_generation`
+- `g_compare_runs`
 
-- `experiments/assets/e9_generation_eval_units.jsonl`
-- `experiments/assets/e9_generation_eval_query_ids.json`
-- `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
-- `experiments/runs/e9_8449c12a50585e42_20260404T081010+0000/`
-- `experiments/labels/e9_generation/citation_verifiability_audit.csv`
+当前实际状态是：
 
-当前仍未完成的部分：
+- 代码入口已存在
+- retrieval/generation 契约已经打通
+- 但正式 `G` 资产与正式 `G1-G4` 结果还没有写入工作区
 
-- `citation_verifiability_audit_e9_ecbcdbab690dc503_qwen35_4b_reviewed.csv`
-  以外的更多人工复核扩展
-- `E10 v1` 的正式 Base vs PEFT 行为对照已完成
-- 下一步转为 `E10 v2` 的数据方案、manifest 生成、PEFT `exp02` 训练与复评
+### 后处理与闭环分析模块
 
-当前新增实现的固定口径：
+以下模块已经在代码层落地：
 
-- `E9` 检索模式固定为 `aspect_main_no_rerank`
-- `fallback=false`
-- 行为基座固定为 `Qwen/Qwen3.5-4B`
-- `candidate_hotels` 固定使用 `E2 B_final_aspect_score Top5`
-- `E9` 资产冻结当前优先只读本地 embedding 缓存，不新增 live PostgreSQL 依赖
+- `scripts/evaluation/statistical_tests.py`
+- `scripts/evaluation/llm_judge.py`
+- `scripts/evaluation/blind_review_export.py`
+- `scripts/evaluation/g_workflow_closure.py`
 
-## 6. `E9` 正式结果与有无 RAG 对比
+当前已覆盖能力：
 
-当前 `E9` 已形成两层正式冻结材料：
+- Wilcoxon + Bootstrap CI + Cohen's d / rank-biserial
+- LLM Judge 单组评审与汇总
+- 盲评匿名抽样导出
+- `exp02` metadata 校验/占位
+- `G1-G4` score map 提取
+- blind review 结果聚合
+- G 章节统一报告生成 helper
 
-- 第二轮正式稳定 run：
-  - `experiments/runs/e9_ecbcdbab690dc503_20260401T025012+0000/`
-- 有无 RAG 正式 compare run：
-  - `experiments/runs/e9_8449c12a50585e42_20260404T081010+0000/`
+## 当前真实阻塞项
 
-推荐直接引用：
+以下几项是上云前仍需明确处理的真实缺口：
 
-- `experiments/reports/06_generation_stage_1_e9_formal_summary.md`
-- `experiments/reports/09_generation_stage_4_e9_rag_ablation_summary.md`
+### 1. 正式 G 资产尚未落地
 
-当前四组正式指标：
+当前资产目录中：
 
-- `A_free_generation`
-  - `Citation Precision = 0.9437`
-  - `Evidence Verifiability Mean = 1.9773`
-  - `Schema Valid Rate = 1.0000`
-  - `Recommendation Coverage = 0.9500`
-- `B_grounded_generation`
-  - `Citation Precision = 0.9500`
-  - `Evidence Verifiability Mean = 1.9924`
-  - `Schema Valid Rate = 1.0000`
-  - `Recommendation Coverage = 0.9500`
-- `C_grounded_generation_with_verifier`
-  - `Citation Precision = 0.9500`
-  - `Evidence Verifiability Mean = 1.9924`
-  - `Schema Valid Rate = 1.0000`
-  - `Recommendation Coverage = 0.9500`
-- `D_no_evidence_generation`
-  - `Citation Precision = 0.0000`
-  - `Evidence Verifiability Mean = 0.0000`
-  - `Schema Valid Rate = 0.9750`
-  - `Recommendation Coverage = 0.8250`
+- 已有：`experiments/assets/g_eval_query_ids_70.json`
+- 尚未看到正式同步回仓库的：
+  - `experiments/assets/g_plain_generation_eval_units.jsonl`
+  - `experiments/assets/g_aspect_generation_eval_units.jsonl`
 
-`B_grounded_generation` vs `D_no_evidence_generation` 的当前正式结论为：
+这意味着：
 
-- `recommendation_coverage`
-  - `0.9500 vs 0.8250`
-  - 差值 `+0.1250`
-- `schema_valid_rate`
-  - `1.0000 vs 0.9750`
-  - 差值 `+0.0250`
-- `citation_precision` 与 `evidence_verifiability_mean`
-  - 只作辅助解释，不作为主结论
-  - 因为 `D` 组本来就不看证据
+- `G` 系列 asset freeze 代码已就位
+- 但正式运行前还需要先生成/同步这两份资产
 
-当前正式解读固定为：
+### 2. `exp02` metadata 尚未补齐到本地资产目录
 
-- `E9` 生成层已达到可审计、可复现、可冻结的稳定度
-- 有无 RAG 的正式 compare 已经补齐
-- RAG 的主要收益不是平凡地提高 citation，而是更稳定地保留可审计推荐
-- 代表性 recovery cases 包括：
-  - `q003`
-  - `q008`
-  - `q013`
-  - `q033`
-  - `q043`
-  - `q081`
-- `q023` 属于 matched abstention，应视为 evidence gap honesty
-- `q021` 虽表面上是 no-RAG win，但其 `D` 组输出实际为 `schema_invalid`，不应视为有效胜例
+当前本地存在：
 
-## 当前最值得关注的事实
+- `e10_adapter_metadata.qwen35_4b_peft_v1.json`
+- `e10_adapter_metadata.qwen35_4b_peft_v3.json`
+- `e10_adapter_metadata.qwen35_4b_peft_v4.json`
 
-1. Aspect-KB 章节已经完成两轮核心收口，主结论已经稳定。
-2. 默认检索后端仍固定为 `aspect_main_no_rerank`，`reranker` 与 `fallback` 不回到主流程。
-3. 行为实验当前正式主模型已经切换为 `Qwen/Qwen3.5-4B`，`2B` 保留为弱基线。
-4. 最新 `E4` 审计已经补齐，行为章节材料已经具备写论文的基本条件。
-5. 当前阶段对 `E9` 来说已经不再是“继续改 prompt 或 retrieval”，而是“直接复用已冻结的稳定结果与有无 RAG compare 写论文材料”。
+当前本地缺少：
 
-## 7. `E10 v1` 正式结果
+- `experiments/assets/e10_adapter_metadata.qwen35_4b_peft_v2.json`
 
-当前正式 run 固定为：
+这会直接阻塞：
 
-- base formal：
-  - `experiments/runs/e10_0dc5c2e6f867c66f_20260402T015230+0000/`
-- peft formal：
-  - `experiments/runs/e10_0ef381420c1bd19a_20260402T020120+0000/`
-- compare formal：
-  - `experiments/runs/e10cmp_28598dfb8434c1ba_20260402T020734+0000/`
+- `G3`
+- `G4`
 
-当前正式指标：
+### 3. `g_workflow_closure.py` 尚未统一接入 runner
 
-- base
-  - `citation_precision = 0.9688`
-  - `evidence_verifiability_mean = 1.9704`
-  - `schema_valid_rate = 1.0000`
-  - `reasoning_leak_rate = 0.0000`
-- peft
-  - `citation_precision = 0.9250`
-  - `evidence_verifiability_mean = 1.9915`
-  - `schema_valid_rate = 1.0000`
-  - `reasoning_leak_rate = 0.0000`
+当前 `g_workflow_closure.py` 已存在，但还属于 helper/library 层：
 
-当前正式解读固定为：
+- 可以调用
+- 但尚未形成统一 CLI task
 
-- `E10 v1` 的 compare 结果可信，可直接写入论文。
-- `PEFT exp01` 在同后端、同冻结资产下没有优于 base。
-- 主退化集中在：
-  - `quiet_sleep`
-  - `focus + avoid`
-- 该负结果说明：
-  - 仅强化 `preference_parse / clarification / constraint_honesty / feedback_update`
-  - 不足以自动提升最终 grounded recommendation
+这意味着：
 
-推荐直接引用：
+- 统计 payload 提取、批量 Judge、blind review 结果聚合、章节报告生成已经有代码
+- 但正式上云/回本地闭环时，仍需通过脚本调用或继续补 runner 接线
 
-- `experiments/reports/07_generation_stage_2_e10_formal_summary.md`
+## 当前验证状态
+
+当前已经完成的验证包括：
+
+- 与 `G` 系列整合直接相关的单测集通过
+- `statistical_tests.py` 的强化版测试通过
+- `llm_judge.py` / `blind_review_export.py` 的单测通过
+- `G` 资产 freeze 的临时 smoke 已验证 plain/aspect 两路都可生成合规 `GenerationEvalUnit`
+- 对真实本地 `E9/E10` run 的后处理 smoke 已验证可直接重汇总/重 compare
+
+注意：
+
+- 更大范围的全套测试在当前 Windows 环境下出现过 `D:\\Temp` 权限问题
+- 该问题当前表现为环境层面的临时目录权限异常，不等同于 `G` 系列闭环逻辑本身失败
+
+## 当前一句话结论
+
+如果只看代码实现，项目已经从“缺能力”进入“缺正式运行产物”的阶段。
+
+当前最重要的不是继续扩写历史实验，而是：
+
+1. 补齐 `exp02` metadata
+2. 正式冻结 `G` 系列资产
+3. 云端跑完 `G1-G4`
+4. 回本地完成统计检验、Judge、盲评和章节总报告

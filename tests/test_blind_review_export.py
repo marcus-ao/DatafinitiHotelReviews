@@ -1,0 +1,142 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from scripts.evaluation import blind_review_export as blind_mod
+
+
+class BlindReviewExportTestCase(unittest.TestCase):
+    def test_build_blind_review_rows_is_reproducible_and_hides_group_labels(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            run_dirs = {}
+            for group_id in ["G1", "G2"]:
+                run_dir = tmp_path / group_id
+                run_dir.mkdir()
+                run_dirs[group_id] = run_dir
+                rows = []
+                for query_id in ["q001", "q002"]:
+                    rows.append(
+                        {
+                            "query_id": query_id,
+                            "group_id": group_id,
+                            "intermediate_objects": {
+                                "eval_unit": {"query_id": query_id, "query_text_zh": f"{query_id} 的查询"},
+                                "response": {
+                                    "query_id": query_id,
+                                    "group_id": group_id,
+                                    "summary": f"{query_id} 的推荐摘要",
+                                    "recommendations": [],
+                                    "unsupported_notice": "",
+                                },
+                            },
+                        }
+                    )
+                (run_dir / "results.jsonl").write_text(
+                    "\n".join(json.dumps(row, ensure_ascii=False) for row in rows),
+                    encoding="utf-8",
+                )
+
+            rows_a = blind_mod.build_blind_review_rows(run_dirs, sample_size=2, seed=7)
+            rows_b = blind_mod.build_blind_review_rows(run_dirs, sample_size=2, seed=7)
+
+        self.assertEqual(rows_a, rows_b)
+        serialized = json.dumps(rows_a, ensure_ascii=False)
+        self.assertNotIn("G1", serialized)
+        self.assertNotIn("G2", serialized)
+        self.assertNotIn("query_id", serialized)
+        self.assertNotIn("group_id", serialized)
+        self.assertTrue(all("blind_label" in row for row in rows_a))
+        self.assertTrue(all("query_bundle_id" in row for row in rows_a))
+        self.assertTrue(all("response_text" in row for row in rows_a))
+        self.assertTrue(all("unsupported_notice" in row for row in rows_a))
+        self.assertTrue(all(row["response_text"] for row in rows_a))
+
+    def test_build_blind_review_rows_rejects_non_positive_sample_size(self):
+        with self.assertRaises(ValueError):
+            blind_mod.build_blind_review_rows({"G1": "unused"}, sample_size=0, seed=7)
+
+    def test_build_blind_review_rows_rejects_duplicate_query_ids(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            run_dir = Path(tmp_dir) / "G1"
+            run_dir.mkdir()
+            rows = [
+                {
+                    "query_id": "q001",
+                    "group_id": "G1",
+                    "intermediate_objects": {
+                        "eval_unit": {"query_id": "q001", "query_text_zh": "q001 的查询"},
+                        "response": {"summary": "A", "recommendations": [], "unsupported_notice": ""},
+                    },
+                },
+                {
+                    "query_id": "q001",
+                    "group_id": "G1",
+                    "intermediate_objects": {
+                        "eval_unit": {"query_id": "q001", "query_text_zh": "q001 的查询"},
+                        "response": {"summary": "B", "recommendations": [], "unsupported_notice": ""},
+                    },
+                },
+            ]
+            (run_dir / "results.jsonl").write_text(
+                "\n".join(json.dumps(row, ensure_ascii=False) for row in rows),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                blind_mod.build_blind_review_rows({"G1": run_dir}, sample_size=1, seed=7)
+
+    def test_build_blind_review_rows_rejects_missing_query_text(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            run_dir = Path(tmp_dir) / "G1"
+            run_dir.mkdir()
+            row = {
+                "query_id": "q001",
+                "group_id": "G1",
+                "intermediate_objects": {
+                    "eval_unit": {"query_id": "q001", "query_text_zh": ""},
+                    "response": {"summary": "A", "recommendations": [], "unsupported_notice": ""},
+                },
+            }
+            (run_dir / "results.jsonl").write_text(json.dumps(row, ensure_ascii=False), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                blind_mod.build_blind_review_rows({"G1": run_dir}, sample_size=1, seed=7)
+
+    def test_build_blind_review_worksheet_rows_contains_score_and_pairwise_fields(self):
+        blind_rows = [
+            {
+                "review_item_id": "blind_001_A",
+                "query_bundle_id": "bundle_001",
+                "blind_label": "A",
+                "query_text_zh": "q001 的查询",
+                "response_text": "Summary: 推荐酒店",
+                "response_summary": "推荐酒店",
+                "unsupported_notice": "",
+                "response_json": "{}",
+                "recommendation_count": 1,
+            },
+            {
+                "review_item_id": "blind_001_B",
+                "query_bundle_id": "bundle_001",
+                "blind_label": "B",
+                "query_text_zh": "q001 的查询",
+                "response_text": "Summary: 另一条推荐",
+                "response_summary": "另一条推荐",
+                "unsupported_notice": "",
+                "response_json": "{}",
+                "recommendation_count": 1,
+            },
+        ]
+        worksheet_rows = blind_mod.build_blind_review_worksheet_rows(blind_rows)
+        self.assertEqual(len(worksheet_rows), 3)
+        self.assertEqual(worksheet_rows[0]["overall_quality_score"], "")
+        self.assertEqual(worksheet_rows[0]["evidence_credibility_score"], "")
+        self.assertEqual(worksheet_rows[0]["practical_value_score"], "")
+        self.assertEqual(worksheet_rows[0]["reviewer_notes"], "")
+        self.assertEqual(worksheet_rows[-1]["query_bundle_id"], "bundle_001")
+        self.assertEqual(worksheet_rows[-1]["pairwise_preference"], "")
+        self.assertEqual(worksheet_rows[-1]["available_blind_labels"], "A,B")
+
+
+if __name__ == "__main__":
+    unittest.main()

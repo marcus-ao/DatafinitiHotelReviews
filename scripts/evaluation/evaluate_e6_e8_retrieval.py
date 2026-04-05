@@ -1,4 +1,4 @@
-"""Shared retrieval evaluation engine for E6, E7, and E8."""
+"""Shared retrieval evaluation engine for E6, E7, E8, and G-series retrieval assets."""
 
 from __future__ import annotations
 
@@ -6,13 +6,23 @@ import argparse
 import json
 import math
 import time
+from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
-from sentence_transformers import CrossEncoder, SentenceTransformer
 
-from scripts.shared.experiment_schemas import RunLogEntry
+if TYPE_CHECKING:
+    from sentence_transformers import CrossEncoder as CrossEncoderType
+    from sentence_transformers import SentenceTransformer as SentenceTransformerType
+
+try:
+    from sentence_transformers import CrossEncoder, SentenceTransformer
+except ImportError:  # pragma: no cover - optional runtime dependency for retrieval execution
+    CrossEncoder = None  # type: ignore[assignment]
+    SentenceTransformer = None  # type: ignore[assignment]
+from scripts.shared.experiment_schemas import ASPECT_NAME, RunLogEntry
+from scripts.shared.experiment_schemas import EvidencePack, GenerationEvalUnit, HotelCandidate, SentenceCandidate, UserPreference
 from scripts.shared.experiment_utils import (
     E6_LABELS_DIR,
     EXPERIMENT_ASSETS_DIR,
@@ -32,6 +42,21 @@ ALLOWED_QUERY_TYPES = {
     "focus_and_avoid",
     "multi_aspect_strong",
 }
+CORE_QUERY_TYPES = (
+    "single_aspect",
+    "multi_aspect",
+    "focus_and_avoid",
+    "multi_aspect_strong",
+)
+ROBUSTNESS_QUERY_TYPES = (
+    "unsupported_budget",
+    "unsupported_distance",
+    "unsupported_heavy",
+)
+G_EVAL_QUERY_TYPE_ORDER = CORE_QUERY_TYPES + ROBUSTNESS_QUERY_TYPES
+G_EVAL_QUERY_IDS_PATH = EXPERIMENT_ASSETS_DIR / "g_eval_query_ids_70.json"
+G_PLAIN_RETRIEVAL_UNITS_PATH = EXPERIMENT_ASSETS_DIR / "g_plain_generation_eval_units.jsonl"
+G_ASPECT_RETRIEVAL_UNITS_PATH = EXPERIMENT_ASSETS_DIR / "g_aspect_generation_eval_units.jsonl"
 
 ASPECT_EN = {
     "location_transport": "convenient location and transportation",
@@ -70,6 +95,24 @@ TARGET_SCOPE = "focus_and_avoid"
 POOL_TOP_K = 5
 FALLBACK_MIN_SENTENCES = 2
 FALLBACK_MIN_UNIQUE_REVIEWS = 2
+
+
+def require_retrieval_backends() -> tuple[Any, Any]:
+    if SentenceTransformer is None or CrossEncoder is None:
+        raise ImportError(
+            "Missing retrieval dependencies. Please install sentence-transformers to run retrieval evaluation/freezing tasks."
+        )
+    return SentenceTransformer, CrossEncoder
+
+
+def require_chromadb_client() -> Any:
+    try:
+        from chromadb import PersistentClient
+    except ImportError as exc:  # pragma: no cover - optional runtime dependency for retrieval execution
+        raise ImportError(
+            "Missing retrieval dependency 'chromadb'. Please install ChromaDB to run retrieval evaluation/freezing tasks."
+        ) from exc
+    return PersistentClient
 def load_json(path: str | Path) -> dict:
     with open(path, encoding="utf-8") as handle:
         return json.load(handle)
@@ -87,24 +130,128 @@ def build_query_en_target(city: str, aspect: str, target_role: str) -> str:
     return f"hotel in {city} avoiding {ASPECT_EN_AVOID[aspect]}"
 
 
+def load_slot_gold_lookup() -> dict[str, dict[str, Any]]:
+    return {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "slot_gold.jsonl")}
+
+
+def load_clarify_gold_lookup() -> dict[str, dict[str, Any]]:
+    return {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "clarify_gold.jsonl")}
+
+
+def _query_id_sort_key(query_id: str) -> tuple[int, str]:
+    digits = "".join(ch for ch in str(query_id) if ch.isdigit())
+    return (int(digits) if digits else 10**9, str(query_id))
+
+
+def build_g_eval_query_id_payload(judged_queries: list[dict[str, Any]]) -> dict[str, Any]:
+    grouped: dict[str, list[str]] = {query_type: [] for query_type in G_EVAL_QUERY_TYPE_ORDER}
+    excluded_query_types = {"conflict", "missing_city"}
+
+    for row in judged_queries:
+        query_type = row.get("query_type")
+        query_id = row.get("query_id")
+        if query_type in grouped and query_id:
+            grouped[query_type].append(str(query_id))
+
+    for query_type in grouped:
+        grouped[query_type] = sorted(grouped[query_type], key=_query_id_sort_key)
+
+    core_query_ids = [query_id for query_type in CORE_QUERY_TYPES for query_id in grouped[query_type]]
+    robustness_query_ids = [query_id for query_type in ROBUSTNESS_QUERY_TYPES for query_id in grouped[query_type]]
+    ordered_query_ids = core_query_ids + robustness_query_ids
+
+    expected_counts = {
+        "core": 40,
+        "robustness": 30,
+        "total": 70,
+    }
+    actual_counts = {
+        "core": len(core_query_ids),
+        "robustness": len(robustness_query_ids),
+        "total": len(ordered_query_ids),
+    }
+    if actual_counts != expected_counts:
+        raise AssertionError(
+            f"G-series query set count mismatch: expected {expected_counts}, got {actual_counts}"
+        )
+    if len(set(ordered_query_ids)) != len(ordered_query_ids):
+        raise AssertionError("G-series query ids contain duplicates")
+
+    return {
+        "query_ids": ordered_query_ids,
+        "query_type_counts": {query_type: len(grouped[query_type]) for query_type in G_EVAL_QUERY_TYPE_ORDER},
+        "core_query_ids": core_query_ids,
+        "robustness_query_ids": robustness_query_ids,
+        "excluded_query_types": sorted(excluded_query_types),
+        "query_type_order": list(G_EVAL_QUERY_TYPE_ORDER),
+    }
+
+
+def write_g_eval_query_ids_asset(output_path: Path = G_EVAL_QUERY_IDS_PATH) -> Path:
+    payload = build_g_eval_query_id_payload(load_jsonl(EXPERIMENT_ASSETS_DIR / "judged_queries.jsonl"))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+    return output_path
+
+
+def load_g_eval_query_ids(path: Path = G_EVAL_QUERY_IDS_PATH) -> list[str]:
+    payload = load_json(path)
+    query_ids = payload.get("query_ids")
+    if not isinstance(query_ids, list) or not all(isinstance(item, str) for item in query_ids):
+        raise ValueError(f"Invalid g_eval query id asset: {path}")
+    if len(query_ids) != 70:
+        raise ValueError(f"Invalid g_eval query id asset size in {path}: expected 70, got {len(query_ids)}")
+    if len(set(query_ids)) != len(query_ids):
+        raise ValueError(f"Invalid g_eval query id asset with duplicate query ids: {path}")
+    expected_order = list(G_EVAL_QUERY_TYPE_ORDER)
+    if payload.get("query_type_order") != expected_order:
+        raise ValueError(f"Invalid query_type_order in {path}: expected {expected_order}")
+    expected_excluded = ["conflict", "missing_city"]
+    if payload.get("excluded_query_types") != expected_excluded:
+        raise ValueError(f"Invalid excluded_query_types in {path}: expected {expected_excluded}")
+    expected_counts = {query_type: 10 for query_type in G_EVAL_QUERY_TYPE_ORDER}
+    if payload.get("query_type_counts") != expected_counts:
+        raise ValueError(f"Invalid query_type_counts in {path}: expected {expected_counts}")
+    return query_ids
+
+
 def build_target_units(limit_queries: int | None = None) -> list[dict[str, Any]]:
+    return build_target_units_filtered(limit_queries=limit_queries)
+
+
+def build_target_units_filtered(
+    limit_queries: int | None = None,
+    *,
+    allowed_query_types: set[str] | None = None,
+    query_ids: list[str] | None = None,
+) -> list[dict[str, Any]]:
     judged_queries = load_jsonl(EXPERIMENT_ASSETS_DIR / "judged_queries.jsonl")
-    slot_gold = {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "slot_gold.jsonl")}
-    clarify_gold = {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "clarify_gold.jsonl")}
+    slot_gold = load_slot_gold_lookup()
+    clarify_gold = load_clarify_gold_lookup()
+    allowed_types = allowed_query_types or ALLOWED_QUERY_TYPES
+    allowed_query_id_set = set(query_ids) if query_ids is not None else None
+    query_id_order = {query_id: idx for idx, query_id in enumerate(query_ids or [])}
 
     eligible_queries: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for row in judged_queries:
+        if allowed_query_id_set is not None and row["query_id"] not in allowed_query_id_set:
+            continue
         slot = slot_gold[row["query_id"]]
         clarify = clarify_gold[row["query_id"]]
         if clarify["clarify_needed"]:
             continue
         if not slot["city"] or not (slot["focus_aspects"] or slot["avoid_aspects"]):
             continue
-        if row["query_type"] not in ALLOWED_QUERY_TYPES:
+        if row["query_type"] not in allowed_types:
             continue
         eligible_queries.append((row, slot))
 
-    if limit_queries:
+    if query_ids is not None:
+        eligible_queries.sort(key=lambda item: query_id_order[item[0]["query_id"]])
+
+    if limit_queries is not None:
         eligible_queries = eligible_queries[:limit_queries]
 
     units: list[dict[str, Any]] = []
@@ -140,21 +287,133 @@ def build_target_units(limit_queries: int | None = None) -> list[dict[str, Any]]
     return units
 
 
-def build_city_test_hotels(split_manifest: dict, review_df: pd.DataFrame) -> dict[str, list[dict[str, str]]]:
-    hotel_meta = (
-        review_df[["hotel_id", "city", "hotel_name"]]
-        .drop_duplicates("hotel_id")
-        .sort_values(["city", "hotel_name", "hotel_id"])
+def build_retrieval_metric_summary(metric_rows: list[dict[str, float]]) -> dict[str, float]:
+    if not metric_rows:
+        return {
+            "aspect_recall_at_5": 0.0,
+            "ndcg_at_5": 0.0,
+            "precision_at_5": 0.0,
+            "mrr_at_5": 0.0,
+            "evidence_diversity_at_5": 0.0,
+        }
+    summary = {}
+    for metric_name in [
+        "aspect_recall_at_5",
+        "ndcg_at_5",
+        "precision_at_5",
+        "mrr_at_5",
+        "evidence_diversity_at_5",
+    ]:
+        summary[metric_name] = round(
+            sum(float(row.get(metric_name, 0.0)) for row in metric_rows) / len(metric_rows),
+            4,
+        )
+    return summary
+
+
+def build_retrieval_summary_row(
+    *,
+    group_id: str,
+    query_count: int,
+    target_unit_count: int,
+    latencies: list[float],
+    metric_rows: list[dict[str, float]],
+    config_hash: str,
+    extra_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    summary = {
+        "group_id": group_id,
+        "query_count": query_count,
+        "target_unit_count": target_unit_count,
+        "avg_latency_ms": round(sum(latencies) / max(len(latencies), 1), 3),
+        "config_hash": config_hash,
+    }
+    summary.update(build_retrieval_metric_summary(metric_rows))
+    if extra_fields:
+        summary.update(extra_fields)
+    return summary
+
+
+def rows_to_evidence_pack(
+    *,
+    hotel_id: str,
+    query_en: str,
+    rows: list[dict[str, Any]],
+    retrieval_trace: dict[str, Any],
+) -> EvidencePack:
+    grouped: dict[str, list[SentenceCandidate]] = {}
+    all_sentence_ids: list[str] = []
+    for row in rows:
+        aspect_value: ASPECT_NAME = cast(ASPECT_NAME, str(row.get("sentence_aspect") or "general"))
+        candidate = SentenceCandidate(
+            sentence_id=row["sentence_id"],
+            sentence_text=row["sentence_text"],
+            aspect=aspect_value,
+            sentiment=row.get("sentence_sentiment", "neutral"),
+            review_date=row.get("review_date"),
+            score_dense=row.get("score_dense"),
+            score_rerank=row.get("score_rerank"),
+        )
+        grouped.setdefault(aspect_value, []).append(candidate)
+        all_sentence_ids.append(candidate.sentence_id)
+    return EvidencePack(
+        hotel_id=hotel_id,
+        query_en=query_en,
+        evidence_by_aspect=grouped,
+        all_sentence_ids=all_sentence_ids,
+        retrieval_trace=dict(retrieval_trace),
     )
-    test_ids = set(split_manifest["splits"]["test"])
-    hotel_meta = hotel_meta[hotel_meta["hotel_id"].isin(test_ids)].copy()
+
+
+def generation_unit_from_retrieval_assets(
+    *,
+    query_row: dict[str, Any],
+    slot_row: dict[str, Any],
+    candidate_hotels: list[HotelCandidate],
+    evidence_packs: list[EvidencePack],
+    retrieval_mode: str,
+    candidate_policy: str,
+    config_hash: str,
+) -> GenerationEvalUnit:
+    preference = UserPreference.model_validate(
+        {
+            "city": slot_row.get("city"),
+            "state": slot_row.get("state"),
+            "hotel_category": slot_row.get("hotel_category"),
+            "focus_aspects": slot_row.get("focus_aspects", []),
+            "avoid_aspects": slot_row.get("avoid_aspects", []),
+            "unsupported_requests": slot_row.get("unsupported_requests", []),
+            "query_en": slot_row["query_en"],
+        }
+    )
+    return GenerationEvalUnit(
+        query_id=query_row["query_id"],
+        query_text_zh=query_row["query_text_zh"],
+        query_type=query_row["query_type"],
+        user_preference_gold=preference,
+        unsupported_requests=slot_row.get("unsupported_requests", []),
+        candidate_hotels=candidate_hotels,
+        evidence_packs=evidence_packs,
+        retrieval_mode=retrieval_mode,
+        candidate_policy=candidate_policy,
+        config_hash=config_hash,
+    )
+
+
+def build_city_test_hotels(split_manifest: dict, review_df: pd.DataFrame) -> dict[str, list[dict[str, str]]]:
+    hotel_meta = cast(pd.DataFrame, review_df.loc[:, ["hotel_id", "city", "hotel_name"]].copy())
+    hotel_meta = cast(pd.DataFrame, hotel_meta.loc[~hotel_meta["hotel_id"].duplicated()].copy())
+    hotel_meta = cast(pd.DataFrame, hotel_meta.sort_values(["city", "hotel_name", "hotel_id"]))
+    test_ids = list(split_manifest["splits"]["test"])
+    hotel_meta = cast(pd.DataFrame, hotel_meta[hotel_meta["hotel_id"].isin(test_ids)].copy())
 
     city_map: dict[str, list[dict[str, str]]] = {}
     for city, group in hotel_meta.groupby("city", sort=True):
-        city_map[city] = [
+        city_key = str(city)
+        city_map[city_key] = [
             {
-                "hotel_id": row["hotel_id"],
-                "hotel_name": row["hotel_name"],
+                "hotel_id": str(row["hotel_id"]),
+                "hotel_name": str(row["hotel_name"]),
             }
             for _, row in group.iterrows()
         ]
@@ -197,6 +456,11 @@ def dense_query_hotel(
         if sentence_id not in evidence_lookup:
             continue
         meta = evidence_lookup[sentence_id]
+        review_date_value = meta.get("review_date")
+        review_date_iso = None
+        review_date_text = "" if review_date_value is None else str(review_date_value)
+        if review_date_text and review_date_text != "NaT":
+            review_date_iso = str(pd.Timestamp(review_date_text).date())
         rows.append(
             {
                 "hotel_id": hotel_id,
@@ -206,7 +470,7 @@ def dense_query_hotel(
                 "sentence_aspect": meta["aspect"],
                 "sentence_sentiment": meta["sentiment"],
                 "review_id": meta["review_id"],
-                "review_date": pd.Timestamp(meta["review_date"]).date().isoformat() if pd.notna(meta["review_date"]) else None,
+                "review_date": review_date_iso,
                 "score_dense": round(float(distances[idx]), 6),
                 "score_rerank": None,
                 "channel": channel,
@@ -239,7 +503,7 @@ def merge_dense_candidates(rows: list[dict[str, Any]], top_k: int) -> list[dict[
 def apply_rerank(
     query_text: str,
     rows: list[dict[str, Any]],
-    reranker: CrossEncoder,
+    reranker: Any,
     top_k: int,
 ) -> list[dict[str, Any]]:
     if not rows:
@@ -271,7 +535,7 @@ def evaluate_evidence_insufficiency(rows: list[dict[str, Any]]) -> tuple[bool, s
     return False, "sufficient_main_evidence"
 
 
-def warm_up_models(collection, bi_encoder: SentenceTransformer, reranker: CrossEncoder, normalize_embeddings: bool) -> None:
+def warm_up_models(collection, bi_encoder: Any, reranker: Any, normalize_embeddings: bool) -> None:
     warmup_embedding = bi_encoder.encode(
         ["hotel retrieval warmup query"],
         normalize_embeddings=normalize_embeddings,
@@ -289,8 +553,8 @@ def retrieve_official_mode(
     mode: str,
     city_hotels: list[dict[str, str]],
     collection,
-    bi_encoder: SentenceTransformer,
-    reranker: CrossEncoder,
+    bi_encoder: Any,
+    reranker: Any,
     normalize_embeddings: bool,
     dense_top_k: int,
     final_top_k: int,
@@ -500,24 +764,28 @@ def write_e6_labeling_log(
 def build_e6_qrels_pool(limit_queries: int | None = None) -> Path:
     cfg = load_config()
     split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
-    review_df = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
-    evidence_df = pd.read_pickle("data/intermediate/evidence_index.pkl")
+    review_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/cleaned_reviews.pkl"))
+    evidence_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/evidence_index.pkl"))
     city_test_hotels = build_city_test_hotels(split_manifest, review_df)
     evidence_lookup = build_evidence_lookup(evidence_df)
     target_units = build_target_units(limit_queries=limit_queries)
 
-    from chromadb import PersistentClient
-
+    PersistentClient = require_chromadb_client()
+    sentence_transformer_cls, cross_encoder_cls = require_retrieval_backends()
     client = PersistentClient(path=cfg["embedding"]["chroma_persist_dir"])
     collection = client.get_collection(cfg["embedding"]["chroma_collection"])
-    bi_encoder = SentenceTransformer(cfg["embedding"]["model"])
-    reranker = CrossEncoder(cfg["reranker"]["model"])
+    bi_encoder = sentence_transformer_cls(cfg["embedding"]["model"])
+    reranker = cross_encoder_cls(cfg["reranker"]["model"])
     normalize_embeddings = bool(cfg["embedding"].get("normalize", True))
     warm_up_models(collection, bi_encoder, reranker, normalize_embeddings)
 
     pool_rows: list[dict[str, Any]] = []
     for unit in target_units:
-        city_hotels = city_test_hotels[unit["city"]]
+        city_hotels = city_test_hotels.get(unit["city"])
+        if city_hotels is None:
+            raise KeyError(
+                f"City '{unit['city']}' for query {unit['query_id']} is missing from city_test_hotels during qrels pool build."
+            )
         mode_results = [
             retrieve_official_mode(
                 unit=unit,
@@ -731,6 +999,11 @@ def write_analysis_md(experiment_id: str, run_dir: Path, summary_rows: list[dict
         lines.append("- Compare dense-only ranking against dense + cross-encoder reranking.")
     else:
         lines.append("- Compare strict main-channel retrieval against main + fallback retrieval.")
+    lines.extend(
+        [
+            "- Unified retrieval metrics reported for all retrieval-side runs: Aspect Recall@5, nDCG@5, Precision@5, MRR@5, Evidence Diversity@5, Retrieval Latency.",
+        ]
+    )
 
     improvements, regressions = pairwise_cases(log_rows, group_a, group_b)
     lines.extend(["", "## Representative Improvements", ""])
@@ -784,20 +1057,21 @@ def run_retrieval_eval(
 ) -> Path:
     cfg = load_config()
     split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
-    review_df = pd.read_pickle("data/intermediate/cleaned_reviews.pkl")
-    evidence_df = pd.read_pickle("data/intermediate/evidence_index.pkl")
+    review_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/cleaned_reviews.pkl"))
+    evidence_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/evidence_index.pkl"))
     city_test_hotels = build_city_test_hotels(split_manifest, review_df)
     evidence_lookup = build_evidence_lookup(evidence_df)
     target_units = build_target_units(limit_queries=limit_queries)
     qrels_path = E6_LABELS_DIR / "qrels_evidence.jsonl"
     qrels_lookup = load_qrels_lookup(qrels_path)
+    qrels_rows = load_jsonl(qrels_path)
 
-    from chromadb import PersistentClient
-
+    PersistentClient = require_chromadb_client()
+    sentence_transformer_cls, cross_encoder_cls = require_retrieval_backends()
     client = PersistentClient(path=cfg["embedding"]["chroma_persist_dir"])
     collection = client.get_collection(cfg["embedding"]["chroma_collection"])
-    bi_encoder = SentenceTransformer(cfg["embedding"]["model"])
-    reranker = CrossEncoder(cfg["reranker"]["model"])
+    bi_encoder = sentence_transformer_cls(cfg["embedding"]["model"])
+    reranker = cross_encoder_cls(cfg["reranker"]["model"])
     normalize_embeddings = bool(cfg["embedding"].get("normalize", True))
     warm_up_models(collection, bi_encoder, reranker, normalize_embeddings)
 
@@ -819,7 +1093,7 @@ def run_retrieval_eval(
             "min_sentences": FALLBACK_MIN_SENTENCES,
             "min_unique_reviews": FALLBACK_MIN_UNIQUE_REVIEWS,
         },
-        "qrels_hash": stable_hash(load_jsonl(qrels_path)),
+        "qrels_hash": stable_hash({"rows": qrels_rows}),
         "official_modes": task_modes,
     }
 
@@ -853,7 +1127,11 @@ def run_retrieval_eval(
         latencies = []
 
         for unit in target_units:
-            city_hotels = city_test_hotels[unit["city"]]
+            city_hotels = city_test_hotels.get(unit["city"])
+            if city_hotels is None:
+                raise KeyError(
+                    f"City '{unit['city']}' for query {unit['query_id']} is missing from city_test_hotels during {experiment_id}."
+                )
             mode_result = retrieve_official_mode(
                 unit=unit,
                 mode=mode,
@@ -907,37 +1185,10 @@ def run_retrieval_eval(
             )
             log_rows.append(log_entry.model_dump())
 
-        summary = {
-            "group_id": mode,
-            "query_count": len({unit["query_id"] for unit in target_units}),
-            "target_unit_count": len(target_units),
-            "avg_latency_ms": round(sum(latencies) / max(len(latencies), 1), 3),
-            "config_hash": stable_hash(stable_run_config | {"retrieval_mode": mode}),
-        }
-
-        if experiment_id == "E6":
-            summary.update(
+        extra_fields: dict[str, Any] = {}
+        if experiment_id == "E8":
+            extra_fields.update(
                 {
-                    "aspect_recall_at_5": round(sum(row["aspect_recall_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                    "ndcg_at_5": round(sum(row["ndcg_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                    "mrr_at_5": round(sum(row["mrr_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                    "precision_at_5": round(sum(row["precision_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                    "evidence_diversity_at_5": round(sum(row["evidence_diversity_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                }
-            )
-        elif experiment_id == "E7":
-            summary.update(
-                {
-                    "ndcg_at_5": round(sum(row["ndcg_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                    "mrr_at_5": round(sum(row["mrr_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                    "precision_at_5": round(sum(row["precision_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                }
-            )
-        else:
-            summary.update(
-                {
-                    "ndcg_at_5": round(sum(row["ndcg_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
-                    "precision_at_5": round(sum(row["precision_at_5"] for row in metric_rows) / max(len(metric_rows), 1), 4),
                     "evidence_insufficiency_rate": round(sum(insufficiency_flags) / max(len(insufficiency_flags), 1), 4),
                     "fallback_activation_rate": round(sum(fallback_activation_flags) / max(len(fallback_activation_flags), 1), 4),
                     "fallback_noise_rate": round(
@@ -946,6 +1197,15 @@ def run_retrieval_eval(
                     ),
                 }
             )
+        summary = build_retrieval_summary_row(
+            group_id=mode,
+            query_count=len({unit["query_id"] for unit in target_units}),
+            target_unit_count=len(target_units),
+            latencies=latencies,
+            metric_rows=metric_rows,
+            config_hash=stable_hash(stable_run_config | {"retrieval_mode": mode}),
+            extra_fields=extra_fields,
+        )
 
         summary_rows.append(summary)
 
@@ -957,11 +1217,342 @@ def run_retrieval_eval(
     return run_dir
 
 
+def _hotel_candidates_from_ranked_df(top_candidates: pd.DataFrame) -> list[HotelCandidate]:
+    rows: list[HotelCandidate] = []
+    for _, candidate in top_candidates.iterrows():
+        score_breakdown_raw: dict[str, Any] = {}
+        score_breakdown_value = candidate["score_breakdown"] if "score_breakdown" in candidate else None
+        if isinstance(score_breakdown_value, dict):
+            score_breakdown_raw = score_breakdown_value
+        score_breakdown = {
+            str(key): float(value)
+            for key, value in score_breakdown_raw.items()
+        }
+        rows.append(
+            HotelCandidate(
+                hotel_id=str(candidate["hotel_id"]),
+                hotel_name=str(candidate["hotel_name"]),
+                score_total=float(cast(Any, candidate["score_total"])),
+                score_breakdown=score_breakdown,
+            )
+        )
+    return rows
+
+
+def freeze_g_retrieval_assets(
+    *,
+    output_path: Path,
+    retrieval_mode: str,
+    candidate_policy: str,
+    candidate_mode: str = "B_final_aspect_score",
+    query_ids: list[str] | None = None,
+    limit_queries: int | None = None,
+    top_k: int = 5,
+) -> Path:
+    from scripts.evaluation.evaluate_e2_candidate_selection import (
+        build_hotel_summary,
+        build_profile_tables,
+        candidate_rank,
+    )
+
+    cfg = load_config()
+    split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
+    judged_queries = {row["query_id"]: row for row in load_jsonl(EXPERIMENT_ASSETS_DIR / "judged_queries.jsonl")}
+    slot_gold = load_slot_gold_lookup()
+    clarify_gold = load_clarify_gold_lookup()
+    query_ids = list(query_ids or load_g_eval_query_ids())
+    if limit_queries is not None:
+        query_ids = query_ids[:limit_queries]
+    if not query_ids:
+        raise ValueError("No G-series query ids available for retrieval asset freeze after applying filters.")
+    duplicate_query_ids = sorted({query_id for query_id in query_ids if query_ids.count(query_id) > 1})
+    if duplicate_query_ids:
+        raise ValueError(f"Duplicate query ids provided for G retrieval asset freeze: {duplicate_query_ids}")
+    missing_judged = sorted(query_id for query_id in query_ids if query_id not in judged_queries)
+    missing_slot = sorted(query_id for query_id in query_ids if query_id not in slot_gold)
+    missing_clarify = sorted(query_id for query_id in query_ids if query_id not in clarify_gold)
+    if missing_judged or missing_slot or missing_clarify:
+        raise ValueError(
+            "Invalid G retrieval query ids: "
+            f"missing in judged_queries={missing_judged}, "
+            f"missing in slot_gold={missing_slot}, "
+            f"missing in clarify_gold={missing_clarify}"
+        )
+
+    review_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/cleaned_reviews.pkl"))
+    profile_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/hotel_profiles.pkl"))
+    evidence_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/evidence_index.pkl"))
+    hotel_summary = build_hotel_summary(review_df)
+    profile_current, profile_alt = build_profile_tables(profile_df)
+    hotel_summary = cast(
+        pd.DataFrame,
+        hotel_summary[hotel_summary["hotel_id"].isin(list(split_manifest["splits"]["test"]))].copy(),
+    )
+    city_test_hotels = build_city_test_hotels(split_manifest, review_df)
+    evidence_lookup = build_evidence_lookup(evidence_df)
+
+    PersistentClient = require_chromadb_client()
+    sentence_transformer_cls, cross_encoder_cls = require_retrieval_backends()
+    client = PersistentClient(path=cfg["embedding"]["chroma_persist_dir"])
+    collection = client.get_collection(cfg["embedding"]["chroma_collection"])
+    bi_encoder = sentence_transformer_cls(cfg["embedding"]["model"])
+    reranker = cross_encoder_cls(cfg["reranker"]["model"])
+    normalize_embeddings = bool(cfg["embedding"].get("normalize", True))
+    warm_up_models(collection, bi_encoder, reranker, normalize_embeddings)
+
+    stable_run_config = {
+        "task": "G_retrieval_asset_freeze",
+        "retrieval_mode": retrieval_mode,
+        "candidate_mode": candidate_mode,
+        "candidate_policy": candidate_policy,
+        "query_ids": query_ids,
+        "query_count": len(query_ids),
+        "top_k": top_k,
+        "dense_top_k": cfg["reranker"]["top_k_before_rerank"],
+        "final_top_k": cfg["reranker"]["top_k_after_rerank"],
+        "embedding_model": cfg["embedding"]["model"],
+        "reranker_model": cfg["reranker"]["model"],
+        "split_config_hash": split_manifest["meta"]["config_hash"],
+    }
+    config_hash = stable_hash(stable_run_config)
+
+    units: list[dict[str, Any]] = []
+    for query_id in query_ids:
+        query_row = judged_queries[query_id]
+        slot_row = slot_gold[query_id]
+        clarify_row = clarify_gold[query_id]
+        if clarify_row.get("clarify_needed"):
+            raise AssertionError(f"Clarification-required query should not enter G retrieval assets: {query_id}")
+        city = slot_row["city"]
+        if city not in city_test_hotels:
+            raise KeyError(f"City '{city}' for query {query_id} is missing from city_test_hotels during G retrieval asset freeze.")
+        city_hotels_df = cast(pd.DataFrame, hotel_summary[hotel_summary["city"] == city].copy())
+        ranked = candidate_rank(
+            city_hotels_df,
+            profile_current,
+            profile_alt,
+            slot_row.get("focus_aspects", []),
+            slot_row.get("avoid_aspects", []),
+            candidate_mode,
+        )
+        top_candidates_df = cast(pd.DataFrame, ranked.head(top_k).copy())
+        candidate_hotels = _hotel_candidates_from_ranked_df(top_candidates_df)
+        if not candidate_hotels:
+            raise ValueError(
+                f"No candidate hotels produced for query {query_id} in city '{city}' under candidate_mode={candidate_mode} and top_k={top_k}."
+            )
+
+        evidence_packs: list[EvidencePack] = []
+        for hotel in candidate_hotels:
+            evidence_by_aspect: dict[str, list[SentenceCandidate]] = {}
+            all_sentence_ids: list[str] = []
+            retrieval_trace: dict[str, Any] = {
+                "mode": retrieval_mode,
+                "query_type": query_row["query_type"],
+                "candidate_policy": candidate_policy,
+                "source_query_id": query_id,
+                "hotel_name": hotel.hotel_name,
+                "aspect_roles": {},
+                "per_aspect_traces": {},
+                "fallback_enabled": retrieval_mode == "aspect_main_fallback_rerank",
+            }
+
+            aspect_targets = [(aspect, "focus") for aspect in slot_row.get("focus_aspects", [])] + [
+                (aspect, "avoid") for aspect in slot_row.get("avoid_aspects", [])
+            ]
+
+            for aspect, target_role in aspect_targets:
+                unit = {
+                    "query_id": query_id,
+                    "city": city,
+                    "query_type": query_row["query_type"],
+                    "target_aspect": aspect,
+                    "target_role": target_role,
+                    "query_text_zh": query_row["query_text_zh"],
+                    "query_en_full": slot_row["query_en"],
+                    "query_en_target": build_query_en_target(city, aspect, target_role),
+                }
+                mode_result = retrieve_official_mode(
+                    unit=unit,
+                    mode=retrieval_mode,
+                    city_hotels=[{"hotel_id": hotel.hotel_id, "hotel_name": hotel.hotel_name}],
+                    collection=collection,
+                    bi_encoder=bi_encoder,
+                    reranker=reranker,
+                    normalize_embeddings=normalize_embeddings,
+                    dense_top_k=cfg["reranker"]["top_k_before_rerank"],
+                    final_top_k=cfg["reranker"]["top_k_after_rerank"],
+                    evidence_lookup=evidence_lookup,
+                )
+                retrieval_trace["aspect_roles"].setdefault(aspect, []).append(target_role)
+                retrieval_trace["per_aspect_traces"].setdefault(aspect, {})[target_role] = dict(mode_result["retrieval_trace"])
+                evidence_by_aspect[aspect] = [
+                    SentenceCandidate.model_validate(
+                        {
+                            "sentence_id": row["sentence_id"],
+                            "sentence_text": row["sentence_text"],
+                            "aspect": row.get("sentence_aspect") or aspect,
+                            "sentiment": row.get("sentence_sentiment", "neutral"),
+                            "review_date": row.get("review_date"),
+                            "score_dense": row.get("score_dense"),
+                            "score_rerank": row.get("score_rerank"),
+                        }
+                    )
+                    for row in mode_result["rows"]
+                ]
+                all_sentence_ids.extend(sentence.sentence_id for sentence in evidence_by_aspect[aspect])
+
+            evidence_packs.append(
+                EvidencePack(
+                    hotel_id=hotel.hotel_id,
+                    query_en=slot_row["query_en"],
+                    evidence_by_aspect=evidence_by_aspect,
+                    all_sentence_ids=list(dict.fromkeys(all_sentence_ids)),
+                    retrieval_trace=retrieval_trace,
+                )
+            )
+
+        generation_unit = generation_unit_from_retrieval_assets(
+            query_row=query_row,
+            slot_row=slot_row,
+            candidate_hotels=candidate_hotels,
+            evidence_packs=evidence_packs,
+            retrieval_mode=retrieval_mode,
+            candidate_policy=candidate_policy,
+            config_hash=config_hash,
+        )
+        units.append(generation_unit.model_dump())
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_jsonl(output_path, units)
+    return output_path
+
+
+def freeze_g_plain_retrieval_assets(
+    output_path: Path = G_PLAIN_RETRIEVAL_UNITS_PATH,
+    *,
+    query_ids: list[str] | None = None,
+    limit_queries: int | None = None,
+) -> Path:
+    return freeze_g_retrieval_assets(
+        output_path=output_path,
+        retrieval_mode="plain_city_test_rerank",
+        candidate_policy="G_plain_retrieval_top5",
+        query_ids=query_ids,
+        limit_queries=limit_queries,
+    )
+
+
+def freeze_g_aspect_retrieval_assets(
+    output_path: Path = G_ASPECT_RETRIEVAL_UNITS_PATH,
+    *,
+    query_ids: list[str] | None = None,
+    limit_queries: int | None = None,
+) -> Path:
+    return freeze_g_retrieval_assets(
+        output_path=output_path,
+        retrieval_mode="aspect_main_no_rerank",
+        candidate_policy="G_aspect_retrieval_top5",
+        query_ids=query_ids,
+        limit_queries=limit_queries,
+    )
+
+
+def validate_g_retrieval_assets(
+    asset_path: Path,
+    *,
+    expected_retrieval_mode: str | None = None,
+    expected_candidate_policy: str | None = None,
+    expected_query_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    if not asset_path.exists():
+        raise FileNotFoundError(f"Missing G retrieval asset file: {asset_path}")
+
+    expected_query_ids = list(expected_query_ids or load_g_eval_query_ids())
+    expected_query_id_set = set(expected_query_ids)
+    rows = load_jsonl(asset_path)
+    if not rows:
+        raise ValueError(f"G retrieval asset file is empty: {asset_path}")
+
+    units = [GenerationEvalUnit.model_validate(row) for row in rows]
+    query_ids = [unit.query_id for unit in units]
+    duplicate_query_ids = sorted({query_id for query_id in query_ids if query_ids.count(query_id) > 1})
+    if duplicate_query_ids:
+        raise ValueError(f"Duplicate query ids found in {asset_path}: {duplicate_query_ids}")
+
+    actual_query_id_set = set(query_ids)
+    missing_query_ids = sorted(expected_query_id_set - actual_query_id_set)
+    unexpected_query_ids = sorted(actual_query_id_set - expected_query_id_set)
+    if missing_query_ids or unexpected_query_ids:
+        raise ValueError(
+            f"Query id mismatch in {asset_path}: missing={missing_query_ids}, unexpected={unexpected_query_ids}"
+        )
+
+    for unit in units:
+        if expected_retrieval_mode and unit.retrieval_mode != expected_retrieval_mode:
+            raise ValueError(
+                f"Unexpected retrieval_mode for query {unit.query_id}: expected {expected_retrieval_mode}, got {unit.retrieval_mode}"
+            )
+        if expected_candidate_policy and unit.candidate_policy != expected_candidate_policy:
+            raise ValueError(
+                f"Unexpected candidate_policy for query {unit.query_id}: expected {expected_candidate_policy}, got {unit.candidate_policy}"
+            )
+        if not unit.candidate_hotels:
+            raise ValueError(f"Query {unit.query_id} has no candidate_hotels in {asset_path}")
+        if len(unit.candidate_hotels) != len(unit.evidence_packs):
+            raise ValueError(
+                f"Query {unit.query_id} has candidate/evidence count mismatch in {asset_path}: "
+                f"{len(unit.candidate_hotels)} candidates vs {len(unit.evidence_packs)} evidence packs"
+            )
+        if not unit.user_preference_gold.focus_aspects and not unit.user_preference_gold.avoid_aspects:
+            raise ValueError(f"Query {unit.query_id} has empty user preference aspects in {asset_path}")
+
+        candidate_ids = [candidate.hotel_id for candidate in unit.candidate_hotels]
+        evidence_ids = [pack.hotel_id for pack in unit.evidence_packs]
+        if candidate_ids != evidence_ids:
+            raise ValueError(
+                f"Query {unit.query_id} has candidate/evidence hotel order mismatch in {asset_path}: "
+                f"candidates={candidate_ids}, evidence_packs={evidence_ids}"
+            )
+
+        expected_aspects = {str(aspect) for aspect in unit.user_preference_gold.focus_aspects} | {
+            str(aspect) for aspect in unit.user_preference_gold.avoid_aspects
+        }
+        for pack in unit.evidence_packs:
+            available_aspects = {str(aspect) for aspect in pack.evidence_by_aspect}
+            missing_aspects = sorted(expected_aspects - available_aspects)
+            if missing_aspects:
+                raise ValueError(
+                    f"Query {unit.query_id} hotel {pack.hotel_id} is missing evidence aspects {missing_aspects} in {asset_path}"
+                )
+            if not pack.all_sentence_ids:
+                raise ValueError(f"Query {unit.query_id} hotel {pack.hotel_id} has empty all_sentence_ids in {asset_path}")
+
+    return {
+        "asset_path": str(asset_path),
+        "query_count": len(units),
+        "retrieval_mode": expected_retrieval_mode or units[0].retrieval_mode,
+        "candidate_policy": expected_candidate_policy or units[0].candidate_policy,
+        "query_ids": query_ids,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--action",
-        choices=["build_qrels_pool", "freeze_qrels", "run_e6", "run_e7", "run_e8"],
+        choices=[
+            "build_qrels_pool",
+            "freeze_qrels",
+            "build_g_eval_query_ids",
+            "freeze_g_plain_assets",
+            "freeze_g_aspect_assets",
+            "validate_g_plain_assets",
+            "validate_g_aspect_assets",
+            "run_e6",
+            "run_e7",
+            "run_e8",
+        ],
         required=True,
     )
     parser.add_argument("--output-root", default=str(EXPERIMENT_RUNS_DIR))
@@ -975,6 +1566,34 @@ def main() -> None:
     if args.action == "freeze_qrels":
         path = freeze_e6_qrels()
         print(f"[OK] qrels frozen to {path}")
+        return
+    if args.action == "build_g_eval_query_ids":
+        path = write_g_eval_query_ids_asset()
+        print(f"[OK] G-series query ids written to {path}")
+        return
+    if args.action == "freeze_g_plain_assets":
+        path = freeze_g_plain_retrieval_assets(limit_queries=args.limit_queries)
+        print(f"[OK] G plain retrieval assets written to {path}")
+        return
+    if args.action == "freeze_g_aspect_assets":
+        path = freeze_g_aspect_retrieval_assets(limit_queries=args.limit_queries)
+        print(f"[OK] G aspect retrieval assets written to {path}")
+        return
+    if args.action == "validate_g_plain_assets":
+        summary = validate_g_retrieval_assets(
+            G_PLAIN_RETRIEVAL_UNITS_PATH,
+            expected_retrieval_mode="plain_city_test_rerank",
+            expected_candidate_policy="G_plain_retrieval_top5",
+        )
+        print(f"[OK] G plain retrieval assets validated: {summary}")
+        return
+    if args.action == "validate_g_aspect_assets":
+        summary = validate_g_retrieval_assets(
+            G_ASPECT_RETRIEVAL_UNITS_PATH,
+            expected_retrieval_mode="aspect_main_no_rerank",
+            expected_candidate_policy="G_aspect_retrieval_top5",
+        )
+        print(f"[OK] G aspect retrieval assets validated: {summary}")
         return
 
     output_root = Path(args.output_root)
