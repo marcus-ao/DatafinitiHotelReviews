@@ -464,6 +464,7 @@ class RunExperimentSuiteDispatchTests(unittest.TestCase):
             run_dirs = list(output_root.glob("gblind_*"))
             self.assertEqual(len(run_dirs), 1)
             self.assertTrue((run_dirs[0] / "blind_review_worksheet.csv").exists())
+            self.assertTrue((run_dirs[0] / "blind_review_mapping.csv").exists())
             run_meta = json.loads((run_dirs[0] / "run_meta.json").read_text(encoding="utf-8"))
             self.assertEqual(run_meta["task"], "G_BLIND_REVIEW_EXPORT")
             self.assertEqual(run_meta["group_ids"], ["G1", "G2"])

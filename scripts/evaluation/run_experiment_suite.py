@@ -9,6 +9,7 @@ from typing import Any, Iterable, Mapping, cast
 
 import pandas as pd
 
+from scripts.evaluation.llm_judge import DEFAULT_JUDGE_MODEL
 from scripts.shared.experiment_utils import stable_hash
 from scripts.shared.experiment_utils import EXPERIMENT_RUNS_DIR
 from scripts.shared.experiment_utils import utc_now_iso
@@ -211,7 +212,7 @@ def main() -> None:
     parser.add_argument("--right-label", default=None)
     parser.add_argument("--input-path", default=None)
     parser.add_argument("--metrics", default=None)
-    parser.add_argument("--model", default="gpt-4o")
+    parser.add_argument("--model", default=DEFAULT_JUDGE_MODEL)
     parser.add_argument("--sample-size", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--include-ablation", action="store_true")
@@ -418,6 +419,7 @@ def main() -> None:
         write_json(run_dir / "run_meta.json", {"task": "G_BATCH_LLM_JUDGE", "input_path": str(input_path), "model": args.model, "score_count": len(result["score_rows"])})
         print(f"[OK] batch judge outputs written to {run_dir}")
     elif args.task == "g_export_blind_review_pack":
+        from scripts.evaluation.blind_review_export import blind_review_mapping_output_path
         from scripts.evaluation.blind_review_export import export_blind_review_pack
         from scripts.evaluation.blind_review_export import export_blind_review_worksheet
 
@@ -447,6 +449,12 @@ def main() -> None:
             sample_size=args.sample_size,
             seed=args.seed,
         )
+        mapping_output_path = blind_review_mapping_output_path(output_path)
+        if not mapping_output_path.exists():
+            pd.DataFrame.from_records(
+                [],
+                columns=["review_item_id", "query_bundle_id", "blind_label", "source_group_id", "source_query_id"],
+            ).to_csv(mapping_output_path, index=False, encoding="utf-8-sig")
         worksheet_rows = export_blind_review_worksheet(blind_rows, worksheet_path)
         if not worksheet_path.exists():
             pd.DataFrame(worksheet_rows).to_csv(worksheet_path, index=False, encoding="utf-8-sig")

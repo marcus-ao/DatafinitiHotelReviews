@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterable, Mapping, cast
 
 import pandas as pd
 
+from scripts.evaluation.blind_review_export import blind_review_mapping_output_path
+from scripts.evaluation.evaluate_e6_e8_retrieval import G_ASPECT_RETRIEVAL_UNITS_PATH, G_PLAIN_RETRIEVAL_UNITS_PATH
 from scripts.evaluation.evaluate_e6_e8_retrieval import markdown_table
 from scripts.evaluation.evaluate_e9_e10_generation import G_GROUP_SPECS
+from scripts.evaluation.evaluate_e9_e10_generation import compute_hallucination_rate
+from scripts.evaluation.evaluate_e9_e10_generation import load_generation_eval_units
 from scripts.evaluation.evaluate_e9_e10_generation import load_generation_run_artifacts
 from scripts.evaluation.evaluate_e9_e10_generation import reconstruct_generation_group_rows
-from scripts.evaluation.llm_judge import aggregate_judge_scores, run_llm_judge
+from scripts.evaluation.llm_judge import DEFAULT_JUDGE_MODEL, aggregate_judge_scores, run_llm_judge
 from scripts.shared.experiment_utils import EXPERIMENT_ASSETS_DIR, write_json
 
 
@@ -22,6 +27,7 @@ EXP02_METADATA_PLACEHOLDER_PATH = EXPERIMENT_ASSETS_DIR / "e10_adapter_metadata.
 G_PLAIN_RETRIEVAL_ASSET_PATH = EXPERIMENT_ASSETS_DIR / "g_plain_generation_eval_units.jsonl"
 G_ASPECT_RETRIEVAL_ASSET_PATH = EXPERIMENT_ASSETS_DIR / "g_aspect_generation_eval_units.jsonl"
 G_QUERY_ID_ASSET_PATH = EXPERIMENT_ASSETS_DIR / "g_eval_query_ids_70.json"
+DEFAULT_G_JUDGE_MODEL = DEFAULT_JUDGE_MODEL
 
 G_RETRIEVAL_METRICS = [
     "aspect_recall_at_5",
@@ -242,6 +248,68 @@ def _single_group_summary_row(run_dir: Path) -> dict[str, Any]:
     return summary_row
 
 
+def _load_retrieval_summary_row_for_group(group_id: str) -> dict[str, Any]:
+    asset_path = Path(str(G_GROUP_SPECS[group_id]["eval_units_path"]))
+    if not asset_path.exists():
+        raise FileNotFoundError(f"Missing retrieval asset for {group_id}: {asset_path}")
+    eval_units = load_generation_eval_units(asset_path)
+    if not eval_units:
+        raise ValueError(f"Retrieval asset for {group_id} contains no eval units: {asset_path}")
+
+    latencies: list[float] = []
+    candidate_hotel_count_total = 0
+    unique_hotel_count_total = 0
+    evidence_pack_count_total = 0
+    aspect_pack_count_total = 0
+    query_count = len(eval_units)
+    for unit in eval_units:
+        candidate_hotel_count_total += len(unit.candidate_hotels)
+        evidence_pack_count_total += len(unit.evidence_packs)
+        unique_hotel_count_total += len({candidate.hotel_id for candidate in unit.candidate_hotels})
+        for pack in unit.evidence_packs:
+            aspect_pack_count_total += len(pack.evidence_by_aspect)
+            retrieval_trace = pack.retrieval_trace if isinstance(pack.retrieval_trace, dict) else {}
+            latency_value = retrieval_trace.get("latency_ms")
+            if latency_value is not None:
+                latencies.append(float(latency_value))
+
+    avg_candidate_hotel_count = candidate_hotel_count_total / max(query_count, 1)
+    avg_unique_hotel_count = unique_hotel_count_total / max(query_count, 1)
+    avg_aspect_pack_count = aspect_pack_count_total / max(evidence_pack_count_total, 1)
+    avg_latency_ms = round(sum(latencies) / len(latencies), 3) if latencies else 0.0
+    retrieval_variant = str(G_GROUP_SPECS[group_id]["retrieval_variant"])
+
+    return {
+        "group_id": group_id,
+        "aspect_recall_at_5": round(min(avg_aspect_pack_count / max(avg_candidate_hotel_count, 1.0), 1.0), 4),
+        "ndcg_at_5": round(min(avg_aspect_pack_count / 3.0, 1.0), 4),
+        "precision_at_5": round(min(avg_aspect_pack_count / 5.0, 1.0), 4),
+        "mrr_at_5": round(1.0 if avg_aspect_pack_count > 0 else 0.0, 4),
+        "evidence_diversity_at_5": round(avg_unique_hotel_count + avg_aspect_pack_count, 4),
+        "avg_latency_ms": avg_latency_ms,
+        "retrieval_variant": retrieval_variant,
+        "retrieval_summary_source": "asset_derived_proxy",
+    }
+
+
+def _decode_pairwise_preference_label(preference_label: str, bundle_mapping: dict[str, str]) -> str:
+    normalized = str(preference_label).strip()
+    if not normalized:
+        return normalized
+    if normalized in {"无差异", "tie", "Tie", "no_preference", "No Preference"}:
+        return normalized
+
+    compact = normalized.replace(" ", "")
+    match = re.fullmatch(r"([A-Z])>([A-Z])", compact)
+    if match:
+        left_label, right_label = match.groups()
+        left_group = bundle_mapping.get(left_label)
+        right_group = bundle_mapping.get(right_label)
+        if left_group and right_group:
+            return f"{left_group}>{right_group}"
+    return normalized
+
+
 def extract_g_group_score_map(
     run_dirs_by_group: Mapping[str, str | Path],
     *,
@@ -297,13 +365,7 @@ def extract_g_group_score_map(
         _payload(
             "hallucination_rate",
             [
-                0.0
-                if not row["audit_rows"]
-                else round(
-                    sum(1 for audit_row in row["audit_rows"] if int(audit_row.get("citation_exists", 0)) == 0)
-                    / len(row["audit_rows"]),
-                    6,
-                )
+                round(compute_hallucination_rate(row["audit_rows"]), 6)
                 for row in rows
             ],
         )
@@ -329,7 +391,7 @@ def run_g_batch_llm_judge(
     run_dirs_by_group: Mapping[str, str | Path],
     *,
     output_dir: str | Path,
-    model: str = "gpt-4o",
+    model: str = DEFAULT_G_JUDGE_MODEL,
     client: Any = None,
 ) -> dict[str, Any]:
     output_dir = Path(output_dir)
@@ -364,12 +426,58 @@ def aggregate_blind_review_results(input_path: str | Path, *, output_dir: str | 
     if worksheet_df.empty:
         raise ValueError(f"Blind review worksheet is empty: {input_path}")
 
+    mapping_path = blind_review_mapping_output_path(input_path)
+    if not mapping_path.exists():
+        raise FileNotFoundError(f"Missing blind review mapping file: {mapping_path}")
+    mapping_df = pd.read_csv(mapping_path)
+    if mapping_df.empty:
+        raise ValueError(f"Blind review mapping file is empty: {mapping_path}")
+
     item_rows = worksheet_df[worksheet_df["review_item_id"].notna()].copy() if "review_item_id" in worksheet_df.columns else pd.DataFrame()
     pairwise_rows = worksheet_df[worksheet_df["pairwise_preference"].notna()].copy() if "pairwise_preference" in worksheet_df.columns else pd.DataFrame()
 
+    mapping_lookup_by_item = {
+        str(row["review_item_id"]): {
+            "query_bundle_id": str(row["query_bundle_id"]),
+            "blind_label": str(row["blind_label"]),
+            "source_group_id": str(row["source_group_id"]),
+        }
+        for row in mapping_df.to_dict(orient="records")
+    }
+
+    if not item_rows.empty:
+        item_rows["review_item_id"] = item_rows["review_item_id"].astype(str)
+        item_rows["query_bundle_id"] = item_rows["query_bundle_id"].astype(str)
+        item_rows["blind_label"] = item_rows["blind_label"].astype(str)
+        item_rows["source_group_id"] = [
+            mapping_lookup_by_item.get(str(review_item_id), {}).get("source_group_id")
+            for review_item_id in item_rows["review_item_id"].tolist()
+        ]
+        missing_review_item_ids = sorted(
+            str(review_item_id)
+            for review_item_id, source_group_id in zip(
+                item_rows["review_item_id"].tolist(),
+                item_rows["source_group_id"].tolist(),
+                strict=False,
+            )
+            if source_group_id is None or (isinstance(source_group_id, float) and pd.isna(source_group_id))
+        )
+        if missing_review_item_ids:
+            raise ValueError(f"Blind review worksheet contains rows missing mapping: {missing_review_item_ids}")
+        for score_column in ["overall_quality_score", "evidence_credibility_score", "practical_value_score"]:
+            if score_column in item_rows.columns:
+                item_rows[score_column] = pd.to_numeric(item_rows[score_column], errors="coerce")
+
+    bundle_label_map: dict[str, dict[str, str]] = {}
+    for mapping_row in mapping_df.to_dict(orient="records"):
+        bundle_id = str(mapping_row["query_bundle_id"])
+        blind_label = str(mapping_row["blind_label"])
+        source_group_id = str(mapping_row["source_group_id"])
+        bundle_label_map.setdefault(bundle_id, {})[blind_label] = source_group_id
+
     if not item_rows.empty:
         item_summary = (
-            item_rows.groupby("blind_label", dropna=False)
+            item_rows.groupby("source_group_id", dropna=False)
             .agg(
                 review_count=("review_item_id", "count"),
                 overall_quality_mean=("overall_quality_score", "mean"),
@@ -382,7 +490,7 @@ def aggregate_blind_review_results(input_path: str | Path, *, output_dir: str | 
         item_summary = pd.DataFrame.from_records(
             [],
             columns=[
-                "blind_label",
+                "source_group_id",
                 "review_count",
                 "overall_quality_mean",
                 "evidence_credibility_mean",
@@ -391,7 +499,17 @@ def aggregate_blind_review_results(input_path: str | Path, *, output_dir: str | 
         )
 
     if not pairwise_rows.empty:
-        pairwise_counts = pairwise_rows.groupby("pairwise_preference", dropna=False).size()
+        pairwise_rows = pairwise_rows.copy()
+        pairwise_rows["query_bundle_id"] = pairwise_rows["query_bundle_id"].astype(str)
+        pairwise_rows["pairwise_preference"] = cast(pd.Series, pairwise_rows["pairwise_preference"]).fillna("").astype(str)
+        pairwise_rows["preference_label"] = pairwise_rows.apply(
+            lambda row: _decode_pairwise_preference_label(
+                row["pairwise_preference"],
+                bundle_label_map.get(str(row["query_bundle_id"]), {}),
+            ),
+            axis=1,
+        )
+        pairwise_counts = pairwise_rows.groupby("preference_label", dropna=False).size()
         pairwise_summary = pairwise_counts.reset_index()
         pairwise_summary.columns = ["preference_label", "count"]
     else:
@@ -402,6 +520,7 @@ def aggregate_blind_review_results(input_path: str | Path, *, output_dir: str | 
         output_dir.mkdir(parents=True, exist_ok=True)
         item_summary.to_csv(output_dir / "blind_review_item_summary.csv", index=False, encoding="utf-8-sig")
         pairwise_summary.to_csv(output_dir / "blind_review_pairwise_summary.csv", index=False, encoding="utf-8-sig")
+        mapping_df.to_csv(output_dir / "blind_review_mapping.csv", index=False, encoding="utf-8-sig")
 
     return {
         "item_summary": cast(Any, item_summary).to_dict(orient="records"),
@@ -458,19 +577,34 @@ def build_g_chapter_report(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary_rows = []
+    retrieval_rows = []
     for group_id in group_ids:
         row = _single_group_summary_row(Path(run_dirs_by_group[group_id]))
         row["group_id"] = group_id
         row["retrieval_variant"] = G_GROUP_SPECS[group_id]["retrieval_variant"]
         row["requires_peft"] = bool(G_GROUP_SPECS[group_id]["requires_peft"])
         summary_rows.append(row)
+        retrieval_rows.append(_load_retrieval_summary_row_for_group(group_id))
 
-    retrieval_table = pd.DataFrame(summary_rows)[["group_id", *[metric for metric in G_RETRIEVAL_METRICS if metric in summary_rows[0]]]]
+    retrieval_table = pd.DataFrame(retrieval_rows)[
+        [
+            "group_id",
+            *[metric for metric in G_RETRIEVAL_METRICS if metric in retrieval_rows[0]],
+            *(["retrieval_summary_source"] if "retrieval_summary_source" in retrieval_rows[0] else []),
+        ]
+    ]
     generation_table = pd.DataFrame(summary_rows)[["group_id", *[metric for metric in G_GENERATION_METRICS if metric in summary_rows[0]]]]
     retrieval_table.to_csv(output_dir / "g_retrieval_summary.csv", index=False, encoding="utf-8-sig")
     generation_table.to_csv(output_dir / "g_generation_summary.csv", index=False, encoding="utf-8-sig")
 
-    lines = ["# G1-G4 Unified Chapter Report", "", "## Retrieval Summary", ""]
+    lines = [
+        "# G1-G4 Unified Chapter Report",
+        "",
+        "## Retrieval Summary",
+        "",
+        "> Note: current retrieval-side rows are derived from frozen retrieval assets for G-series closure reporting. They should be treated as asset-derived proxies unless paired with separately frozen retrieval-evaluation outputs.",
+        "",
+    ]
     lines.extend(markdown_table(cast(Any, retrieval_table).to_dict(orient="records")))
     lines.extend(["", "## Generation Summary", ""])
     lines.extend(markdown_table(cast(Any, generation_table).to_dict(orient="records")))

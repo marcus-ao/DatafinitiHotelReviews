@@ -52,6 +52,12 @@ class BlindReviewExportTestCase(unittest.TestCase):
         self.assertTrue(all("response_text" in row for row in rows_a))
         self.assertTrue(all("unsupported_notice" in row for row in rows_a))
         self.assertTrue(all(row["response_text"] for row in rows_a))
+        label_by_group = {
+            str(row["review_item_id"]).split("_")[-1]: row["response_summary"]
+            for row in rows_a
+            if row["query_bundle_id"] == "bundle_001"
+        }
+        self.assertEqual(sorted(label_by_group), ["A", "B"])
 
     def test_build_blind_review_rows_rejects_non_positive_sample_size(self):
         with self.assertRaises(ValueError):
@@ -136,6 +142,45 @@ class BlindReviewExportTestCase(unittest.TestCase):
         self.assertEqual(worksheet_rows[-1]["query_bundle_id"], "bundle_001")
         self.assertEqual(worksheet_rows[-1]["pairwise_preference"], "")
         self.assertEqual(worksheet_rows[-1]["available_blind_labels"], "A,B")
+
+    def test_export_blind_review_pack_writes_hidden_mapping_file(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            run_dirs = {}
+            for group_id in ["G1", "G2"]:
+                run_dir = tmp_path / group_id
+                run_dir.mkdir()
+                run_dirs[group_id] = run_dir
+                rows = [
+                    {
+                        "query_id": "q001",
+                        "group_id": group_id,
+                        "intermediate_objects": {
+                            "eval_unit": {"query_id": "q001", "query_text_zh": "q001 的查询"},
+                            "response": {
+                                "query_id": "q001",
+                                "group_id": group_id,
+                                "summary": f"{group_id} 推荐摘要",
+                                "recommendations": [],
+                                "unsupported_notice": "",
+                            },
+                        },
+                    }
+                ]
+                (run_dir / "results.jsonl").write_text(
+                    "\n".join(json.dumps(row, ensure_ascii=False) for row in rows),
+                    encoding="utf-8",
+                )
+
+            output_path = tmp_path / "blind_review_pack.csv"
+            blind_rows = blind_mod.export_blind_review_pack(run_dirs, output_path, sample_size=1, seed=7)
+            mapping_path = blind_mod.blind_review_mapping_output_path(output_path)
+            self.assertEqual(len(blind_rows), 2)
+            self.assertTrue(mapping_path.exists())
+            mapping_text = mapping_path.read_text(encoding="utf-8")
+            self.assertIn("source_group_id", mapping_text)
+            self.assertIn("G1", mapping_text)
+            self.assertIn("G2", mapping_text)
 
 
 if __name__ == "__main__":

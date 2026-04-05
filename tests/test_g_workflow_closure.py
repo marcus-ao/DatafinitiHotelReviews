@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 
@@ -39,6 +40,15 @@ class GWorkflowClosureTestCase(unittest.TestCase):
                         "pairwise_preference": None,
                     },
                     {
+                        "review_item_id": "blind_001_B",
+                        "query_bundle_id": "bundle_001",
+                        "blind_label": "B",
+                        "overall_quality_score": 3,
+                        "evidence_credibility_score": 4,
+                        "practical_value_score": 3,
+                        "pairwise_preference": None,
+                    },
+                    {
                         "review_item_id": None,
                         "query_bundle_id": "bundle_001",
                         "blind_label": None,
@@ -49,9 +59,106 @@ class GWorkflowClosureTestCase(unittest.TestCase):
                     },
                 ]
             ).to_csv(input_path, index=False, encoding="utf-8-sig")
+            mapping_path = Path(tempdir) / "blind_review_mapping.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "review_item_id": "blind_001_A",
+                        "query_bundle_id": "bundle_001",
+                        "blind_label": "A",
+                        "source_group_id": "G2",
+                        "source_query_id": "q001",
+                    },
+                    {
+                        "review_item_id": "blind_001_B",
+                        "query_bundle_id": "bundle_001",
+                        "blind_label": "B",
+                        "source_group_id": "G1",
+                        "source_query_id": "q001",
+                    },
+                ]
+            ).to_csv(mapping_path, index=False, encoding="utf-8-sig")
             result = closure_mod.aggregate_blind_review_results(input_path)
-            self.assertEqual(result["item_summary"][0]["blind_label"], "A")
-            self.assertEqual(result["pairwise_summary"][0]["preference_label"], "A>B")
+            self.assertEqual(result["item_summary"][0]["source_group_id"], "G1")
+            self.assertEqual(result["pairwise_summary"][0]["preference_label"], "G2>G1")
+
+    def test_build_g_chapter_report_writes_retrieval_and_generation_tables(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_root = Path(tempdir)
+            run_dirs = {}
+            for group_id in ["G1", "G2", "G3", "G4"]:
+                run_dir = temp_root / group_id.lower()
+                run_dir.mkdir()
+                pd.DataFrame(
+                    [
+                        {
+                            "schema_valid_rate": 1.0,
+                            "citation_precision": 0.9,
+                            "evidence_verifiability_mean": 1.5,
+                            "recommendation_coverage": 0.8,
+                            "aspect_alignment_rate": 0.7,
+                            "hallucination_rate": 0.1,
+                            "unsupported_honesty_rate": 1.0,
+                        }
+                    ]
+                ).to_csv(run_dir / "summary.csv", index=False, encoding="utf-8-sig")
+                (run_dir / "results.jsonl").write_text("{}\n", encoding="utf-8")
+                run_dirs[group_id] = run_dir
+
+            fake_units = [
+                {
+                    "query_id": "q001",
+                    "query_text_zh": "query",
+                    "query_type": "single_aspect",
+                    "user_preference_gold": {
+                        "city": "X",
+                        "state": None,
+                        "hotel_category": None,
+                        "focus_aspects": ["service"],
+                        "avoid_aspects": [],
+                        "unsupported_requests": [],
+                        "query_en": "query en",
+                    },
+                    "unsupported_requests": [],
+                    "candidate_hotels": [{"hotel_id": "h1", "hotel_name": "Hotel 1", "score_total": 1.0, "score_breakdown": {}}],
+                    "evidence_packs": [{
+                        "hotel_id": "h1",
+                        "query_en": "query en",
+                        "evidence_by_aspect": {"service": [{"sentence_id": "s1", "sentence_text": "good service", "aspect": "service", "sentiment": "positive", "review_date": None, "score_dense": 0.1, "score_rerank": 0.2}]},
+                        "all_sentence_ids": ["s1"],
+                        "retrieval_trace": {"latency_ms": 12.5},
+                    }],
+                    "retrieval_mode": "plain_city_test_rerank",
+                    "candidate_policy": "G_plain_retrieval_top5",
+                    "config_hash": "cfg",
+                }
+            ]
+            plain_asset = temp_root / "plain.jsonl"
+            aspect_asset = temp_root / "aspect.jsonl"
+            plain_asset.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in fake_units) + "\n", encoding="utf-8")
+            aspect_asset.write_text(
+                "\n".join(
+                    json.dumps({**row, "retrieval_mode": "aspect_main_no_rerank", "candidate_policy": "G_aspect_retrieval_top5"}, ensure_ascii=False)
+                    for row in fake_units
+                ) + "\n",
+                encoding="utf-8",
+            )
+
+            output_dir = temp_root / "report"
+            with mock.patch.object(closure_mod, "G_GROUP_SPECS", {
+                "G1": {"eval_units_path": plain_asset, "retrieval_variant": "plain", "requires_peft": False},
+                "G2": {"eval_units_path": aspect_asset, "retrieval_variant": "aspect", "requires_peft": False},
+                "G3": {"eval_units_path": plain_asset, "retrieval_variant": "plain", "requires_peft": True},
+                "G4": {"eval_units_path": aspect_asset, "retrieval_variant": "aspect", "requires_peft": True},
+            }):
+                result = closure_mod.build_g_chapter_report(run_dirs, output_dir=output_dir)
+
+            self.assertEqual(result["output_dir"], str(output_dir))
+            retrieval_df = pd.read_csv(output_dir / "g_retrieval_summary.csv")
+            generation_df = pd.read_csv(output_dir / "g_generation_summary.csv")
+            self.assertIn("aspect_recall_at_5", retrieval_df.columns)
+            self.assertIn("ndcg_at_5", retrieval_df.columns)
+            self.assertIn("hallucination_rate", generation_df.columns)
 
     def test_export_and_validate_g_closure_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

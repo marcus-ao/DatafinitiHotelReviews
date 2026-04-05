@@ -88,12 +88,16 @@ def _build_reviewer_text(response: dict[str, Any]) -> str:
     return "\n".join(lines).strip()
 
 
-def build_blind_review_rows(
+def blind_review_mapping_output_path(output_path: str | Path) -> Path:
+    return Path(output_path).with_name("blind_review_mapping.csv")
+
+
+def _build_blind_review_payloads(
     run_dirs_by_group: dict[str, str | Path],
     *,
     sample_size: int = 20,
     seed: int = 42,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     if not run_dirs_by_group:
         raise ValueError("run_dirs_by_group 不能为空。")
     if sample_size <= 0:
@@ -122,17 +126,21 @@ def build_blind_review_rows(
         selected_query_ids = sorted(rng.sample(selected_query_ids, sample_size))
 
     blind_rows: list[dict[str, Any]] = []
+    mapping_rows: list[dict[str, Any]] = []
     sorted_group_ids = sorted(run_dirs_by_group)
     for query_index, query_id in enumerate(selected_query_ids, start=1):
-        blind_pairs = list(zip(sorted_group_ids, [chr(ord("A") + idx) for idx in range(len(sorted_group_ids))], strict=False))
-        rng.shuffle(blind_pairs)
+        blind_labels = [chr(ord("A") + idx) for idx in range(len(sorted_group_ids))]
+        shuffled_labels = blind_labels[:]
+        rng.shuffle(shuffled_labels)
+        blind_pairs = list(zip(sorted_group_ids, shuffled_labels, strict=True))
         for group_id, blind_label in blind_pairs:
             row = loaded_rows[group_id][query_id]
             eval_unit, response = _normalize_eval_unit(query_id, row, group_id)
+            review_item_id = f"blind_{query_index:03d}_{blind_label}"
             reviewer_text = _build_reviewer_text(response)
             blind_rows.append(
                 {
-                    "review_item_id": f"blind_{query_index:03d}_{blind_label}",
+                    "review_item_id": review_item_id,
                     "query_bundle_id": f"bundle_{query_index:03d}",
                     "blind_label": blind_label,
                     "query_text_zh": eval_unit.get("query_text_zh", ""),
@@ -143,6 +151,29 @@ def build_blind_review_rows(
                     "recommendation_count": len(response.get("recommendations", [])),
                 }
             )
+            mapping_rows.append(
+                {
+                    "review_item_id": review_item_id,
+                    "query_bundle_id": f"bundle_{query_index:03d}",
+                    "blind_label": blind_label,
+                    "source_group_id": group_id,
+                    "source_query_id": query_id,
+                }
+            )
+    return blind_rows, mapping_rows
+
+
+def build_blind_review_rows(
+    run_dirs_by_group: dict[str, str | Path],
+    *,
+    sample_size: int = 20,
+    seed: int = 42,
+) -> list[dict[str, Any]]:
+    blind_rows, _ = _build_blind_review_payloads(
+        run_dirs_by_group,
+        sample_size=sample_size,
+        seed=seed,
+    )
     return blind_rows
 
 
@@ -186,7 +217,7 @@ def export_blind_review_pack(
     sample_size: int = 20,
     seed: int = 42,
 ) -> list[dict[str, Any]]:
-    blind_rows = build_blind_review_rows(
+    blind_rows, mapping_rows = _build_blind_review_payloads(
         run_dirs_by_group,
         sample_size=sample_size,
         seed=seed,
@@ -197,6 +228,11 @@ def export_blind_review_pack(
         write_jsonl(resolved_output_path, blind_rows)
     else:
         pd.DataFrame(blind_rows).to_csv(resolved_output_path, index=False, encoding="utf-8-sig")
+    pd.DataFrame(mapping_rows).to_csv(
+        blind_review_mapping_output_path(resolved_output_path),
+        index=False,
+        encoding="utf-8-sig",
+    )
     return blind_rows
 
 

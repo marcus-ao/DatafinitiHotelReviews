@@ -12,6 +12,9 @@ import pandas as pd
 from scripts.shared.experiment_utils import load_jsonl, write_jsonl
 
 
+DEFAULT_JUDGE_MODEL = "deepseek-reasoner"
+
+
 JUDGE_DIMENSIONS = (
     "relevance",
     "traceability",
@@ -263,7 +266,7 @@ def score_single_response(
     query_row: dict[str, Any],
     response_row: dict[str, Any],
     client: Any,
-    model: str = "gpt-4o",
+    model: str = DEFAULT_JUDGE_MODEL,
 ) -> dict[str, Any]:
     query_text = query_row.get("query_text_zh") or query_row.get("query_text") or ""
     if not query_text:
@@ -300,7 +303,7 @@ def _iter_result_rows(results_dir_or_rows: str | Path | Iterable[dict[str, Any]]
 def run_llm_judge(
     results_dir_or_rows: str | Path | Iterable[dict[str, Any]],
     output_path: str | Path | None = None,
-    model: str = "gpt-4o",
+    model: str = DEFAULT_JUDGE_MODEL,
     client: Any = None,
 ) -> pd.DataFrame:
     resolved_client = _resolve_client(client)
