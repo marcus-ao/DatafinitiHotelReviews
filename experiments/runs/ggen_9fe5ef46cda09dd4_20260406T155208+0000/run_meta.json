@@ -1,6 +1,6 @@
 {
-  "run_id": "ggen_56328d66a6d5bbbe_20260406T152255+0000",
-  "generated_at": "2026-04-06T15:22:55+00:00",
+  "run_id": "ggen_9fe5ef46cda09dd4_20260406T155208+0000",
+  "generated_at": "2026-04-06T15:52:08+00:00",
   "stable_run_config": {
     "task": "G_GENERATION",
     "g_group_id": "G2",
@@ -9,10 +9,10 @@
     "retrieval_variant": "aspect",
     "retrieval_mode": "aspect_main_no_rerank",
     "candidate_policy": "G_aspect_retrieval_top5",
-    "eval_units_asset_path": "D:\\VSCodeWorkspace\\GraduationDesign\\DatafinitiHotelReviews\\experiments\\assets\\g_aspect_generation_eval_units.jsonl",
+    "eval_units_asset_path": "/root/autodl-tmp/workspace/DatafinitiHotelReviews/experiments/assets/g_aspect_generation_eval_units.jsonl",
     "base_model_id": "Qwen/Qwen3.5-4B",
     "peft_model_id": "",
-    "behavior_backend": "api",
+    "behavior_backend": "local",
     "behavior_api_base_url": "http://127.0.0.1:8000/v1",
     "behavior_enable_thinking": false,
     "behavior_temperature": 0.0,
@@ -97,15 +97,15 @@
   "group_spec": {
     "group_id": "G2",
     "retrieval_variant": "aspect",
-    "eval_units_asset_path": "D:\\VSCodeWorkspace\\GraduationDesign\\DatafinitiHotelReviews\\experiments\\assets\\g_aspect_generation_eval_units.jsonl",
+    "eval_units_asset_path": "/root/autodl-tmp/workspace/DatafinitiHotelReviews/experiments/assets/g_aspect_generation_eval_units.jsonl",
     "requires_peft": false
   },
   "runtime_config": {
-    "llm_backend": "api",
-    "model_id": "Qwen/Qwen3.5-4B",
+    "llm_backend": "local",
+    "model_id": "/root/autodl-tmp/models/base/Qwen3.5-4B",
     "api_base_url": "http://127.0.0.1:8000/v1",
     "api_key_env": "OPENAI_API_KEY",
-    "api_key_present": true,
+    "api_key_present": false,
     "enable_thinking": false,
     "temperature": 0.0,
     "max_new_tokens": 512,

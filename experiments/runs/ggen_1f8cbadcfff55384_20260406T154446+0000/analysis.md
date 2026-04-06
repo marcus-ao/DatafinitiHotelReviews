@@ -4,7 +4,7 @@
 
 | group_id | query_count | citation_precision | evidence_verifiability_mean | schema_valid_rate | recommendation_coverage | aspect_alignment_rate | hallucination_rate | unsupported_honesty_rate | avg_latency_ms | config_hash |
 |---|---|---|---|---|---|---|---|---|---|---|
-| G1 | 68 | 0.9853 | 1.5515 | 0.9853 | 0.9853 | 0.9412 | 0.0 | 0.931 | 2509.934 | 9017609a71bf6ef9 |
+| G1 | 68 | 0.9779 | 1.5404 | 0.9853 | 0.9853 | 0.9412 | 0.0074 | 0.931 | 5395.824 | ec191d7195b72b76 |
 
 ## G1
 

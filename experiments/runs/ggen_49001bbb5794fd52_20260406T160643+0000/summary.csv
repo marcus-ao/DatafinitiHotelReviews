@@ -1,0 +1,2 @@
+﻿group_id,query_count,citation_precision,evidence_verifiability_mean,schema_valid_rate,recommendation_coverage,aspect_alignment_rate,hallucination_rate,unsupported_honesty_rate,avg_latency_ms,config_hash
+G4,68,0.989,1.9449,0.9706,1.0,0.9657,0.0221,1.0,5492.044,122d8410e5bd1e5b
