@@ -1,0 +1,2 @@
+﻿group_id,query_count,citation_precision,evidence_verifiability_mean,schema_valid_rate,recommendation_coverage,aspect_alignment_rate,hallucination_rate,unsupported_honesty_rate,avg_latency_ms,config_hash,reasoning_leak_rate,auditable_query_rate
+B_peft_4b_grounded,40,0.925,1.8438,1.0,0.925,0.8458,0.0,,5534.723,1bd80bc8e8d284b7,0.0,0.95
