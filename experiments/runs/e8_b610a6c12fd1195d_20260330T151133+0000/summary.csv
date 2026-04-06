@@ -1,3 +1,0 @@
-﻿group_id,query_count,target_unit_count,avg_latency_ms,config_hash,ndcg_at_5,precision_at_5,evidence_insufficiency_rate,fallback_activation_rate,fallback_noise_rate
-aspect_main_rerank,40,80,351.632,014f03702e566d1f,0.6378,0.6375,0.05,0.0,0.0
-aspect_main_fallback_rerank,40,80,328.067,39d8b220c4febe67,0.6378,0.6375,0.05,0.05,1.0

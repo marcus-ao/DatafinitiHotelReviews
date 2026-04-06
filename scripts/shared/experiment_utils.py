@@ -22,6 +22,7 @@ E1_LABELS_DIR = EXPERIMENT_LABELS_DIR / "e1_aspect_reliability"
 E4_LABELS_DIR = EXPERIMENT_LABELS_DIR / "e4_clarification"
 E9_LABELS_DIR = EXPERIMENT_LABELS_DIR / "e9_generation"
 E6_LABELS_DIR = EXPERIMENT_LABELS_DIR / "e6_qrels"
+G_QRELS_LABELS_DIR = EXPERIMENT_LABELS_DIR / "g_qrels"
 
 
 def ensure_dir(path: str | Path) -> Path:

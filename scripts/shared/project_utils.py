@@ -13,6 +13,7 @@ import yaml
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
+_DOTENV_LOADED = False
 
 
 ASPECT_CATEGORIES = [
@@ -50,6 +51,43 @@ def load_yaml(path: str | Path) -> dict:
         return yaml.safe_load(handle)
 
 
+def load_project_dotenv(
+    dotenv_path: str | Path | None = None,
+    *,
+    override: bool = False,
+) -> Path | None:
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED and dotenv_path is None and not override:
+        return ROOT_DIR / ".env" if (ROOT_DIR / ".env").exists() else None
+
+    try:
+        from dotenv import find_dotenv, load_dotenv
+    except ImportError:
+        return None
+
+    candidate_paths: list[Path] = []
+    if dotenv_path is not None:
+        candidate_paths.append(resolve_repo_path(dotenv_path))
+    candidate_paths.append(ROOT_DIR / ".env")
+
+    discovered = find_dotenv(usecwd=True)
+    if discovered:
+        candidate_paths.append(Path(discovered))
+
+    seen: set[Path] = set()
+    for candidate_path in candidate_paths:
+        resolved_candidate = Path(candidate_path).resolve()
+        if resolved_candidate in seen:
+            continue
+        seen.add(resolved_candidate)
+        if resolved_candidate.exists():
+            load_dotenv(resolved_candidate, override=override)
+            if dotenv_path is None and not override:
+                _DOTENV_LOADED = True
+            return resolved_candidate
+    return None
+
+
 def resolve_repo_path(path: str | Path) -> Path:
     resolved = Path(path)
     if resolved.is_absolute():
@@ -58,10 +96,12 @@ def resolve_repo_path(path: str | Path) -> Path:
 
 
 def load_config(config_path: str = "configs/params.yaml") -> dict:
+    load_project_dotenv()
     return load_yaml(resolve_repo_path(config_path))
 
 
 def load_db_config(config_path: str = "configs/db.yaml") -> dict:
+    load_project_dotenv()
     path = resolve_repo_path(config_path)
     if not path.exists():
         raise FileNotFoundError(

@@ -27,6 +27,7 @@ from scripts.shared.experiment_utils import (
     E6_LABELS_DIR,
     EXPERIMENT_ASSETS_DIR,
     EXPERIMENT_RUNS_DIR,
+    G_QRELS_LABELS_DIR,
     ensure_dir,
     load_jsonl,
     stable_hash,
@@ -54,9 +55,26 @@ ROBUSTNESS_QUERY_TYPES = (
     "unsupported_heavy",
 )
 G_EVAL_QUERY_TYPE_ORDER = CORE_QUERY_TYPES + ROBUSTNESS_QUERY_TYPES
-G_EVAL_QUERY_IDS_PATH = EXPERIMENT_ASSETS_DIR / "g_eval_query_ids_70.json"
+G_EVAL_QUERY_IDS_PATH = EXPERIMENT_ASSETS_DIR / "g_eval_query_ids_68.json"
+E5_E8_QUERY_IDS_PATH = EXPERIMENT_ASSETS_DIR / "e5_e8_core_query_ids.json"
+G_DECISIVE_EXCLUDED_QUERY_IDS = {"q021", "q024"}
 G_PLAIN_RETRIEVAL_UNITS_PATH = EXPERIMENT_ASSETS_DIR / "g_plain_generation_eval_units.jsonl"
 G_ASPECT_RETRIEVAL_UNITS_PATH = EXPERIMENT_ASSETS_DIR / "g_aspect_generation_eval_units.jsonl"
+G_QRELS_POOL_PATH = G_QRELS_LABELS_DIR / "g_qrels_pool.csv"
+G_QRELS_EVIDENCE_PATH = G_QRELS_LABELS_DIR / "g_qrels_evidence.jsonl"
+G_QRELS_LOG_PATH = G_QRELS_LABELS_DIR / "g_labeling_log.md"
+G_RETRIEVAL_VARIANT_SPECS = {
+    "plain": {
+        "retrieval_mode": "plain_city_test_rerank",
+        "summary_group_id": "plain_retrieval",
+        "candidate_policy": "G_plain_retrieval_top5",
+    },
+    "aspect": {
+        "retrieval_mode": "aspect_main_no_rerank",
+        "summary_group_id": "aspect_retrieval",
+        "candidate_policy": "G_aspect_retrieval_top5",
+    },
+}
 
 ASPECT_EN = {
     "location_transport": "convenient location and transportation",
@@ -150,7 +168,7 @@ def build_g_eval_query_id_payload(judged_queries: list[dict[str, Any]]) -> dict[
     for row in judged_queries:
         query_type = row.get("query_type")
         query_id = row.get("query_id")
-        if query_type in grouped and query_id:
+        if query_type in grouped and query_id and str(query_id) not in G_DECISIVE_EXCLUDED_QUERY_IDS:
             grouped[query_type].append(str(query_id))
 
     for query_type in grouped:
@@ -161,9 +179,9 @@ def build_g_eval_query_id_payload(judged_queries: list[dict[str, Any]]) -> dict[
     ordered_query_ids = core_query_ids + robustness_query_ids
 
     expected_counts = {
-        "core": 40,
-        "robustness": 30,
-        "total": 70,
+        "core": 39,
+        "robustness": 29,
+        "total": 68,
     }
     actual_counts = {
         "core": len(core_query_ids),
@@ -183,6 +201,7 @@ def build_g_eval_query_id_payload(judged_queries: list[dict[str, Any]]) -> dict[
         "core_query_ids": core_query_ids,
         "robustness_query_ids": robustness_query_ids,
         "excluded_query_types": sorted(excluded_query_types),
+        "excluded_query_ids": sorted(G_DECISIVE_EXCLUDED_QUERY_IDS),
         "query_type_order": list(G_EVAL_QUERY_TYPE_ORDER),
     }
 
@@ -196,13 +215,54 @@ def write_g_eval_query_ids_asset(output_path: Path = G_EVAL_QUERY_IDS_PATH) -> P
     return output_path
 
 
+def build_e5_e8_core_query_id_payload(judged_queries: list[dict[str, Any]]) -> dict[str, Any]:
+    grouped: dict[str, list[str]] = {query_type: [] for query_type in CORE_QUERY_TYPES}
+    excluded_query_types = set(ROBUSTNESS_QUERY_TYPES) | {"conflict", "missing_city"}
+
+    for row in judged_queries:
+        query_type = row.get("query_type")
+        query_id = row.get("query_id")
+        if query_type in grouped and query_id and str(query_id) not in G_DECISIVE_EXCLUDED_QUERY_IDS:
+            grouped[query_type].append(str(query_id))
+
+    for query_type in grouped:
+        grouped[query_type] = sorted(grouped[query_type], key=_query_id_sort_key)
+
+    ordered_query_ids = [query_id for query_type in CORE_QUERY_TYPES for query_id in grouped[query_type]]
+    expected_counts = {query_type: 10 for query_type in CORE_QUERY_TYPES}
+    actual_counts = {query_type: len(grouped[query_type]) for query_type in CORE_QUERY_TYPES}
+    if actual_counts != expected_counts:
+        raise AssertionError(f"E5-E8 core query count mismatch: expected {expected_counts}, got {actual_counts}")
+    if len(ordered_query_ids) != 40:
+        raise AssertionError(f"E5-E8 core query payload size mismatch: expected 40, got {len(ordered_query_ids)}")
+    if len(set(ordered_query_ids)) != len(ordered_query_ids):
+        raise AssertionError("E5-E8 core query ids contain duplicates")
+
+    return {
+        "query_ids": ordered_query_ids,
+        "query_count": 40,
+        "query_type_counts": actual_counts,
+        "query_type_order": list(CORE_QUERY_TYPES),
+        "excluded_query_types": sorted(excluded_query_types),
+    }
+
+
+def write_e5_e8_core_query_ids_asset(output_path: Path = E5_E8_QUERY_IDS_PATH) -> Path:
+    payload = build_e5_e8_core_query_id_payload(load_jsonl(EXPERIMENT_ASSETS_DIR / "judged_queries.jsonl"))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+    return output_path
+
+
 def load_g_eval_query_ids(path: Path = G_EVAL_QUERY_IDS_PATH) -> list[str]:
     payload = load_json(path)
     query_ids = payload.get("query_ids")
     if not isinstance(query_ids, list) or not all(isinstance(item, str) for item in query_ids):
         raise ValueError(f"Invalid g_eval query id asset: {path}")
-    if len(query_ids) != 70:
-        raise ValueError(f"Invalid g_eval query id asset size in {path}: expected 70, got {len(query_ids)}")
+    if len(query_ids) != 68:
+        raise ValueError(f"Invalid g_eval query id asset size in {path}: expected 68, got {len(query_ids)}")
     if len(set(query_ids)) != len(query_ids):
         raise ValueError(f"Invalid g_eval query id asset with duplicate query ids: {path}")
     expected_order = list(G_EVAL_QUERY_TYPE_ORDER)
@@ -212,13 +272,43 @@ def load_g_eval_query_ids(path: Path = G_EVAL_QUERY_IDS_PATH) -> list[str]:
     if payload.get("excluded_query_types") != expected_excluded:
         raise ValueError(f"Invalid excluded_query_types in {path}: expected {expected_excluded}")
     expected_counts = {query_type: 10 for query_type in G_EVAL_QUERY_TYPE_ORDER}
+    expected_counts["single_aspect"] = 9
+    expected_counts["unsupported_budget"] = 9
+    if payload.get("query_type_counts") != expected_counts:
+        raise ValueError(f"Invalid query_type_counts in {path}: expected {expected_counts}")
+    expected_excluded_query_ids = sorted(G_DECISIVE_EXCLUDED_QUERY_IDS)
+    if payload.get("excluded_query_ids") != expected_excluded_query_ids:
+        raise ValueError(f"Invalid excluded_query_ids in {path}: expected {expected_excluded_query_ids}")
+    return query_ids
+
+
+def load_e5_e8_core_query_ids(path: Path = E5_E8_QUERY_IDS_PATH) -> list[str]:
+    payload = load_json(path)
+    query_ids = payload.get("query_ids")
+    if not isinstance(query_ids, list) or not all(isinstance(item, str) for item in query_ids):
+        raise ValueError(f"Invalid E5-E8 core query id asset: {path}")
+    if len(query_ids) != 40:
+        raise ValueError(f"Invalid E5-E8 core query id asset size in {path}: expected 40, got {len(query_ids)}")
+    if len(set(query_ids)) != len(query_ids):
+        raise ValueError(f"Invalid E5-E8 core query id asset with duplicate query ids: {path}")
+    if payload.get("query_type_order") != list(CORE_QUERY_TYPES):
+        raise ValueError(f"Invalid query_type_order in {path}: expected {list(CORE_QUERY_TYPES)}")
+    expected_counts = {query_type: 10 for query_type in CORE_QUERY_TYPES}
     if payload.get("query_type_counts") != expected_counts:
         raise ValueError(f"Invalid query_type_counts in {path}: expected {expected_counts}")
     return query_ids
 
 
 def build_target_units(limit_queries: int | None = None) -> list[dict[str, Any]]:
-    return build_target_units_filtered(limit_queries=limit_queries)
+    return build_target_units_filtered(limit_queries=limit_queries, query_ids=load_e5_e8_core_query_ids())
+
+
+def build_g_target_units(limit_queries: int | None = None) -> list[dict[str, Any]]:
+    return build_target_units_filtered(
+        limit_queries=limit_queries,
+        allowed_query_types=set(G_EVAL_QUERY_TYPE_ORDER),
+        query_ids=load_g_eval_query_ids(),
+    )
 
 
 def build_target_units_filtered(
@@ -761,14 +851,51 @@ def write_e6_labeling_log(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def build_e6_qrels_pool(limit_queries: int | None = None) -> Path:
-    cfg = load_config()
-    split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
-    review_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/cleaned_reviews.pkl"))
-    evidence_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/evidence_index.pkl"))
+def write_g_labeling_log(
+    target_units: list[dict[str, Any]],
+    pool_rows: list[dict[str, Any]],
+    path: Path,
+) -> None:
+    unique_queries = sorted({row["query_id"] for row in target_units})
+    unique_units = sorted({row["unit_id"] for row in target_units})
+    lines = [
+        "# G Retrieval Labeling Log",
+        "",
+        "## Status",
+        "",
+        "- [x] G qrels pool generated",
+        "- [ ] manual labeling completed",
+        "- [ ] g_qrels_evidence.jsonl frozen",
+        "",
+        "## Pool Summary",
+        "",
+        f"- Executable queries: {len(unique_queries)}",
+        f"- Query-aspect units: {len(unique_units)}",
+        f"- Pooled sentence rows: {len(pool_rows)}",
+        f"- Query asset: {G_EVAL_QUERY_IDS_PATH.as_posix()}",
+        f"- Query types: {', '.join(G_EVAL_QUERY_TYPE_ORDER)}",
+        f"- Official modes: {', '.join(OFFICIAL_MODES)}",
+        f"- Pooling depth / mode: Top{POOL_TOP_K}",
+        "",
+        "## Next Step",
+        "",
+        f"1. Annotate `{G_QRELS_POOL_PATH.as_posix()}`.",
+        "2. Freeze qrels with `python -m scripts.evaluation.run_experiment_suite --task g_freeze_qrels`.",
+        "3. Run `g_retrieval_eval --retrieval-variant plain` and `g_retrieval_eval --retrieval-variant aspect`.",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _build_qrels_pool_rows(
+    *,
+    target_units: list[dict[str, Any]],
+    cfg: dict[str, Any],
+    split_manifest: dict[str, Any],
+    review_df: pd.DataFrame,
+    evidence_df: pd.DataFrame,
+) -> list[dict[str, Any]]:
     city_test_hotels = build_city_test_hotels(split_manifest, review_df)
     evidence_lookup = build_evidence_lookup(evidence_df)
-    target_units = build_target_units(limit_queries=limit_queries)
 
     PersistentClient = require_chromadb_client()
     sentence_transformer_cls, cross_encoder_cls = require_retrieval_backends()
@@ -802,17 +929,14 @@ def build_e6_qrels_pool(limit_queries: int | None = None) -> Path:
             for mode in OFFICIAL_MODES
         ]
         pool_rows.extend(build_pool_rows(mode_results))
-
-    ensure_dir(E6_LABELS_DIR)
-    pool_path = E6_LABELS_DIR / "qrels_pool.csv"
-    pd.DataFrame(pool_rows).to_csv(pool_path, index=False, encoding="utf-8-sig")
-    write_e6_labeling_log(target_units, pool_rows, E6_LABELS_DIR / "e6_labeling_log.md")
-    (E6_LABELS_DIR / "qrels_evidence.jsonl").write_text("\n", encoding="utf-8")
-    return pool_path
+    return pool_rows
 
 
-def freeze_e6_qrels() -> Path:
-    pool_path = E6_LABELS_DIR / "qrels_pool.csv"
+def _freeze_qrels_from_pool(
+    *,
+    pool_path: Path,
+    output_path: Path,
+) -> Path:
     if not pool_path.exists():
         raise FileNotFoundError(f"Missing qrels pool: {pool_path}")
 
@@ -825,7 +949,7 @@ def freeze_e6_qrels() -> Path:
     for column in ["relevance", "aspect_match", "polarity_match"]:
         empty_count = int(df[column].astype(str).str.strip().eq("").sum())
         if empty_count:
-            raise ValueError(f"`{column}` still has {empty_count} empty rows in qrels_pool.csv")
+            raise ValueError(f"`{column}` still has {empty_count} empty rows in {pool_path.name}")
 
     qrels_rows = []
     for _, row in df.iterrows():
@@ -861,10 +985,112 @@ def freeze_e6_qrels() -> Path:
             }
         )
 
-    qrels_path = E6_LABELS_DIR / "qrels_evidence.jsonl"
-    write_jsonl(qrels_path, qrels_rows)
-    return qrels_path
+    write_jsonl(output_path, qrels_rows)
+    return output_path
 
+
+def build_e6_qrels_pool(limit_queries: int | None = None) -> Path:
+    cfg = load_config()
+    split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
+    review_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/cleaned_reviews.pkl"))
+    evidence_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/evidence_index.pkl"))
+    target_units = build_target_units(limit_queries=limit_queries)
+    pool_rows = _build_qrels_pool_rows(
+        target_units=target_units,
+        cfg=cfg,
+        split_manifest=split_manifest,
+        review_df=review_df,
+        evidence_df=evidence_df,
+    )
+
+    ensure_dir(E6_LABELS_DIR)
+    pool_path = E6_LABELS_DIR / "qrels_pool.csv"
+    pd.DataFrame(pool_rows).to_csv(pool_path, index=False, encoding="utf-8-sig")
+    write_e6_labeling_log(target_units, pool_rows, E6_LABELS_DIR / "e6_labeling_log.md")
+    (E6_LABELS_DIR / "qrels_evidence.jsonl").write_text("\n", encoding="utf-8")
+    return pool_path
+
+
+def freeze_e6_qrels() -> Path:
+    return _freeze_qrels_from_pool(
+        pool_path=E6_LABELS_DIR / "qrels_pool.csv",
+        output_path=E6_LABELS_DIR / "qrels_evidence.jsonl",
+    )
+
+
+def build_g_qrels_pool(limit_queries: int | None = None) -> Path:
+    cfg = load_config()
+    split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
+    review_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/cleaned_reviews.pkl"))
+    evidence_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/evidence_index.pkl"))
+    target_units = build_g_target_units(limit_queries=limit_queries)
+    pool_rows = _build_qrels_pool_rows(
+        target_units=target_units,
+        cfg=cfg,
+        split_manifest=split_manifest,
+        review_df=review_df,
+        evidence_df=evidence_df,
+    )
+
+    ensure_dir(G_QRELS_LABELS_DIR)
+    pd.DataFrame(pool_rows).to_csv(G_QRELS_POOL_PATH, index=False, encoding="utf-8-sig")
+    write_g_labeling_log(target_units, pool_rows, G_QRELS_LOG_PATH)
+    G_QRELS_EVIDENCE_PATH.write_text("\n", encoding="utf-8")
+    return G_QRELS_POOL_PATH
+
+
+def freeze_g_qrels() -> Path:
+    return _freeze_qrels_from_pool(
+        pool_path=G_QRELS_POOL_PATH,
+        output_path=G_QRELS_EVIDENCE_PATH,
+    )
+
+
+
+
+def validate_g_qrels(
+    qrels_path: Path = G_QRELS_EVIDENCE_PATH,
+    *,
+    limit_queries: int | None = None,
+) -> dict[str, Any]:
+    if not qrels_path.exists():
+        raise FileNotFoundError(f"Missing G qrels file: {qrels_path}")
+
+    expected_units = build_g_target_units(limit_queries=limit_queries)
+    expected_query_ids = {unit["query_id"] for unit in expected_units}
+    expected_unit_keys = {
+        (unit["query_id"], unit["target_aspect"], unit["target_role"])
+        for unit in expected_units
+    }
+
+    qrels_rows = load_jsonl(qrels_path)
+    if not qrels_rows:
+        raise ValueError(f"G qrels file is empty: {qrels_path}")
+    qrels_lookup = load_qrels_lookup(qrels_path)
+    actual_unit_keys = set(qrels_lookup)
+    actual_query_ids = {row["query_id"] for row in qrels_rows}
+
+    missing_unit_keys = sorted(expected_unit_keys - actual_unit_keys)
+    unexpected_unit_keys = sorted(actual_unit_keys - expected_unit_keys)
+    if missing_unit_keys or unexpected_unit_keys:
+        raise ValueError(
+            "G qrels target-unit coverage mismatch: "
+            f"missing={missing_unit_keys[:5]}, unexpected={unexpected_unit_keys[:5]}"
+        )
+
+    missing_query_ids = sorted(expected_query_ids - actual_query_ids)
+    unexpected_query_ids = sorted(actual_query_ids - expected_query_ids)
+    if missing_query_ids or unexpected_query_ids:
+        raise ValueError(
+            f"G qrels query coverage mismatch: missing={missing_query_ids}, unexpected={unexpected_query_ids}"
+        )
+
+    return {
+        "qrels_path": str(qrels_path),
+        "query_count": len(actual_query_ids),
+        "target_unit_count": len(actual_unit_keys),
+        "row_count": len(qrels_rows),
+    }
 
 def load_qrels_lookup(qrels_path: Path) -> dict[tuple[str, str, str], dict[str, dict[str, Any]]]:
     rows = load_jsonl(qrels_path)
@@ -1050,6 +1276,33 @@ def write_analysis_md(experiment_id: str, run_dir: Path, summary_rows: list[dict
     (run_dir / "analysis.md").write_text("\n".join(lines), encoding="utf-8")
 
 
+
+
+def write_g_retrieval_analysis_md(
+    retrieval_variant: str,
+    run_dir: Path,
+    summary_row: dict[str, Any],
+) -> None:
+    lines = [
+        f"# G-Series {retrieval_variant.title()} Retrieval Evaluation",
+        "",
+        "## Summary Table",
+        "",
+    ]
+    lines.extend(markdown_table([summary_row]))
+    lines.extend(
+        [
+            "",
+            "## Notes",
+            "",
+            f"- Retrieval variant: `{retrieval_variant}`",
+            f"- Retrieval mode: `{summary_row.get('retrieval_mode', '')}`",
+            f"- Candidate policy: `{summary_row.get('candidate_policy', '')}`",
+            "- Metrics are from formal qrels-based retrieval evaluation over the G-series query set.",
+        ]
+    )
+    (run_dir / "analysis.md").write_text("\n".join(lines), encoding="utf-8")
+
 def run_retrieval_eval(
     experiment_id: str,
     output_root: Path,
@@ -1217,6 +1470,156 @@ def run_retrieval_eval(
     return run_dir
 
 
+def run_g_retrieval_eval(
+    retrieval_variant: str,
+    output_root: Path,
+    limit_queries: int | None = None,
+) -> Path:
+    if retrieval_variant not in G_RETRIEVAL_VARIANT_SPECS:
+        raise ValueError(
+            f"Unsupported G retrieval variant: {retrieval_variant}. "
+            f"Expected one of {sorted(G_RETRIEVAL_VARIANT_SPECS)}"
+        )
+
+    spec = G_RETRIEVAL_VARIANT_SPECS[retrieval_variant]
+    cfg = load_config()
+    split_manifest = load_json(EXPERIMENT_ASSETS_DIR / "frozen_split_manifest.json")
+    review_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/cleaned_reviews.pkl"))
+    evidence_df = cast(pd.DataFrame, pd.read_pickle("data/intermediate/evidence_index.pkl"))
+    city_test_hotels = build_city_test_hotels(split_manifest, review_df)
+    evidence_lookup = build_evidence_lookup(evidence_df)
+    target_units = build_g_target_units(limit_queries=limit_queries)
+    qrels_path = G_QRELS_EVIDENCE_PATH
+    qrels_lookup = load_qrels_lookup(qrels_path)
+    qrels_rows = load_jsonl(qrels_path)
+
+    PersistentClient = require_chromadb_client()
+    sentence_transformer_cls, cross_encoder_cls = require_retrieval_backends()
+    client = PersistentClient(path=cfg["embedding"]["chroma_persist_dir"])
+    collection = client.get_collection(cfg["embedding"]["chroma_collection"])
+    bi_encoder = sentence_transformer_cls(cfg["embedding"]["model"])
+    reranker = cross_encoder_cls(cfg["reranker"]["model"])
+    normalize_embeddings = bool(cfg["embedding"].get("normalize", True))
+    warm_up_models(collection, bi_encoder, reranker, normalize_embeddings)
+
+    stable_run_config = {
+        "task": "G_retrieval_eval",
+        "retrieval_variant": retrieval_variant,
+        "split_config_hash": split_manifest["meta"]["config_hash"],
+        "query_types": list(G_EVAL_QUERY_TYPE_ORDER),
+        "query_count": len({unit["query_id"] for unit in target_units}),
+        "target_unit_count": len(target_units),
+        "target_scope": TARGET_SCOPE,
+        "candidate_set_policy": "city_test_hotels",
+        "dense_top_k": cfg["reranker"]["top_k_before_rerank"],
+        "final_top_k": cfg["reranker"]["top_k_after_rerank"],
+        "embedding_model": cfg["embedding"]["model"],
+        "reranker_model": cfg["reranker"]["model"],
+        "collection": cfg["embedding"]["chroma_collection"],
+        "fallback_rule": {
+            "min_sentences": FALLBACK_MIN_SENTENCES,
+            "min_unique_reviews": FALLBACK_MIN_UNIQUE_REVIEWS,
+        },
+        "qrels_hash": stable_hash({"rows": qrels_rows}),
+        "retrieval_mode": spec["retrieval_mode"],
+        "candidate_policy": spec["candidate_policy"],
+    }
+
+    run_started_at = utc_now_iso()
+    run_id = f"gret_{retrieval_variant}_{stable_hash(stable_run_config)}_{run_started_at.replace(':', '').replace('-', '')}"
+    run_dir = output_root / run_id
+    ensure_dir(run_dir)
+
+    with open(run_dir / "run_meta.json", "w", encoding="utf-8") as handle:
+        json.dump(
+            {
+                "run_id": run_id,
+                "generated_at": run_started_at,
+                "stable_run_config": stable_run_config,
+                "retrieval_variant": retrieval_variant,
+                "retrieval_mode": spec["retrieval_mode"],
+                "candidate_policy": spec["candidate_policy"],
+                "qrels_path": str(qrels_path),
+            },
+            handle,
+            ensure_ascii=False,
+            indent=2,
+        )
+
+    metric_rows: list[dict[str, float]] = []
+    latencies: list[float] = []
+    log_rows: list[dict[str, Any]] = []
+    for unit in target_units:
+        city_hotels = city_test_hotels.get(unit["city"])
+        if city_hotels is None:
+            raise KeyError(
+                f"City '{unit['city']}' for query {unit['query_id']} is missing from city_test_hotels during G retrieval eval."
+            )
+        mode_result = retrieve_official_mode(
+            unit=unit,
+            mode=str(spec["retrieval_mode"]),
+            city_hotels=city_hotels,
+            collection=collection,
+            bi_encoder=bi_encoder,
+            reranker=reranker,
+            normalize_embeddings=normalize_embeddings,
+            dense_top_k=cfg["reranker"]["top_k_before_rerank"],
+            final_top_k=cfg["reranker"]["top_k_after_rerank"],
+            evidence_lookup=evidence_lookup,
+        )
+        qrels_by_sentence = qrels_lookup.get((unit["query_id"], unit["target_aspect"], unit["target_role"]), {})
+        metrics, ranked_rows = evaluate_ranked_rows(mode_result["rows"], qrels_by_sentence)
+        metric_rows.append(metrics)
+        latencies.append(mode_result["latency_ms"])
+
+        retrieval_trace = dict(mode_result["retrieval_trace"])
+        retrieval_trace["candidate_hotels"] = city_hotels
+        retrieval_trace["dense_returned_count"] = len(mode_result["main_dense"])
+        retrieval_trace["fallback_dense_returned_count"] = len(mode_result["fallback_dense"])
+        retrieval_trace["main_unique_reviews_top5"] = len({row["review_id"] for row in mode_result["main_top5"]})
+        retrieval_trace["retrieval_variant"] = retrieval_variant
+
+        log_entry = RunLogEntry(
+            run_id=run_id,
+            group_id=str(spec["summary_group_id"]),
+            query_id=unit["query_id"],
+            retrieval_mode=str(spec["retrieval_mode"]),
+            candidate_mode=str(spec["candidate_policy"]),
+            config_hash=stable_hash(stable_run_config | {"query_unit_id": unit["unit_id"]}),
+            latency_ms=mode_result["latency_ms"],
+            intermediate_objects={
+                "query_unit": unit,
+                "retrieval_trace": retrieval_trace,
+                "metrics": metrics,
+                "ranked_rows": ranked_rows,
+                "candidate_hotels": city_hotels,
+            },
+        )
+        log_rows.append(log_entry.model_dump())
+
+    summary_row = build_retrieval_summary_row(
+        group_id=str(spec["summary_group_id"]),
+        query_count=len({unit["query_id"] for unit in target_units}),
+        target_unit_count=len(target_units),
+        latencies=latencies,
+        metric_rows=metric_rows,
+        config_hash=stable_hash(stable_run_config),
+        extra_fields={
+            "retrieval_variant": retrieval_variant,
+            "retrieval_mode": spec["retrieval_mode"],
+            "candidate_policy": spec["candidate_policy"],
+            "retrieval_summary_source": "formal_retrieval_eval",
+        },
+    )
+
+    with open(run_dir / "results.jsonl", "w", encoding="utf-8") as handle:
+        for row in log_rows:
+            handle.write(json.dumps(row, ensure_ascii=False) + "\n")
+    pd.DataFrame([summary_row]).to_csv(run_dir / "summary.csv", index=False, encoding="utf-8-sig")
+    write_g_retrieval_analysis_md(retrieval_variant, run_dir, summary_row)
+    return run_dir
+
+
 def _hotel_candidates_from_ranked_df(top_candidates: pd.DataFrame) -> list[HotelCandidate]:
     rows: list[HotelCandidate] = []
     for _, candidate in top_candidates.iterrows():
@@ -1335,15 +1738,11 @@ def freeze_g_retrieval_assets(
             slot_row.get("avoid_aspects", []),
             candidate_mode,
         )
-        top_candidates_df = cast(pd.DataFrame, ranked.head(top_k).copy())
-        candidate_hotels = _hotel_candidates_from_ranked_df(top_candidates_df)
-        if not candidate_hotels:
-            raise ValueError(
-                f"No candidate hotels produced for query {query_id} in city '{city}' under candidate_mode={candidate_mode} and top_k={top_k}."
-            )
-
+        ranked_candidates = _hotel_candidates_from_ranked_df(cast(pd.DataFrame, ranked.copy()))
+        candidate_hotels: list[HotelCandidate] = []
         evidence_packs: list[EvidencePack] = []
-        for hotel in candidate_hotels:
+        skipped_hotels_without_evidence: list[str] = []
+        for hotel in ranked_candidates:
             evidence_by_aspect: dict[str, list[SentenceCandidate]] = {}
             all_sentence_ids: list[str] = []
             retrieval_trace: dict[str, Any] = {
@@ -1410,6 +1809,19 @@ def freeze_g_retrieval_assets(
                     all_sentence_ids=list(dict.fromkeys(all_sentence_ids)),
                     retrieval_trace=retrieval_trace,
                 )
+            )
+            if not all_sentence_ids:
+                evidence_packs.pop()
+                skipped_hotels_without_evidence.append(hotel.hotel_id)
+                continue
+            candidate_hotels.append(hotel)
+            if len(candidate_hotels) >= top_k:
+                break
+
+        if not candidate_hotels:
+            raise ValueError(
+                f"No evidence-backed candidate hotels produced for query {query_id} in city '{city}' under candidate_mode={candidate_mode} and top_k={top_k}. "
+                f"skipped_hotels_without_evidence={skipped_hotels_without_evidence}"
             )
 
         generation_unit = generation_unit_from_retrieval_assets(
@@ -1549,6 +1961,10 @@ def main() -> None:
             "freeze_g_aspect_assets",
             "validate_g_plain_assets",
             "validate_g_aspect_assets",
+            "build_g_qrels_pool",
+            "freeze_g_qrels",
+            "validate_g_qrels",
+            "run_g_retrieval",
             "run_e6",
             "run_e7",
             "run_e8",
@@ -1557,6 +1973,7 @@ def main() -> None:
     )
     parser.add_argument("--output-root", default=str(EXPERIMENT_RUNS_DIR))
     parser.add_argument("--limit-queries", type=int, default=None)
+    parser.add_argument("--retrieval-variant", choices=["plain", "aspect"], default=None)
     args = parser.parse_args()
 
     if args.action == "build_qrels_pool":
@@ -1595,9 +2012,25 @@ def main() -> None:
         )
         print(f"[OK] G aspect retrieval assets validated: {summary}")
         return
+    if args.action == "build_g_qrels_pool":
+        path = build_g_qrels_pool(limit_queries=args.limit_queries)
+        print(f"[OK] G qrels pool written to {path}")
+        return
+    if args.action == "freeze_g_qrels":
+        path = freeze_g_qrels()
+        print(f"[OK] G qrels frozen to {path}")
+        return
+    if args.action == "validate_g_qrels":
+        summary = validate_g_qrels(limit_queries=args.limit_queries)
+        print(f"[OK] G qrels validated: {summary}")
+        return
 
     output_root = Path(args.output_root)
-    if args.action == "run_e6":
+    if args.action == "run_g_retrieval":
+        if not args.retrieval_variant:
+            raise ValueError("run_g_retrieval requires --retrieval-variant plain|aspect")
+        run_dir = run_g_retrieval_eval(args.retrieval_variant, output_root=output_root, limit_queries=args.limit_queries)
+    elif args.action == "run_e6":
         run_dir = run_retrieval_eval("E6", output_root=output_root, limit_queries=args.limit_queries)
     elif args.action == "run_e7":
         run_dir = run_retrieval_eval("E7", output_root=output_root, limit_queries=args.limit_queries)

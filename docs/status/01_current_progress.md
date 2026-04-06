@@ -10,7 +10,7 @@
 当前真正所处阶段不是“继续改 E10”，而是：
 
 - 保留 `E5-E10` 作为第五章和第六章的辅助证据
-- 用 `G1-G4` 跑出 70 条查询下的统一矩阵结果
+- 用 `G1-G4` 跑出当前正式 decisive scope（`68` 条查询）下的统一矩阵结果；`q021 / q024` 已从 decisive matrix 中剔除并转为 supporting boundary cases
 - 在 8 小时内完成一轮完整实验闭环
 - 在后续 32 小时内形成一版可写入论文的完整结果集
 
@@ -87,7 +87,7 @@
 
 当前已经落地：
 
-- `experiments/assets/g_eval_query_ids_70.json`
+- `experiments/assets/g_eval_query_ids_68.json`
 - `g_build_query_ids_70`
 - `g_freeze_plain_retrieval_assets`
 - `g_freeze_aspect_retrieval_assets`
@@ -127,7 +127,7 @@
 
 当前资产目录中：
 
-- 已有：`experiments/assets/g_eval_query_ids_70.json`
+- 已有：`experiments/assets/g_eval_query_ids_68.json`
 - 尚未看到正式同步回仓库的：
   - `experiments/assets/g_plain_generation_eval_units.jsonl`
   - `experiments/assets/g_aspect_generation_eval_units.jsonl`

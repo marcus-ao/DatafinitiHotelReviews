@@ -691,6 +691,23 @@ class E9E10GenerationTestCase(unittest.TestCase):
         self.assertIn("aspect_alignment_rate", metric_row)
         self.assertIn("hallucination_rate", metric_row)
 
+    def test_validate_g_generation_eval_units_rejects_wrong_query_order(self):
+        eval_units = [
+            _build_eval_unit().model_copy(update={"query_id": "q002", "query_type": "single_aspect", "retrieval_mode": "plain_city_test_rerank", "candidate_policy": "G_plain_retrieval_top5"}),
+            _build_eval_unit().model_copy(update={"query_id": "q001", "query_type": "single_aspect", "retrieval_mode": "plain_city_test_rerank", "candidate_policy": "G_plain_retrieval_top5"}),
+        ]
+        with mock.patch.object(generation_mod, "load_g_eval_query_ids", return_value=["q001", "q002"]):
+            with self.assertRaises(ValueError):
+                generation_mod.validate_g_generation_eval_units(eval_units, group_id="G1")
+
+    def test_validate_g_generation_eval_units_rejects_invalid_query_type(self):
+        eval_units = [
+            _build_eval_unit().model_copy(update={"query_id": "q001", "query_type": "conflict", "retrieval_mode": "plain_city_test_rerank", "candidate_policy": "G_plain_retrieval_top5"}),
+        ]
+        with mock.patch.object(generation_mod, "load_g_eval_query_ids", return_value=["q001"]):
+            with self.assertRaises(ValueError):
+                generation_mod.validate_g_generation_eval_units(eval_units, group_id="G1")
+
     def test_compute_aspect_alignment_rate_handles_full_partial_and_zero_match(self):
         unit = _build_eval_unit().model_copy(
             update={
@@ -818,6 +835,30 @@ class E9E10GenerationTestCase(unittest.TestCase):
         self.assertEqual(metric_row["recommendation_coverage"], 1.0)
         self.assertEqual(metric_row["aspect_alignment_rate"], 1.0)
         self.assertEqual(metric_row["hallucination_rate"], 0.0)
+
+    def test_build_generation_metric_row_uses_query_level_evidence_and_hallucination(self):
+        row_a = _build_generation_log_row(
+            "gen_run",
+            "B_grounded_generation",
+            query_id="q001",
+            support_scores=[2, 2, 2, 2],
+            eval_unit=_build_eval_unit(),
+        )
+        row_b = _build_generation_log_row(
+            "gen_run",
+            "B_grounded_generation",
+            query_id="q002",
+            support_scores=[0],
+            eval_unit=_build_eval_unit(),
+        )
+        grouped_rows = generation_mod.reconstruct_generation_group_rows([row_a, row_b])
+        metric_row = generation_mod.build_generation_metric_row(
+            "B_grounded_generation",
+            grouped_rows["B_grounded_generation"],
+            {"task": "E9"},
+        )
+        self.assertEqual(metric_row["evidence_verifiability_mean"], 1.0)
+        self.assertEqual(metric_row["hallucination_rate"], 0.5)
 
     def test_summarize_generation_run_reconstructs_new_metrics_from_existing_log_shape(self):
         with tempfile.TemporaryDirectory() as tmp_dir:

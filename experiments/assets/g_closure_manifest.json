@@ -1,0 +1,20 @@
+{
+  "group_run_dirs": {
+    "G1": null,
+    "G2": null,
+    "G3": null,
+    "G4": null
+  },
+  "retrieval_run_dirs": {
+    "G1": null,
+    "G2": null,
+    "G3": null,
+    "G4": null
+  },
+  "stat_payload_path": null,
+  "pairwise_tests_path": null,
+  "judge_summary_path": null,
+  "blind_review_summary_dir": null,
+  "blind_review_status": "pending_independent_rerun",
+  "_note": "Rebuild this manifest after the final full rerun only."
+}

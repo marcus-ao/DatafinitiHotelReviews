@@ -64,6 +64,9 @@ class StatisticalTestsTestCase(unittest.TestCase):
         self.assertEqual(df.iloc[0]["group_a"], "G1")
         self.assertEqual(df.iloc[0]["group_b"], "G2")
         self.assertEqual(df.iloc[0]["pairing_mode"], "position")
+        self.assertEqual(df.iloc[0]["overlap_n"], 3)
+        self.assertEqual(df.iloc[0]["dropped_from_a"], 0)
+        self.assertEqual(df.iloc[0]["dropped_from_b"], 0)
         self.assertEqual(df.iloc[0]["higher_is_better"], True)
 
     def test_compute_pairwise_tests_aligns_by_query_id_when_available(self):
@@ -85,12 +88,13 @@ class StatisticalTestsTestCase(unittest.TestCase):
             metrics=["citation_precision"],
         )
         self.assertEqual(df.iloc[0]["pairing_mode"], "query_id")
+        self.assertEqual(df.iloc[0]["overlap_n"], 3)
         self.assertAlmostEqual(df.iloc[0]["mean_delta"], 0.05, places=4)
         self.assertEqual(df.iloc[0]["wins_group_b"], 2)
         self.assertEqual(df.iloc[0]["wins_group_a"], 0)
 
-    def test_compute_pairwise_tests_rejects_query_id_mismatch(self):
-        with self.assertRaisesRegex(ValueError, "query_ids 集合不一致"):
+    def test_compute_pairwise_tests_rejects_when_no_query_id_overlap(self):
+        with self.assertRaisesRegex(ValueError, "没有可配对的 query_ids"):
             stats_mod.compute_pairwise_tests(
                 {
                     "G1": {"citation_precision": {"scores": [0.8], "query_ids": ["q001"]}},
@@ -98,6 +102,20 @@ class StatisticalTestsTestCase(unittest.TestCase):
                 },
                 metrics=["citation_precision"],
             )
+
+    def test_compute_pairwise_tests_records_partial_query_id_overlap(self):
+        df = stats_mod.compute_pairwise_tests(
+            {
+                "G1": {"citation_precision": {"scores": [0.8, 0.9, 1.0], "query_ids": ["q001", "q002", "q003"]}},
+                "G2": {"citation_precision": {"scores": [0.95, 1.0, 0.7], "query_ids": ["q002", "q003", "q004"]}},
+            },
+            metrics=["citation_precision"],
+        )
+        self.assertEqual(df.iloc[0]["pairing_mode"], "query_id")
+        self.assertEqual(df.iloc[0]["overlap_n"], 2)
+        self.assertEqual(df.iloc[0]["dropped_from_a"], 1)
+        self.assertEqual(df.iloc[0]["dropped_from_b"], 1)
+        self.assertEqual(df.iloc[0]["n"], 2)
 
     def test_compute_pairwise_tests_marks_lower_is_better_metrics(self):
         df = stats_mod.compute_pairwise_tests(

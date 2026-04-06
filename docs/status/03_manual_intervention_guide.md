@@ -6,6 +6,8 @@
 
 当前最需要你亲自处理的工作，已经从 `E10` 迭代切换成了 `G1-G4` 的正式实验闭环。
 
+> 当前正式 decisive G scope 已按 Protocol A 调整为 `68` 条查询（`39 core + 29 robustness`），`q021 / q024` 因在 frozen aspect mainline 下无法形成 evidence-backed candidate，已转为 supporting boundary cases，不再纳入 decisive matrix。
+
 也就是说：
 
 - `E1-E10` 历史结果继续保留并视为冻结证据
@@ -35,7 +37,7 @@
 
 当前应先确认：
 
-- `experiments/assets/g_eval_query_ids_70.json`
+- `experiments/assets/g_eval_query_ids_68.json`
 
 如果你怀疑它不是最新版本，可重新生成：
 
@@ -240,7 +242,7 @@ PY
 当前不建议插队做这些事：
 
 - 不再回头推进 `E10 v3 / v4` 作为当前主线
-- 不重跑 `E5-E10` 旧结果
+- 本轮按最终协议正式重跑 `E1-E10` 与 `G1-G4`
 - 不把 `reranker` 或 `fallback` 接回默认主流程
 - 不在 `G3 / G4` 前使用 `v3 / v4` adapter 替换 `exp02`
 - 不在缺少正式 `G` 资产和 `exp02` metadata 的情况下直接启动云端四组运行

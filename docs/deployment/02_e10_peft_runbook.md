@@ -363,7 +363,7 @@ v2 只变数据，不变训练配方：
 | 训练 manifest | `sft_train_manifest.jsonl` | `sft_train_manifest_v2.jsonl` |
 | QLoRA 配方 | r=16, α=32, lr=2e-4 | 完全相同 |
 | 评测资产 | 40 条冻结 E9 query | 完全相同 |
-| 正式 base 对照组 | `e10_0dc5c2e6f867c66f` | 直接复用，不重跑 |
+| 正式 base 对照组 | `e10_0dc5c2e6f867c66f` | 历史阶段曾复用；当前最终正式重跑轮次应重新生成 canonical base run |
 
 ### 9.1 v2 本地验证状态（已完成）
 

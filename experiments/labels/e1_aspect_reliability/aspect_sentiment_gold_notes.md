@@ -2,7 +2,7 @@
 
 ## Current Official File
 
-- Official E1 gold path: `E1/aspect_sentiment_gold.csv`
+- Official E1 gold path: `experiments/labels/e1_aspect_reliability/aspect_sentiment_gold.csv`
 - Synced from local adjudication archive `ReviewsLabelling/runs/20260330_133939/final_gold.csv` on 2026-03-30.
 
 ## Counts
@@ -15,12 +15,13 @@
 ## Related Files
 
 - `ReviewsLabelling/runs/20260330_133939/final_gold.csv`: finalized adjudicated source snapshot.
-- `ReviewsLabelling/runs/20260330_133939/review_resolved.csv`: review adjudication log for the 76 rows in the review queue. Its final decisions have already been merged into `E1/aspect_sentiment_gold.csv`.
+- `ReviewsLabelling/runs/20260330_133939/review_resolved.csv`: review adjudication log for the 76 rows in the review queue. Its final decisions have already been merged into `experiments/labels/e1_aspect_reliability/aspect_sentiment_gold.csv`.
 - `ReviewsLabelling/runs/20260330_133939/final_excluded.csv`: excluded merchant replies. Do not merge these rows back into the gold set.
 - `ReviewsLabelling/runs/20260330_133939/annotated.csv`: auto-labeled baseline before final manual adjudication. Keep for audit only.
 
 ## Usage Guidance
 
-- Use only `E1/aspect_sentiment_gold.csv` as the final E1 sentence-level gold input.
+- Use only `experiments/labels/e1_aspect_reliability/aspect_sentiment_gold.csv` as the final E1 sentence-level gold input.
+- Any legacy duplicate files under `experiments/E1/` should be treated as obsolete copies, not canonical inputs.
 - Do not treat `review_resolved.csv` as an additional dataset that still needs to be appended.
 - Do not reintroduce rows from `final_excluded.csv`.

@@ -28,6 +28,9 @@ PAIRWISE_TEST_COLUMNS = [
     "group_b",
     "metric",
     "pairing_mode",
+    "overlap_n",
+    "dropped_from_a",
+    "dropped_from_b",
     "n",
     "non_zero_n",
     "wins_group_a",
@@ -102,13 +105,13 @@ def _pair_metric_series(
     *,
     label_a: str,
     label_b: str,
-) -> tuple[np.ndarray, np.ndarray, str]:
+) -> tuple[np.ndarray, np.ndarray, str, int, int, int]:
     scores_a, query_ids_a = _normalize_metric_series(group_a_scores, label=label_a)
     scores_b, query_ids_b = _normalize_metric_series(group_b_scores, label=label_b)
     if query_ids_a is None and query_ids_b is None:
         if scores_a.size != scores_b.size:
             raise ValueError(f"{label_a} 与 {label_b} 的配对比较要求长度一致。")
-        return scores_a, scores_b, "position"
+        return scores_a, scores_b, "position", int(scores_a.size), 0, 0
     if query_ids_a is None or query_ids_b is None:
         raise ValueError(f"{label_a} 与 {label_b} 必须同时提供 query_ids，或同时不提供。")
 
@@ -116,18 +119,26 @@ def _pair_metric_series(
     lookup_b = dict(zip(query_ids_b, scores_b, strict=True))
     query_id_set_a = set(lookup_a)
     query_id_set_b = set(lookup_b)
-    if query_id_set_a != query_id_set_b:
+    overlap_query_ids = [query_id for query_id in query_ids_a if query_id in query_id_set_b]
+    if not overlap_query_ids:
         missing_in_b = sorted(query_id_set_a - query_id_set_b)
         missing_in_a = sorted(query_id_set_b - query_id_set_a)
         raise ValueError(
-            f"{label_a} 与 {label_b} 的 query_ids 集合不一致："
+            f"{label_a} 与 {label_b} 没有可配对的 query_ids："
             f"missing_in_b={missing_in_b}, missing_in_a={missing_in_a}"
         )
 
-    ordered_query_ids = list(query_ids_a)
+    ordered_query_ids = overlap_query_ids
     aligned_a = np.asarray([lookup_a[query_id] for query_id in ordered_query_ids], dtype=float)
     aligned_b = np.asarray([lookup_b[query_id] for query_id in ordered_query_ids], dtype=float)
-    return aligned_a, aligned_b, "query_id"
+    return (
+        aligned_a,
+        aligned_b,
+        "query_id",
+        int(len(ordered_query_ids)),
+        int(len(query_id_set_a - set(ordered_query_ids))),
+        int(len(query_id_set_b - set(ordered_query_ids))),
+    )
 
 
 def _default_group_pairs(group_names: Iterable[str]) -> list[tuple[str, str]]:
@@ -334,7 +345,7 @@ def compute_pairwise_tests(
             if metric not in group_score_map[group_b]:
                 raise KeyError(f"{group_b} 缺少指标：{metric}")
 
-            scores_a, scores_b, pairing_mode = _pair_metric_series(
+            scores_a, scores_b, pairing_mode, overlap_n, dropped_from_a, dropped_from_b = _pair_metric_series(
                 group_score_map[group_a][metric],
                 group_score_map[group_b][metric],
                 label_a=f"{group_a}.{metric}",
@@ -359,6 +370,9 @@ def compute_pairwise_tests(
                     "group_b": group_b,
                     "metric": metric,
                     "pairing_mode": pairing_mode,
+                    "overlap_n": overlap_n,
+                    "dropped_from_a": dropped_from_a,
+                    "dropped_from_b": dropped_from_b,
                     "n": int(scores_a.size),
                     "non_zero_n": int(wilcoxon_result["non_zero_n"]),
                     "wins_group_a": int(np.sum(delta < -1e-12)),

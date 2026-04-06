@@ -20,30 +20,33 @@ class RetrievalGAssetsTestCase(unittest.TestCase):
         )
         payload = retrieval_mod.build_g_eval_query_id_payload(judged_queries)
 
-        self.assertEqual(len(payload["query_ids"]), 70)
-        self.assertEqual(len(payload["core_query_ids"]), 40)
-        self.assertEqual(len(payload["robustness_query_ids"]), 30)
+        self.assertEqual(len(payload["query_ids"]), 68)
+        self.assertEqual(len(payload["core_query_ids"]), 39)
+        self.assertEqual(len(payload["robustness_query_ids"]), 29)
         self.assertEqual(
             payload["query_type_counts"],
             {
-                "single_aspect": 10,
+                "single_aspect": 9,
                 "multi_aspect": 10,
                 "focus_and_avoid": 10,
                 "multi_aspect_strong": 10,
-                "unsupported_budget": 10,
+                "unsupported_budget": 9,
                 "unsupported_distance": 10,
                 "unsupported_heavy": 10,
             },
         )
         self.assertEqual(payload["excluded_query_types"], ["conflict", "missing_city"])
+        self.assertEqual(payload["excluded_query_ids"], ["q021", "q024"])
         excluded_ids = {f"q{n:03d}" for n in range(51, 57)} | {f"q{n:03d}" for n in range(57, 67)}
         self.assertTrue(excluded_ids.isdisjoint(set(payload["query_ids"])))
+        self.assertNotIn("q021", set(payload["query_ids"]))
+        self.assertNotIn("q024", set(payload["query_ids"]))
 
     def test_load_g_eval_query_ids_matches_checked_in_asset(self):
         query_ids = retrieval_mod.load_g_eval_query_ids(
-            Path(__file__).resolve().parents[1] / "experiments/assets/g_eval_query_ids_70.json"
+            Path(__file__).resolve().parents[1] / "experiments/assets/g_eval_query_ids_68.json"
         )
-        self.assertEqual(len(query_ids), 70)
+        self.assertEqual(len(query_ids), 68)
         self.assertEqual(query_ids[:4], ["q001", "q006", "q011", "q016"])
         self.assertEqual(query_ids[-3:], ["q074", "q075", "q076"])
 
@@ -558,6 +561,149 @@ class RetrievalGAssetsTestCase(unittest.TestCase):
                 with self.assertRaises(KeyError) as ctx:
                     retrieval_mod.run_retrieval_eval("E6", output_root=Path(tmp_dir), limit_queries=1)
         self.assertIn("City 'Anaheim'", str(ctx.exception))
+
+    def test_validate_g_qrels_accepts_complete_target_coverage(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            qrels_path = Path(tmp_dir) / "g_qrels_evidence.jsonl"
+            qrels_rows = [
+                {
+                    "query_id": "q001",
+                    "target_aspect": "service",
+                    "target_role": "focus",
+                    "sentence_id": "s001",
+                    "graded_relevance": 2,
+                    "binary_relevant": 1,
+                    "aspect_match": 1,
+                    "polarity_match": 1,
+                },
+                {
+                    "query_id": "q001",
+                    "target_aspect": "value",
+                    "target_role": "avoid",
+                    "sentence_id": "s002",
+                    "graded_relevance": 2,
+                    "binary_relevant": 1,
+                    "aspect_match": 1,
+                    "polarity_match": 1,
+                },
+            ]
+            qrels_path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in qrels_rows) + "\n", encoding="utf-8")
+            with mock.patch.object(
+                retrieval_mod,
+                "build_g_target_units",
+                return_value=[
+                    {"query_id": "q001", "target_aspect": "service", "target_role": "focus"},
+                    {"query_id": "q001", "target_aspect": "value", "target_role": "avoid"},
+                ],
+            ):
+                summary = retrieval_mod.validate_g_qrels(qrels_path)
+            self.assertEqual(summary["query_count"], 1)
+            self.assertEqual(summary["target_unit_count"], 2)
+
+    def test_run_g_retrieval_eval_writes_formal_summary(self):
+        fake_review_df = pd.DataFrame(
+            [{"hotel_id": "hotel_1", "city": "Anaheim", "hotel_name": "Hotel One", "review_id": "r1", "rating": 5}]
+        )
+        fake_evidence_df = pd.DataFrame(
+            [{"sentence_id": "r1_s001", "sentence_text": "Great staff.", "aspect": "service", "sentiment": "positive", "review_date": "2024-01-01", "review_id": "r1"}]
+        )
+        target_units = [
+            {
+                "unit_id": "q001__focus__service",
+                "query_id": "q001",
+                "city": "Anaheim",
+                "query_type": "single_aspect",
+                "target_aspect": "service",
+                "target_role": "focus",
+                "query_text_zh": "??????????",
+                "query_en_full": "hotel in Anaheim with helpful and reliable service",
+                "query_en_target": "hotel in Anaheim with helpful and reliable service",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_root = Path(tmp_dir)
+            qrels_rows = [{"query_id": "q001", "target_aspect": "service", "target_role": "focus", "sentence_id": "r1_s001", "graded_relevance": 2, "binary_relevant": 1, "aspect_match": 1, "polarity_match": 1}]
+            with mock.patch.object(retrieval_mod, "load_config", return_value={
+                "embedding": {"chroma_persist_dir": "unused", "chroma_collection": "unused", "model": "fake-model", "normalize": True},
+                "reranker": {"model": "fake-reranker", "top_k_before_rerank": 3, "top_k_after_rerank": 2},
+            }), \
+                mock.patch.object(retrieval_mod, "load_json", return_value={"meta": {"config_hash": "splitcfg"}, "splits": {"test": ["hotel_1"]}}), \
+                mock.patch.object(retrieval_mod.pd, "read_pickle", side_effect=[fake_review_df, fake_evidence_df]), \
+                mock.patch.object(retrieval_mod, "build_city_test_hotels", return_value={"Anaheim": [{"hotel_id": "hotel_1", "hotel_name": "Hotel One"}]}), \
+                mock.patch.object(retrieval_mod, "build_evidence_lookup", return_value={}), \
+                mock.patch.object(retrieval_mod, "build_g_target_units", return_value=target_units), \
+                mock.patch.object(retrieval_mod, "load_qrels_lookup", return_value={("q001", "service", "focus"): {"r1_s001": qrels_rows[0]}}), \
+                mock.patch.object(retrieval_mod, "load_jsonl", return_value=qrels_rows), \
+                mock.patch.object(retrieval_mod, "warm_up_models", return_value=None), \
+                mock.patch.object(retrieval_mod, "retrieve_official_mode", return_value={
+                    "rows": [{"sentence_id": "r1_s001", "review_id": "r1", "sentence_text": "Great staff.", "channel": "main"}],
+                    "latency_ms": 12.0,
+                    "retrieval_trace": {"mode": "plain_city_test_rerank"},
+                    "main_dense": [{"sentence_id": "r1_s001"}],
+                    "fallback_dense": [],
+                    "main_top5": [{"review_id": "r1"}],
+                }), \
+                mock.patch("scripts.evaluation.evaluate_e6_e8_retrieval.require_chromadb_client", return_value=mock.Mock(return_value=mock.Mock(get_collection=mock.Mock(return_value=mock.Mock())))), \
+                mock.patch("scripts.evaluation.evaluate_e6_e8_retrieval.require_retrieval_backends", return_value=(mock.Mock(), mock.Mock())):
+                run_dir = retrieval_mod.run_g_retrieval_eval("plain", output_root=output_root, limit_queries=1)
+            summary_df = pd.read_csv(run_dir / "summary.csv")
+            self.assertEqual(summary_df.loc[0, "retrieval_summary_source"], "formal_retrieval_eval")
+            self.assertEqual(summary_df.loc[0, "retrieval_variant"], "plain")
+
+    def test_freeze_g_aspect_retrieval_assets_skips_empty_evidence_candidates(self):
+        fake_review_df = pd.DataFrame(
+            [
+                {"hotel_id": "hotel_1", "city": "Honolulu", "hotel_name": "Hotel One", "review_id": "r1", "rating": 5},
+                {"hotel_id": "hotel_2", "city": "Honolulu", "hotel_name": "Hotel Two", "review_id": "r2", "rating": 4},
+            ]
+        )
+        fake_profile_df = pd.DataFrame(
+            [
+                {"hotel_id": "hotel_1", "aspect": "quiet_sleep", "final_aspect_score": 1.0, "recency_weighted_pos": 1.0, "recency_weighted_neg": 0.0},
+                {"hotel_id": "hotel_2", "aspect": "quiet_sleep", "final_aspect_score": 0.8, "recency_weighted_pos": 0.8, "recency_weighted_neg": 0.0},
+            ]
+        )
+        fake_evidence_df = pd.DataFrame(
+            [{"sentence_id": "r2_s001", "sentence_text": "Room was quiet.", "aspect": "quiet_sleep", "sentiment": "positive", "review_date": "2024-01-01", "review_id": "r2"}]
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output_path = Path(tmp_dir) / "aspect_units.jsonl"
+            fake_chromadb_module = SimpleNamespace(PersistentClient=mock.Mock())
+            fake_e2_module = SimpleNamespace(
+                build_hotel_summary=mock.Mock(return_value=fake_review_df[["hotel_id", "city", "hotel_name", "review_id", "rating"]].assign(avg_rating=[5.0, 4.0], review_count=[1, 1])),
+                build_profile_tables=mock.Mock(return_value=(pd.DataFrame({"quiet_sleep": [1.0, 0.8]}, index=["hotel_1", "hotel_2"]), pd.DataFrame({"quiet_sleep": [1.0, 0.8]}, index=["hotel_1", "hotel_2"]))),
+                candidate_rank=mock.Mock(return_value=pd.DataFrame([
+                    {"hotel_id": "hotel_1", "hotel_name": "Hotel One", "score_total": 1.0, "score_breakdown": {"focus_quiet_sleep": 1.0}},
+                    {"hotel_id": "hotel_2", "hotel_name": "Hotel Two", "score_total": 0.8, "score_breakdown": {"focus_quiet_sleep": 0.8}},
+                ])),
+            )
+            with mock.patch.object(retrieval_mod, "load_config", return_value={
+                "embedding": {"chroma_persist_dir": "unused", "chroma_collection": "unused", "model": "fake-model", "normalize": True},
+                "reranker": {"model": "fake-reranker", "top_k_before_rerank": 3, "top_k_after_rerank": 2},
+            }), \
+                mock.patch.object(retrieval_mod, "load_json", return_value={"meta": {"config_hash": "splitcfg"}, "splits": {"test": ["hotel_1", "hotel_2"]}}), \
+                mock.patch.object(retrieval_mod, "load_jsonl", return_value=[{"query_id": "q021", "query_text_zh": "请推荐安静的酒店。", "query_type": "single_aspect"}]), \
+                mock.patch.object(retrieval_mod, "load_slot_gold_lookup", return_value={"q021": {"city": "Honolulu", "state": "HI", "hotel_category": None, "focus_aspects": ["quiet_sleep"], "avoid_aspects": [], "unsupported_requests": [], "query_en": "hotel in Honolulu with quiet rooms for good sleep"}}), \
+                mock.patch.object(retrieval_mod, "load_clarify_gold_lookup", return_value={"q021": {"clarify_needed": False}}), \
+                mock.patch.object(retrieval_mod, "load_g_eval_query_ids", return_value=["q021"]), \
+                mock.patch.object(retrieval_mod.pd, "read_pickle", side_effect=[fake_review_df, fake_profile_df, fake_evidence_df]), \
+                mock.patch.object(retrieval_mod, "build_city_test_hotels", return_value={"Honolulu": [{"hotel_id": "hotel_1", "hotel_name": "Hotel One"}, {"hotel_id": "hotel_2", "hotel_name": "Hotel Two"}]}), \
+                mock.patch.object(retrieval_mod, "build_evidence_lookup", return_value={"r2_s001": {"sentence_text": "Room was quiet.", "aspect": "quiet_sleep", "sentiment": "positive", "review_date": "2024-01-01", "review_id": "r2"}}), \
+                mock.patch.object(retrieval_mod, "warm_up_models", return_value=None), \
+                mock.patch.object(retrieval_mod, "retrieve_official_mode", side_effect=[
+                    {"rows": [], "retrieval_trace": {"mode": "aspect_main_no_rerank", "main_insufficiency_flag": True}},
+                    {"rows": [{"sentence_id": "r2_s001", "sentence_text": "Room was quiet.", "sentence_aspect": "quiet_sleep", "sentence_sentiment": "positive", "review_date": "2024-01-01", "score_dense": 0.1, "score_rerank": None}], "retrieval_trace": {"mode": "aspect_main_no_rerank", "main_insufficiency_flag": False}},
+                ]), \
+                mock.patch("scripts.evaluation.evaluate_e6_e8_retrieval.SentenceTransformer"), \
+                mock.patch("scripts.evaluation.evaluate_e6_e8_retrieval.CrossEncoder"), \
+                mock.patch.dict(sys.modules, {"chromadb": fake_chromadb_module, "scripts.evaluation.evaluate_e2_candidate_selection": fake_e2_module}):
+                path = retrieval_mod.freeze_g_aspect_retrieval_assets(output_path=output_path, query_ids=["q021"])
+
+            self.assertEqual(path, output_path)
+            rows = [GenerationEvalUnit.model_validate(json.loads(line)) for line in output_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertEqual(len(rows), 1)
+            self.assertEqual([hotel.hotel_id for hotel in rows[0].candidate_hotels], ["hotel_2"])
+            self.assertEqual(rows[0].evidence_packs[0].all_sentence_ids, ["r2_s001"])
 
 
 if __name__ == "__main__":

@@ -10,6 +10,7 @@ from typing import Any, Iterable, Mapping, cast
 import pandas as pd
 
 from scripts.evaluation.llm_judge import DEFAULT_JUDGE_MODEL
+from scripts.shared.project_utils import load_project_dotenv
 from scripts.shared.experiment_utils import stable_hash
 from scripts.shared.experiment_utils import EXPERIMENT_RUNS_DIR
 from scripts.shared.experiment_utils import utc_now_iso
@@ -153,6 +154,7 @@ def _load_run_dir_map(path: Path) -> dict[str, str | Path]:
 
 
 def main() -> None:
+    load_project_dotenv()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--task",
@@ -160,11 +162,16 @@ def main() -> None:
             "e2_candidates",
             "e6_qrels_pool",
             "e6_freeze_qrels",
+            "e5_e8_build_query_ids_40",
             "g_build_query_ids_70",
             "g_freeze_plain_retrieval_assets",
             "g_freeze_aspect_retrieval_assets",
             "g_validate_plain_retrieval_assets",
             "g_validate_aspect_retrieval_assets",
+            "g_qrels_pool",
+            "g_freeze_qrels",
+            "g_validate_qrels",
+            "g_retrieval_eval",
             "g_run_generation",
             "g_compare_runs",
             "g_extract_stat_payload",
@@ -172,6 +179,7 @@ def main() -> None:
             "g_run_llm_judge",
             "g_run_batch_llm_judge",
             "g_export_blind_review_pack",
+            "g_fill_blind_review_with_llm",
             "g_aggregate_blind_review",
             "g_build_chapter_report",
             "g_run_execution_readiness",
@@ -204,6 +212,7 @@ def main() -> None:
     parser.add_argument("--limit-queries", type=int, default=None)
     parser.add_argument("--query-id-file", default=None)
     parser.add_argument("--group-id", action="append", default=None)
+    parser.add_argument("--retrieval-variant", choices=["plain", "aspect"], default=None)
     parser.add_argument("--base-run-dir", default=None)
     parser.add_argument("--peft-run-dir", default=None)
     parser.add_argument("--left-run-dir", default=None)
@@ -243,6 +252,11 @@ def main() -> None:
 
         query_ids_path = write_g_eval_query_ids_asset()
         print(f"[OK] G-series query ids written to {query_ids_path}")
+    elif args.task == "e5_e8_build_query_ids_40":
+        from scripts.evaluation.evaluate_e6_e8_retrieval import write_e5_e8_core_query_ids_asset
+
+        query_ids_path = write_e5_e8_core_query_ids_asset()
+        print(f"[OK] E5-E8 core query ids written to {query_ids_path}")
     elif args.task == "g_freeze_plain_retrieval_assets":
         from scripts.evaluation.evaluate_e6_e8_retrieval import freeze_g_plain_retrieval_assets
 
@@ -273,6 +287,28 @@ def main() -> None:
             expected_candidate_policy="G_aspect_retrieval_top5",
         )
         print(f"[OK] G aspect retrieval assets validated: {summary}")
+    elif args.task == "g_qrels_pool":
+        from scripts.evaluation.evaluate_e6_e8_retrieval import build_g_qrels_pool
+
+        pool_path = build_g_qrels_pool(limit_queries=args.limit_queries)
+        print(f"[OK] G qrels pool written to {pool_path}")
+    elif args.task == "g_freeze_qrels":
+        from scripts.evaluation.evaluate_e6_e8_retrieval import freeze_g_qrels
+
+        qrels_path = freeze_g_qrels()
+        print(f"[OK] G qrels frozen to {qrels_path}")
+    elif args.task == "g_validate_qrels":
+        from scripts.evaluation.evaluate_e6_e8_retrieval import validate_g_qrels
+
+        summary = validate_g_qrels(limit_queries=args.limit_queries)
+        print(f"[OK] G qrels validated: {summary}")
+    elif args.task == "g_retrieval_eval":
+        from scripts.evaluation.evaluate_e6_e8_retrieval import run_g_retrieval_eval
+
+        if not args.retrieval_variant:
+            raise ValueError("g_retrieval_eval requires --retrieval-variant plain|aspect")
+        run_dir = run_g_retrieval_eval(args.retrieval_variant, output_root=output_root, limit_queries=args.limit_queries)
+        print(f"[OK] run saved to {run_dir}")
     elif args.task == "g_run_generation":
         from scripts.evaluation.evaluate_e9_e10_generation import run_g_generation
 
@@ -472,6 +508,17 @@ def main() -> None:
         )
         print(f"[OK] blind review pack written to {output_path}")
         print(f"[OK] blind review worksheet written to {worksheet_path}")
+    elif args.task == "g_fill_blind_review_with_llm":
+        from scripts.evaluation.blind_review_export import fill_blind_review_worksheet_with_llm
+
+        if not args.input_path:
+            raise ValueError("g_fill_blind_review_with_llm 需要提供 --input-path。")
+        input_path = Path(args.input_path)
+        if not input_path.exists():
+            raise FileNotFoundError(f"g_fill_blind_review_with_llm 输入不存在：{input_path}")
+        result = fill_blind_review_worksheet_with_llm(input_path, model=args.model)
+        print(f"[OK] blind review worksheet filled with LLM: {result['output_path']}")
+        print(f"[OK] blind review LLM log written to {result['log_path']}")
     elif args.task == "g_aggregate_blind_review":
         from scripts.evaluation.g_workflow_closure import aggregate_blind_review_results
 
@@ -497,9 +544,11 @@ def main() -> None:
         run_dir = _build_aux_run_dir(output_root, "gchapter", {"task": "G_CHAPTER_REPORT", "input_path": str(input_path)})
         result = build_g_chapter_report(
             manifest["group_run_dirs"],
+            retrieval_run_dirs=manifest["retrieval_run_dirs"],
             pairwise_tests_path=manifest.get("pairwise_tests_path"),
             judge_summary_path=manifest.get("judge_summary_path"),
             blind_review_summary_dir=manifest.get("blind_review_summary_dir"),
+            blind_review_status=manifest.get("blind_review_status", "pending_independent_rerun"),
             output_dir=run_dir,
         )
         print(f"[OK] chapter-ready report written to {result['output_dir']}")

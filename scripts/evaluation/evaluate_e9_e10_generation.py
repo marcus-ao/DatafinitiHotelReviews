@@ -31,10 +31,12 @@ from scripts.evaluation.evaluate_e3_e5_behavior import (
 )
 from scripts.evaluation.evaluate_e6_e8_retrieval import (
     G_ASPECT_RETRIEVAL_UNITS_PATH,
+    G_EVAL_QUERY_TYPE_ORDER,
     G_PLAIN_RETRIEVAL_UNITS_PATH,
     build_evidence_lookup,
     build_query_en_target,
     dense_query_hotel,
+    load_g_eval_query_ids,
     markdown_table,
     merge_dense_candidates,
 )
@@ -348,6 +350,17 @@ def validate_g_generation_eval_units(
         raise ValueError(
             f"{group_id} 的 retrieval assets 含重复 query_id: {duplicate_query_ids}"
         )
+
+    expected_query_ids = load_g_eval_query_ids()
+    if query_ids != expected_query_ids[: len(query_ids)]:
+        raise ValueError(
+            f"{group_id} 的 retrieval assets query_id 顺序/范围不符合 G 正式 query 集约束："
+            f"expected_prefix={expected_query_ids[:len(query_ids)]}, actual={query_ids}"
+        )
+
+    invalid_query_types = sorted({unit.query_type for unit in eval_units if unit.query_type not in set(G_EVAL_QUERY_TYPE_ORDER)})
+    if invalid_query_types:
+        raise ValueError(f"{group_id} 的 retrieval assets 含非法 query_type: {invalid_query_types}")
 
     group_spec = G_GROUP_SPECS[group_id]
     retrieval_modes = sorted({unit.retrieval_mode for unit in eval_units})
@@ -729,6 +742,10 @@ def compute_query_evidence_mean(row: dict[str, Any]) -> float:
     return round(sum(support_scores) / len(support_scores), 4)
 
 
+def compute_query_hallucination_rate(row: dict[str, Any]) -> float:
+    return compute_hallucination_rate(row["audit_rows"])
+
+
 def compute_recommendation_coverage(rows: list[dict[str, Any]]) -> float:
     if not rows:
         return 0.0
@@ -804,11 +821,8 @@ def build_generation_metric_row(
     include_reasoning_fields: bool = False,
 ) -> dict[str, Any]:
     unsupported_rows = [row["unsupported_honesty"] for row in rows if row["unsupported_honesty"] is not None]
-    support_scores = [
-        audit_row["support_score"]
-        for row in rows
-        for audit_row in row["audit_rows"]
-    ]
+    query_evidence_means = [compute_query_evidence_mean(row) for row in rows]
+    query_hallucination_rates = [compute_query_hallucination_rate(row) for row in rows]
     aspect_alignment_scores = [
         score
         for score in (
@@ -817,11 +831,6 @@ def build_generation_metric_row(
         )
         if score is not None
     ]
-    all_audit_rows = [
-        audit_row
-        for row in rows
-        for audit_row in row["audit_rows"]
-    ]
     metric_row = {
         "group_id": group_id,
         "query_count": len(rows),
@@ -829,7 +838,7 @@ def build_generation_metric_row(
             sum(row["verification"].citation_precision for row in rows) / max(len(rows), 1),
             4,
         ),
-        "evidence_verifiability_mean": round(sum(support_scores) / max(len(support_scores), 1), 4),
+        "evidence_verifiability_mean": round(sum(query_evidence_means) / max(len(query_evidence_means), 1), 4),
         "schema_valid_rate": round(sum(int(row["response"].schema_valid) for row in rows) / max(len(rows), 1), 4),
         "recommendation_coverage": compute_recommendation_coverage(rows),
         "aspect_alignment_rate": (
@@ -837,7 +846,7 @@ def build_generation_metric_row(
             if aspect_alignment_scores
             else None
         ),
-        "hallucination_rate": compute_hallucination_rate(all_audit_rows),
+        "hallucination_rate": round(sum(query_hallucination_rates) / max(len(query_hallucination_rates), 1), 4),
         "unsupported_honesty_rate": (
             round(1.0 if not unsupported_rows else sum(unsupported_rows) / len(unsupported_rows), 4)
             if include_retry_fields

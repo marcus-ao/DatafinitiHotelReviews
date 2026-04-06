@@ -355,7 +355,21 @@ class RunExperimentSuiteDispatchTests(unittest.TestCase):
                 run_dir.mkdir()
                 (run_dir / "summary.csv").write_text("group_id\n" + group_id + "\n", encoding="utf-8")
                 (run_dir / "results.jsonl").write_text("{}\n", encoding="utf-8")
+                (run_dir / "run_meta.json").write_text(json.dumps({"run_id": f"{group_id}_run"}), encoding="utf-8")
                 run_dirs[group_id] = str(run_dir)
+            retrieval_run_dirs = {}
+            for group_id in ["G1", "G2", "G3", "G4"]:
+                retrieval_dir = temp_root / f"{group_id.lower()}_ret"
+                retrieval_dir.mkdir()
+                variant = "plain" if group_id in {"G1", "G3"} else "aspect"
+                retrieval_mode = "plain_city_test_rerank" if variant == "plain" else "aspect_main_no_rerank"
+                candidate_policy = "G_plain_retrieval_top5" if variant == "plain" else "G_aspect_retrieval_top5"
+                (retrieval_dir / "summary.csv").write_text(
+                    "aspect_recall_at_5,ndcg_at_5,precision_at_5,mrr_at_5,evidence_diversity_at_5,avg_latency_ms,retrieval_variant,retrieval_mode,candidate_policy,retrieval_summary_source\n"
+                    f"1,0.8,0.4,0.6,0.7,10,{variant},{retrieval_mode},{candidate_policy},formal_retrieval_eval\n",
+                    encoding="utf-8",
+                )
+                retrieval_run_dirs[group_id] = str(retrieval_dir)
             stats_path = temp_root / "pairwise_tests.csv"
             stats_path.write_text("group_a,group_b,metric\nG1,G2,citation_precision\n", encoding="utf-8")
             judge_path = temp_root / "judge_summary.csv"
@@ -368,9 +382,11 @@ class RunExperimentSuiteDispatchTests(unittest.TestCase):
                 json.dumps(
                     {
                         "group_run_dirs": run_dirs,
+                        "retrieval_run_dirs": retrieval_run_dirs,
                         "pairwise_tests_path": str(stats_path),
                         "judge_summary_path": str(judge_path),
                         "blind_review_summary_dir": str(blind_dir),
+                        "blind_review_status": "pending_independent_rerun",
                     },
                     ensure_ascii=False,
                 ),
@@ -389,6 +405,9 @@ class RunExperimentSuiteDispatchTests(unittest.TestCase):
                     str(manifest_path),
                 )
             mocked_build.assert_called_once()
+            self.assertEqual(mocked_build.call_args.args[0], run_dirs)
+            self.assertEqual(mocked_build.call_args.kwargs["retrieval_run_dirs"], retrieval_run_dirs)
+            self.assertEqual(mocked_build.call_args.kwargs["blind_review_status"], "pending_independent_rerun")
 
     def test_g_prepare_and_validate_exp02_metadata_tasks(self) -> None:
         with patch(
@@ -502,6 +521,72 @@ class RunExperimentSuiteDispatchTests(unittest.TestCase):
                     "--sample-size",
                     "0",
                 )
+
+    def test_g_fill_blind_review_with_llm_dispatches(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_root = Path(tempdir)
+            worksheet_path = temp_root / "blind_review_worksheet.csv"
+            worksheet_path.write_text("review_item_id,query_bundle_id\nblind_001_A,bundle_001\n", encoding="utf-8")
+            with patch(
+                "scripts.evaluation.blind_review_export.fill_blind_review_worksheet_with_llm",
+                return_value={
+                    "output_path": str(temp_root / "blind_review_worksheet_filled.csv"),
+                    "log_path": str(temp_root / "blind_review_llm_review_log.jsonl"),
+                },
+            ) as mocked_fill:
+                self._run_main(
+                    "--task",
+                    "g_fill_blind_review_with_llm",
+                    "--input-path",
+                    str(worksheet_path),
+                    "--model",
+                    "deepseek-reasoner",
+                )
+            mocked_fill.assert_called_once_with(worksheet_path, model="deepseek-reasoner")
+
+    def test_g_qrels_pool_dispatches(self) -> None:
+        with patch(
+            "scripts.evaluation.evaluate_e6_e8_retrieval.build_g_qrels_pool",
+            return_value=Path("experiments/labels/g_qrels/g_qrels_pool.csv"),
+        ) as mocked_build:
+            self._run_main("--task", "g_qrels_pool", "--limit-queries", "5")
+        mocked_build.assert_called_once_with(limit_queries=5)
+
+    def test_g_freeze_qrels_dispatches(self) -> None:
+        with patch(
+            "scripts.evaluation.evaluate_e6_e8_retrieval.freeze_g_qrels",
+            return_value=Path("experiments/labels/g_qrels/g_qrels_evidence.jsonl"),
+        ) as mocked_freeze:
+            self._run_main("--task", "g_freeze_qrels")
+        mocked_freeze.assert_called_once_with()
+
+    def test_g_validate_qrels_dispatches(self) -> None:
+        with patch(
+            "scripts.evaluation.evaluate_e6_e8_retrieval.validate_g_qrels",
+            return_value={"query_count": 70},
+        ) as mocked_validate:
+            self._run_main("--task", "g_validate_qrels", "--limit-queries", "10")
+        mocked_validate.assert_called_once_with(limit_queries=10)
+
+    def test_g_retrieval_eval_dispatches(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            output_root = Path(tempdir)
+            expected_run_dir = output_root / "gret_plain_fake"
+            with patch(
+                "scripts.evaluation.evaluate_e6_e8_retrieval.run_g_retrieval_eval",
+                return_value=expected_run_dir,
+            ) as mocked_run:
+                self._run_main(
+                    "--task",
+                    "g_retrieval_eval",
+                    "--output-root",
+                    str(output_root),
+                    "--retrieval-variant",
+                    "plain",
+                    "--limit-queries",
+                    "4",
+                )
+            mocked_run.assert_called_once_with("plain", output_root=output_root, limit_queries=4)
 
 
 if __name__ == "__main__":

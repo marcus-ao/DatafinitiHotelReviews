@@ -41,7 +41,7 @@
 
 - 两份资产都存在
 - 检索模式与 candidate policy 和组定义一致
-- 70 条 query 覆盖完整，不缺、不重
+- 当前正式 decisive query 集（`68` 条）覆盖完整，不缺、不重；`q021 / q024` 作为 supporting boundary cases 单独保留
 
 ### 任务 3：云端跑完 `G1-G4`
 
@@ -59,7 +59,7 @@
 完成标准：
 
 - `G1-G4` 全部有 `results.jsonl / summary.csv / citation_verifiability_audit.csv / analysis.md`
-- 四组 query 集一致，都是 70 条
+- 四组 query 集一致，均使用当前正式 decisive scope（`68` 条）
 
 ### 任务 4：生成核心 pairwise compare
 

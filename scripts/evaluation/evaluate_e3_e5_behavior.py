@@ -22,6 +22,8 @@ from scripts.evaluation.evaluate_e6_e8_retrieval import (
     build_retrieval_summary_row,
     build_evidence_lookup,
     build_target_units,
+    build_query_en_target,
+    load_e5_e8_core_query_ids,
     evaluate_ranked_rows,
     load_qrels_lookup,
     markdown_table,
@@ -64,6 +66,7 @@ E3_GROUPS = ["A_rule_parser", "B_base_llm_structured"]
 E4_GROUPS = ["A_rule_clarify", "B_base_llm_clarify"]
 E5_GROUPS = ["A_zh_direct_dense_no_rerank", "B_structured_query_en_dense_no_rerank"]
 BEHAVIOR_CANDIDATE_MODE = "behavior_only"
+E3_E4_ALLOWED_QUERY_TYPES = {"single_aspect", "multi_aspect", "focus_and_avoid", "multi_aspect_strong", "unsupported_budget", "unsupported_distance", "unsupported_heavy"}
 ASPECT_ZH_TERMS = {
     "location_transport": ["位置交通", "位置", "交通"],
     "cleanliness": ["卫生干净", "卫生", "干净"],
@@ -71,6 +74,24 @@ ASPECT_ZH_TERMS = {
     "room_facilities": ["房间设施", "房间", "设施"],
     "quiet_sleep": ["安静睡眠", "住得安静", "安静一点", "安静", "睡眠"],
     "value": ["性价比"],
+}
+
+ASPECT_ZH_QUERY_TARGET = {
+    "location_transport": "位置交通方便",
+    "cleanliness": "卫生干净",
+    "service": "服务好",
+    "room_facilities": "房间设施舒适",
+    "quiet_sleep": "安静睡眠",
+    "value": "性价比高",
+}
+
+ASPECT_ZH_QUERY_AVOID = {
+    "location_transport": "位置交通问题",
+    "cleanliness": "卫生问题",
+    "service": "服务问题",
+    "room_facilities": "房间设施问题",
+    "quiet_sleep": "噪音或睡眠问题",
+    "value": "性价比问题",
 }
 
 UNSUPPORTED_PATTERNS = {
@@ -125,6 +146,12 @@ def build_query_en_from_slots(
     if "checkin_date" in unsupported_requests:
         parts.append("for a specific check-in date")
     return " ".join(parts)
+
+
+def build_query_target_zh(city: str, aspect: str, target_role: str) -> str:
+    if target_role == "focus":
+        return f"{city} 的酒店，{ASPECT_ZH_QUERY_TARGET[aspect]}"
+    return f"{city} 的酒店，避免 {ASPECT_ZH_QUERY_AVOID[aspect]}"
 
 
 def stable_sorted_unique(values: list[str]) -> list[str]:
@@ -469,6 +496,22 @@ def select_query_rows(
     return judged_queries, "all_86_queries", [row["query_id"] for row in judged_queries]
 
 
+def select_audited_behavior_query_rows(
+    judged_queries: list[dict[str, Any]],
+    *,
+    limit_queries: int | None = None,
+    query_id_file: str | Path | None = None,
+) -> tuple[list[dict[str, Any]], str, list[str]]:
+    selected_rows, _, selected_query_ids = select_query_rows(
+        judged_queries,
+        limit_queries=limit_queries,
+        query_id_file=query_id_file,
+    )
+    filtered_rows = [row for row in selected_rows if str(row.get("query_type") or "") in E3_E4_ALLOWED_QUERY_TYPES]
+    filtered_query_ids = [row["query_id"] for row in filtered_rows]
+    return filtered_rows, "audited_behavior_queries", filtered_query_ids
+
+
 def build_preference_prompts_v1(
     query_text: str,
     city_to_state: dict[str, str],
@@ -784,7 +827,7 @@ def run_e3_preference_eval(
         for row in slot_lookup.values()
         if row["city"] and row["state"]
     }
-    judged_queries, query_scope, selected_query_ids = select_query_rows(
+    judged_queries, query_scope, selected_query_ids = select_audited_behavior_query_rows(
         judged_queries,
         limit_queries=limit_queries,
         query_id_file=query_id_file,
@@ -1022,7 +1065,7 @@ def run_e4_clarification_eval(
         for row in slot_lookup.values()
         if row["city"] and row["state"]
     }
-    judged_queries, query_scope, selected_query_ids = select_query_rows(
+    judged_queries, query_scope, selected_query_ids = select_audited_behavior_query_rows(
         judged_queries,
         limit_queries=limit_queries,
         query_id_file=query_id_file,
@@ -1299,10 +1342,13 @@ def run_e5_query_bridge_eval(output_root: Path, limit_queries: int | None = None
         for unit in target_units:
             query_unit = dict(unit)
             query_unit["query_en_source"] = group_id
+            target_city = query_unit["city"]
+            target_aspect = query_unit["target_aspect"]
+            target_role = query_unit["target_role"]
             query_unit["query_en_target"] = (
-                query_unit["query_text_zh"]
+                build_query_target_zh(target_city, target_aspect, target_role)
                 if group_id == "A_zh_direct_dense_no_rerank"
-                else query_unit["query_en_target"]
+                else build_query_en_target(target_city, target_aspect, target_role)
             )
             city_hotels = city_test_hotels.get(query_unit["city"])
             if city_hotels is None:

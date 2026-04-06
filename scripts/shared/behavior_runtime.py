@@ -6,6 +6,7 @@ import os
 from typing import Any
 
 from scripts.shared.experiment_schemas import BehaviorRuntimeConfig
+from scripts.shared.project_utils import load_project_dotenv
 
 
 def parse_env_bool(value: str | None, default: bool) -> bool:
@@ -60,6 +61,7 @@ def resolve_behavior_runtime_config(
     cfg: dict[str, Any],
     frozen_config: dict[str, Any] | None = None,
 ) -> tuple[BehaviorRuntimeConfig, str | None]:
+    load_project_dotenv()
     merged_behavior = dict((frozen_config or {}).get("behavior", {}))
     merged_behavior.update(cfg.get("behavior", {}))
 

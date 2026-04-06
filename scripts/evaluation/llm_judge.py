@@ -3,16 +3,20 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any, Iterable
 
 import pandas as pd
 
+from scripts.shared.project_utils import load_project_dotenv
 from scripts.shared.experiment_utils import load_jsonl, write_jsonl
 
 
-DEFAULT_JUDGE_MODEL = "deepseek-reasoner"
+load_project_dotenv()
+DEFAULT_JUDGE_MODEL = os.getenv("LLM_JUDGE_MODEL", "deepseek-chat")
+DEFAULT_JUDGE_API_MODE = "auto"
 
 
 JUDGE_DIMENSIONS = (
@@ -211,13 +215,73 @@ def _extract_output_text(api_response: Any) -> str:
             return str(api_response["output_text"])
         if "text" in api_response:
             return str(api_response["text"])
+        if "choices" in api_response:
+            try:
+                return str(api_response["choices"][0]["message"]["content"])
+            except Exception:
+                pass
     if hasattr(api_response, "output"):
         output = getattr(api_response, "output")
         try:
             return str(output[0].content[0].text)
         except Exception:
             pass
+    if hasattr(api_response, "choices"):
+        choices = getattr(api_response, "choices")
+        try:
+            return str(choices[0].message.content)
+        except Exception:
+            pass
     raise ValueError("无法从 judge API 响应中提取文本输出。")
+
+
+def _resolve_judge_base_url() -> str | None:
+    for env_name in ["JUDGE_API_BASE_URL", "OPENAI_BASE_URL", "DEEPSEEK_BASE_URL"]:
+        value = os.getenv(env_name)
+        if value:
+            return value
+    return None
+
+
+def _resolve_judge_api_key() -> str | None:
+    for env_name in ["JUDGE_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"]:
+        value = os.getenv(env_name)
+        if value:
+            return value
+    return None
+
+
+def _resolve_judge_api_mode(model: str, base_url: str | None = None) -> str:
+    explicit_mode = os.getenv("LLM_JUDGE_API_MODE", DEFAULT_JUDGE_API_MODE).strip().lower()
+    if explicit_mode in {"responses", "chat_completions"}:
+        return explicit_mode
+    if explicit_mode not in {"", "auto"}:
+        raise ValueError("LLM_JUDGE_API_MODE 只支持 auto / responses / chat_completions。")
+
+    normalized_model = str(model).strip().lower()
+    normalized_base_url = str(base_url or "").strip().lower()
+    if normalized_model.startswith("deepseek-") or "deepseek" in normalized_base_url:
+        return "chat_completions"
+    return "responses"
+
+
+def _select_client_api_mode(client: Any, model: str) -> str:
+    preferred_mode = _resolve_judge_api_mode(model, getattr(client, "_judge_base_url", None))
+    has_responses = hasattr(client, "responses") and hasattr(getattr(client, "responses"), "create")
+    has_chat_completions = (
+        hasattr(client, "chat")
+        and hasattr(getattr(client, "chat"), "completions")
+        and hasattr(getattr(getattr(client, "chat"), "completions"), "create")
+    )
+    if preferred_mode == "chat_completions" and has_chat_completions:
+        return "chat_completions"
+    if preferred_mode == "responses" and has_responses:
+        return "responses"
+    if has_chat_completions:
+        return "chat_completions"
+    if has_responses:
+        return "responses"
+    raise ValueError("Judge client 既不支持 responses.create，也不支持 chat.completions.create。")
 
 
 def _parse_score_payload(raw_text: str) -> dict[str, Any]:
@@ -273,8 +337,7 @@ def score_single_response(
         raise ValueError("query_row 缺少 query_text_zh / query_text。")
     response_payload = response_row.get("response_payload", response_row)
     prompt = build_judge_prompt(query_text, response_payload)
-    api_response = client.responses.create(model=model, input=prompt)
-    raw_text = _extract_output_text(api_response)
+    raw_text = invoke_judge_model(prompt, client, model=model)
     payload = _parse_score_payload(raw_text)
     return _build_judge_record(query_row, response_row, payload, model)
 
@@ -288,7 +351,36 @@ def _resolve_client(client: Any) -> Any:
         raise ImportError(
             "run_llm_judge 在未显式传入 client 时需要安装 openai。"
         ) from exc
-    return OpenAI()
+    api_key = _resolve_judge_api_key()
+    base_url = _resolve_judge_base_url()
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    setattr(client, "_judge_base_url", base_url)
+    return client
+
+
+def resolve_judge_client(client: Any = None) -> Any:
+    return _resolve_client(client)
+
+
+def invoke_judge_model(
+    prompt: str,
+    client: Any,
+    *,
+    model: str = DEFAULT_JUDGE_MODEL,
+) -> str:
+    resolved_client = _resolve_client(client)
+    api_mode = _select_client_api_mode(resolved_client, model)
+    if api_mode == "responses":
+        api_response = resolved_client.responses.create(model=model, input=prompt)
+    elif api_mode == "chat_completions":
+        api_response = resolved_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            stream=False,
+        )
+    else:
+        raise ValueError(f"Unsupported judge api mode: {api_mode}")
+    return _extract_output_text(api_response)
 
 
 def _iter_result_rows(results_dir_or_rows: str | Path | Iterable[dict[str, Any]]) -> list[dict[str, Any]]:

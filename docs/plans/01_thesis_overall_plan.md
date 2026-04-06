@@ -32,7 +32,7 @@
 
 当前 E9/E10 仅使用 40 条查询（4 种类型 × 10 城市），偶然性风险较高。
 
-扩展方案：在原 40 条核心查询基础上，新增 30 条含不支持约束的查询作为"鲁棒性评估层"，总计 70 条。
+扩展方案：在原 40 条核心查询基础上，新增 30 条含不支持约束的查询作为"鲁棒性评估层"，原设计总计 70 条。当前正式执行中，出于 frozen aspect mainline 的 evidence-backed candidate 可行性约束，`q021 / q024` 已按 Protocol A 从 decisive G scope 中对称剔除，因此当前正式 decisive matrix 使用 `68` 条查询（`39 core + 29 robustness`），而 `q021 / q024` 作为 supporting boundary cases 保留分析价值。
 
 | 查询层 | 查询类型 | 数量 | 评估目的 |
 | --- | --- | --- | --- |
@@ -542,11 +542,11 @@
 
 | 编号 | 实验 | 所需条件 | 预估工作量 |
 | --- | --- | --- | --- |
-| G1 | Plain Retrieval + Base 模型推荐生成（70 条查询） | AutoDL GPU + Plain RAG 代码 | 3-4 小时 |
-| G2 复跑 | Aspect 检索 + Base 模型推荐生成（扩展到 70 条） | AutoDL GPU | 3-4 小时 |
-| G3 | Plain Retrieval + PEFT exp02 推荐生成（70 条查询） | AutoDL GPU + exp02 适配器 | 3-4 小时 |
-| G4 复跑 | Aspect 检索 + PEFT exp02 推荐生成（扩展到 70 条） | AutoDL GPU | 3-4 小时 |
-| LLM Judge | DeepSeek 盲评 4×70 条回复 | DeepSeek API | 2-3 小时 |
+| G1 | Plain Retrieval + Base 模型推荐生成（当前正式 decisive scope：68 条） | AutoDL GPU + Plain RAG 代码 | 3-4 小时 |
+| G2 复跑 | Aspect 检索 + Base 模型推荐生成（当前正式 decisive scope：68 条） | AutoDL GPU | 3-4 小时 |
+| G3 | Plain Retrieval + PEFT exp02 推荐生成（当前正式 decisive scope：68 条） | AutoDL GPU + exp02 适配器 | 3-4 小时 |
+| G4 复跑 | Aspect 检索 + PEFT exp02 推荐生成（当前正式 decisive scope：68 条） | AutoDL GPU | 3-4 小时 |
+| LLM Judge | DeepSeek 盲评 4×68 条回复 | DeepSeek API | 2-3 小时 |
 | 人工盲评 | 4×15-20 条抽样盲评 | 人工标注 | 3-5 小时 |
 | 统计检验 | 所有组间 Wilcoxon + Bootstrap CI | 本地计算 | 1-2 小时 |
 
@@ -555,7 +555,7 @@
 - `G1-G4` 仍然没有正式云端结果，因此“实验结果”维度依然视为未完成
 - 但围绕 `G1-G4` 的代码底座已经不是空白状态，而是进入了“代码基本就绪、正式结果待跑”的阶段
 - 当前已落地的模块包括：
-  - `g_eval_query_ids_70.json`
+  - `g_eval_query_ids_68.json`
   - `g_run_generation / g_compare_runs`
   - `statistical_tests.py`
   - `llm_judge.py`
@@ -586,9 +586,9 @@
 | E8 Fallback 消融 | 已完成 | 40 条查询 + 80 评测单元 | **作为配置消融保留** | 不扩展 |
 | E9 RAG 消融 (B vs D) | 已完成 | 40 条查询 | **作为 Chapter 5 辅助证据保留** | 不扩展；端到端对比由 G2 vs G1 承担 |
 | E10 v1/v2/v3/v4 | 已完成 | 40 条查询 | **作为 Chapter 6 消融链保留** | 不扩展；PEFT 主效应由 G3 vs G1 承担 |
-| **G1-G4** | **未完成** | **70 条查询** | **必须新跑** | 核心实验，全部使用新指标体系 |
+| **G1-G4** | **未完成** | **当前正式 decisive scope：68 条查询** | **必须新跑** | 核心实验，全部使用新指标体系 |
 
-**设计逻辑**：E5-E10 的已有结果作为各核心章节的"辅助/消融证据"保留（不浪费已完成的工作），G1-G4 在 70 条查询 + 完整指标体系上运行，作为第七章统一对比的"决定性证据"。这样既保留了已有工作的价值，又确保核心对比（G1-G4）使用最严格的评估标准。
+**设计逻辑**：E5-E10 的已有结果作为各核心章节的"辅助/消融证据"保留（不浪费已完成的工作），G1-G4 在当前正式 decisive scope（68 条查询）+ 完整指标体系上运行，作为第七章统一对比的"决定性证据"。这样既保留了已有工作的价值，又确保核心对比（G1-G4）使用最严格且已通过 formal asset validation 的评估标准；`q021 / q024` 不计入 decisive matrix，但保留为 supporting boundary cases。
 
 #### 6.1.1 按实验划分的代码优化调整清单
 
@@ -596,16 +596,16 @@
 
 | 实验 / 实验组 | 当前工作区状态 | 是否需要调整实验实现 | 是否需要同步新指标口径 | 调整级别 | 需要调整的核心内容 | 处理结论 |
 | --- | --- | --- | --- | --- | --- | --- |
-| E1 方面分类 | 已完成，且与查询规模扩展无直接耦合 | 否 | 否 | 无 | 保持 `macro-F1 / Jaccard / sentiment F1` 这一任务原生指标，不引入检索层/生成层新指标 | 直接复用，不重跑 |
-| E2 候选筛选 | 已完成，且不依赖 E9/E10 的查询规模 | 否 | 否 | 无 | 保持候选筛选阶段原生指标，不强行套用检索句级或生成层指标 | 直接复用，不重跑 |
-| E3 偏好解析 | 已完成，86 条查询已覆盖完整 judged query 集 | 否 | 否 | 无 | 保持 `Exact-Match / Slot-F1 / Unsupported Detection Recall` 口径 | 直接复用，不重跑 |
-| E4 澄清决策 | 已完成，86 条查询已覆盖完整 judged query 集 | 否 | 否 | 无 | 保持 `Accuracy / Precision / Recall / F1 / Over-clarification / Under-clarification` 口径 | 直接复用，不重跑 |
+| E1 方面分类 | 已完成，且与查询规模扩展无直接耦合 | 否 | 否 | 无 | 保持 `macro-F1 / Jaccard / sentiment F1` 这一任务原生指标，不引入检索层/生成层新指标 | 本轮正式重跑 |
+| E2 候选筛选 | 已完成，且不依赖 E9/E10 的查询规模 | 否 | 否 | 无 | 保持候选筛选阶段原生指标，不强行套用检索句级或生成层指标 | 本轮正式重跑 |
+| E3 偏好解析 | 已完成，86 条查询已覆盖完整 judged query 集 | 否 | 否 | 无 | 保持 `Exact-Match / Slot-F1 / Unsupported Detection Recall` 口径 | 本轮正式重跑 |
+| E4 澄清决策 | 已完成，86 条查询已覆盖完整 judged query 集 | 否 | 否 | 无 | 保持 `Accuracy / Precision / Recall / F1 / Over-clarification / Under-clarification` 口径 | 本轮正式重跑 |
 | E5 查询桥接 | 已完成，40 条查询 | 否 | 是 | 报告层同步 | 作为检索层实验，应补齐到新版 `6` 项检索指标口径与统一统计呈现方式 | 保留现有结果；必要时后处理补指标 |
 | E6 Aspect vs Plain 检索 | 已完成，40 条查询 + 80 检索单元 | 否 | 是 | 报告层同步 | 作为检索层核心正结果，应统一输出新版 `6` 项检索指标与统计检验 | 保留现有结果；必要时后处理补指标 |
 | E7 Reranker 消融 | 已完成 | 否 | 是 | 报告层同步 | 作为检索层消融，应同步到新版 `6` 项检索指标，保证与 E6/G1-G4 可横向比较 | 保留现有结果；必要时后处理补指标 |
 | E8 Fallback 消融 | 已完成 | 否 | 是 | 报告层同步 | 作为检索层消融，应同步到新版 `6` 项检索指标，保证与 E6/G1-G4 可横向比较 | 保留现有结果；必要时后处理补指标 |
 | E9 RAG 消融（B vs D） | 已完成，且当前代码已支持 `D_no_evidence_generation` | 否 | 是 | 局部优化 | 共享生成评测层需补 `70` 条查询加载、统一 `G` 系列报告字段、`Aspect Alignment Rate`、`Hallucination Rate`、Judge/人工评测衔接字段 | 保留现有 `n=40` 结果；代码按 G1/G2 共用需求升级 |
-| E10 v1/v2/v3/v4 迭代链 | 已完成，`v2/v3/v4` 结果已同步回本地 | 否 | 是 | 局部优化 | compare 汇总逻辑需扩展为 `G3/G4` 共用底座，支持新版生成层指标与统一矩阵输出 | 保留现有 `n=40` 结果；不重跑 exp01-exp04 旧轮次 |
+| E10 v1/v2/v3/v4 迭代链 | 已完成，`v2/v3/v4` 结果已同步回本地 | 否 | 是 | 局部优化 | compare 汇总逻辑需扩展为 `G3/G4` 共用底座，支持新版生成层指标与统一矩阵输出 | 本轮正式重跑 |
 | G1 | 检索资产冻结与 generation 运行入口已实现，但正式 `70` 条 run 未产出 | 是 | 是 | 新增实现已基本落地 | `Plain Retrieval + Base` 的资产冻结、运行入口和生成侧汇总已接通；当前缺正式资产与正式云端 run | 必须新跑 |
 | G2 | `Aspect + Base` 的 `40` 条辅助结果已存在，`70` 条统一框架代码已接通 | 是 | 是 | 中等扩展已基本落地 | Aspect 路线已具备扩展到 `70` 条的资产冻结和运行入口；当前缺正式复跑结果 | 必须复跑 |
 | G3 | `Plain Retrieval + PEFT exp02` 的代码路径已实现，但受 `exp02` metadata 缺失阻塞 | 是 | 是 | 新增实现已基本落地 | `Plain Retrieval + PEFT exp02` 的运行入口、compare 与后处理已接通；当前缺 `v2/exp02` metadata 与正式 run | 必须新跑 |
@@ -617,7 +617,7 @@
 
 **据此形成的总清单如下：**
 
-- `[A] 无需同步新版检索/生成指标、直接复用任务原生指标`：`E1 / E2 / E3 / E4`
+- `[A] 继续使用任务原生指标，但本轮仍正式重跑`：`E1 / E2 / E3 / E4`
 - `[B] 不改实验主体逻辑，但需要同步新版指标口径与报告模板`：`E5 / E6 / E7 / E8 / E9 / E10 v1 / v2 / v3 / v4`
 - `[C] 必须新增或重构代码并重新运行`：`G1 / G2 / G3 / G4`
 - `[D] 已完成代码实现但待正式运行/待正式接线`：`统计检验 / LLM Judge / 人工盲评导出 / G 工作流收口`
@@ -660,7 +660,7 @@
 
 #### 6.2.3 扩展后的评测查询集文件
 
-当前 `experiments/assets/g_eval_query_ids_70.json` 已经落地，包含 40 核心 + 30 鲁棒性共 70 条 query_id。
+当前 `experiments/assets/g_eval_query_ids_68.json` 是正式 decisive scope 资产，当前正式内容为 `68` 条 query_id（`39 core + 29 robustness`）；其中 `q021 / q024` 已在 asset 中通过 `excluded_query_ids` 显式记录为 supporting boundary cases。
 
 ### 6.3 新增指标的代码实现方案
 
@@ -760,8 +760,8 @@ def aggregate_judge_scores(g1_scores, g2_scores, g3_scores, g4_scores) -> pd.Dat
 Phase 1: 代码准备（本地）
 │
 ├── 1.1 扩展查询集
-│   ├── `g_eval_query_ids_70.json` 已生成（40 核心 + 30 鲁棒性）
-│   └── 共享加载与校验逻辑已支持 70 条查询
+│   ├── `g_eval_query_ids_68.json` 已生成（39 核心 + 29 鲁棒性，`q021/q024` 已排除）
+│   └── 共享加载与校验逻辑已支持当前正式 decisive scope（68 条查询）
 │
 ├── 1.2 实现 Plain RAG 基线
 │   ├── 新增 build_evidence_pack_plain_for_candidate（~30 行）
@@ -779,17 +779,17 @@ Phase 1: 代码准备（本地）
 Phase 2: 实验运行（AutoDL 云端）
 │
 ├── 2.1 冻结资产
-│   ├── 为 70 条查询生成 Aspect-Guided EvidencePacks
-│   └── 为 70 条查询生成 Plain EvidencePacks
+│   ├── 为当前正式 decisive scope（68 条查询）生成 Aspect-Guided EvidencePacks
+│   └── 为当前正式 decisive scope（68 条查询）生成 Plain EvidencePacks
 │
 ├── 2.2 运行四组实验
-│   ├── G1: Plain RAG + Base Qwen3.5-4B（70 条）
-│   ├── G2: Aspect RAG + Base Qwen3.5-4B（70 条）
-│   ├── G3: Plain RAG + PEFT exp02（70 条）
-│   └── G4: Aspect RAG + PEFT exp02（70 条）
+│   ├── G1: Plain RAG + Base Qwen3.5-4B（68 条）
+│   ├── G2: Aspect RAG + Base Qwen3.5-4B（68 条）
+│   ├── G3: Plain RAG + PEFT exp02（68 条）
+│   └── G4: Aspect RAG + PEFT exp02（68 条）
 │
 └── 2.3 生成引用审计
-    └── 4 组 × 70 条的 citation_verifiability_audit.csv
+└── 4 组 × 68 条的 citation_verifiability_audit.csv
 
 Phase 3: 评估与分析（本地 + API）
 │
@@ -808,24 +808,24 @@ Phase 3: 评估与分析（本地 + API）
 
 ### 6.5 已有 E5-E10 结果的论文使用规范
 
-为避免"已有 40 条结果"和"新增 70 条结果"产生口径混淆，论文中需遵循以下规范：
+为避免"已有 40 条结果"和"当前正式 decisive scope 结果"产生口径混淆，论文中需遵循以下规范：
 
 | 论文位置 | 使用的数据 | 查询规模标注 |
 | --- | --- | --- |
 | 第五章 5.2-5.3 节（E5/E6/E7/E8） | 已有 40 条结果 | 表格标注 "n=40 / 80 units" |
 | 第五章 5.4 节（E9 消融） | 已有 40 条结果 | 表格标注 "n=40" |
 | 第六章 6.3-6.4 节（E10 迭代链） | 已有 40 条结果 | 表格标注 "n=40" |
-| **第七章 7.2 节（G1-G4 对比）** | **新跑 70 条结果** | **表格标注 "n=70 (40 core + 30 robustness)"** |
-| **第七章 7.2 节（统计检验）** | **新跑 70 条结果** | **标注 p 值和 CI** |
-| **第七章 7.2 节（LLM Judge）** | **新跑 70 条结果** | **标注 5 维度均分** |
+| **第七章 7.2 节（G1-G4 对比）** | **新跑当前正式 decisive scope 结果** | **表格标注 "n=68 (39 core + 29 robustness)"，并脚注说明 `q021 / q024` 为 supporting boundary cases** |
+| **第七章 7.2 节（统计检验）** | **新跑当前正式 decisive scope 结果** | **标注 p 值和 CI** |
+| **第七章 7.2 节（LLM Judge）** | **新跑当前正式 decisive scope 结果** | **标注 5 维度均分** |
 
-在第七章开头需明确说明：第五/六章的辅助实验使用 40 条核心查询，第七章的统一对比实验扩展到 70 条查询以提高统计可靠性。这不是方法不一致，而是"辅助验证用精选集 + 核心对比用扩展集"的分层设计。
+在第七章开头需明确说明：第五/六章的辅助实验使用 40 条核心查询；第七章的统一对比实验原设计为 70 条查询，但当前正式 decisive execution 因 frozen aspect mainline 的 evidence-backed candidate 可行性约束，对 `q021 / q024` 做了对称剔除，因此正式 decisive matrix 使用 `68` 条查询。这不是方法漂移，而是一次 pre-run、对称、基于 formal asset validation 的协议级修正；`q021 / q024` 仍作为 supporting boundary cases 保留在讨论与误差分析中。
 
 ### 6.6 各项代码改动的工作量汇总
 
 | 改动项 | 当前状态 | 主要文件 | 当前结论 |
 | --- | --- | --- | --- |
-| 查询集扩展 | 已完成 | `evaluate_e6_e8_retrieval.py` + `g_eval_query_ids_70.json` | 已可供 G 系列共用 |
+| 查询集扩展 | 已完成 | `evaluate_e6_e8_retrieval.py` + `g_eval_query_ids_68.json` | 已可供 G 系列共用 |
 | Plain / Aspect Retrieval Assets | 已完成入口，待正式落地资产 | `evaluate_e6_e8_retrieval.py` | 正式 `g_plain/g_aspect` assets 仍待同步 |
 | G 系列 generation 入口 | 已完成 | `evaluate_e9_e10_generation.py` + `run_experiment_suite.py` | 可运行，待正式云端结果 |
 | 生成层 7 指标 | 已完成 | `evaluate_e9_e10_generation.py` | 已进入 E9/E10/G 共用底座 |
@@ -866,3 +866,58 @@ Phase 3: 评估与分析（本地 + API）
 | E10 PEFT v4 run | experiments/runs/e10_d749ec0796f7b365_20260404T024800+0000/ |
 | 论文章节 | chapters/ |
 | 论文管理 | plan/ |
+
+---
+
+## 九、当前实现中的真实数据流分层说明
+
+为避免论文叙事与工程实现脱节，当前项目必须明确区分“知识库构建层 / 冻结资产层 / 正式评测层”三层，而不能笼统写成“所有实验都在线访问 PostgreSQL 与 ChromaDB”。
+
+### 9.1 知识库构建层
+
+- 原始酒店评论首先经过清洗、切句、方面标注与画像聚合，生成 `data/intermediate/*.pkl` 中间产物。
+- 在这一层中：
+  - PostgreSQL 承担关系型知识库存储，保存酒店、评论、句子、方面画像和证据索引等结构化事实。
+  - ChromaDB 承担句子级向量索引存储，保存可检索的证据向量及其元数据过滤条件。
+- 关键脚本包括：
+  - `scripts/pipeline/build_evidence_vector_index.py`
+  - `scripts/pipeline/load_kb_to_postgres.py`
+  - `scripts/pipeline/validate_kb_assets.py`
+
+### 9.2 冻结资产层
+
+- 为保证控制变量、可复现性与正式 compare 的严谨性，实验并不总是直接在线查询知识库，而是先从知识库与中间产物中冻结实验资产。
+- 当前冻结资产层的典型产物包括：
+  - query scopes
+  - split manifests
+  - qrels / gold labels
+  - `GenerationEvalUnit`
+  - `EvidencePack`
+  - PEFT manifests
+- `E2 / E5-E8` 的检索实验仍会直接访问 ChromaDB，但同时也显式依赖 `data/intermediate/*.pkl`。
+- `E9 / E10 / G1-G4` 更典型的实现路径是：先利用 ChromaDB 构造 `EvidencePack / GenerationEvalUnit / manifest`，再将这些资产写入 `experiments/assets/*.json / *.jsonl`，供后续正式评测复用。
+
+### 9.3 正式评测层
+
+- 一旦冻结资产生成完成，后续正式实验主线主要消费的是静态实验资产与运行产物，而不是持续在线访问知识库。
+- 当前正式评测层主要消费：
+  - `results.jsonl`
+  - `summary.csv`
+  - `audit csv`
+  - frozen eval assets / manifests
+- 因此在正式实验热路径中：
+  - PostgreSQL 几乎不直接参与；
+  - ChromaDB 的直接参与主要集中在上游资产构建，而不是下游 compare / stats / Judge / blind review / chapter report。
+
+### 9.4 对论文表述的直接约束
+
+- 论文中的准确表述应为：
+  - “本研究首先构建由 PostgreSQL 与 ChromaDB 组成的外置知识库；在正式实验阶段，为保证控制变量与可复现性，进一步将检索结果、证据包和评测单元冻结为静态实验资产，后续生成评测与组间比较均基于这些冻结资产完成。”
+- 不应表述为：
+  - “所有正式实验均直接在线访问 PostgreSQL 与 ChromaDB 运行。”
+
+### 9.5 E1 路径口径冻结
+
+- `E1` 的唯一正式 gold 路径固定为：
+  - `experiments/labels/e1_aspect_reliability/aspect_sentiment_gold.csv`
+- 历史上的 `experiments/E1/` 只属于旧副本位置，不再作为正式输入口径引用。

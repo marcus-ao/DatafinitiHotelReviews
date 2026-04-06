@@ -10,13 +10,15 @@ from typing import Any, Iterable, Mapping, cast
 import pandas as pd
 
 from scripts.evaluation.blind_review_export import blind_review_mapping_output_path
-from scripts.evaluation.evaluate_e6_e8_retrieval import G_ASPECT_RETRIEVAL_UNITS_PATH, G_PLAIN_RETRIEVAL_UNITS_PATH
+from scripts.evaluation.evaluate_e6_e8_retrieval import G_ASPECT_RETRIEVAL_UNITS_PATH, G_PLAIN_RETRIEVAL_UNITS_PATH, G_QRELS_EVIDENCE_PATH
+from scripts.evaluation.evaluate_e6_e8_retrieval import validate_g_qrels, validate_g_retrieval_assets
 from scripts.evaluation.evaluate_e6_e8_retrieval import markdown_table
+from scripts.evaluation.evaluate_e6_e8_retrieval import E5_E8_QUERY_IDS_PATH, load_e5_e8_core_query_ids
 from scripts.evaluation.evaluate_e9_e10_generation import G_GROUP_SPECS
-from scripts.evaluation.evaluate_e9_e10_generation import compute_hallucination_rate
-from scripts.evaluation.evaluate_e9_e10_generation import load_generation_eval_units
+from scripts.evaluation.evaluate_e9_e10_generation import compute_query_evidence_mean, compute_query_hallucination_rate
 from scripts.evaluation.evaluate_e9_e10_generation import load_generation_run_artifacts
 from scripts.evaluation.evaluate_e9_e10_generation import reconstruct_generation_group_rows
+from scripts.evaluation.evaluate_e9_e10_generation import summarize_generation_run
 from scripts.evaluation.llm_judge import DEFAULT_JUDGE_MODEL, aggregate_judge_scores, run_llm_judge
 from scripts.shared.experiment_utils import EXPERIMENT_ASSETS_DIR, write_json
 
@@ -26,7 +28,7 @@ EXP02_METADATA_PATH = EXPERIMENT_ASSETS_DIR / "e10_adapter_metadata.qwen35_4b_pe
 EXP02_METADATA_PLACEHOLDER_PATH = EXPERIMENT_ASSETS_DIR / "e10_adapter_metadata.qwen35_4b_peft_v2.placeholder.json"
 G_PLAIN_RETRIEVAL_ASSET_PATH = EXPERIMENT_ASSETS_DIR / "g_plain_generation_eval_units.jsonl"
 G_ASPECT_RETRIEVAL_ASSET_PATH = EXPERIMENT_ASSETS_DIR / "g_aspect_generation_eval_units.jsonl"
-G_QUERY_ID_ASSET_PATH = EXPERIMENT_ASSETS_DIR / "g_eval_query_ids_70.json"
+G_QUERY_ID_ASSET_PATH = EXPERIMENT_ASSETS_DIR / "g_eval_query_ids_68.json"
 DEFAULT_G_JUDGE_MODEL = DEFAULT_JUDGE_MODEL
 
 G_RETRIEVAL_METRICS = [
@@ -46,6 +48,16 @@ G_GENERATION_METRICS = [
     "hallucination_rate",
     "unsupported_honesty_rate",
 ]
+BLIND_REVIEW_STATUS_READY = "ready"
+BLIND_REVIEW_STATUS_HUMAN_VERIFIED = "human_verified_ready"
+BLIND_REVIEW_STATUS_LLM_READY = "llm_reviewer_ready"
+BLIND_REVIEW_STATUS_PENDING = "pending_independent_rerun"
+BLIND_REVIEW_STATUS_VALUES = {
+    BLIND_REVIEW_STATUS_READY,
+    BLIND_REVIEW_STATUS_HUMAN_VERIFIED,
+    BLIND_REVIEW_STATUS_LLM_READY,
+    BLIND_REVIEW_STATUS_PENDING,
+}
 
 
 def build_g_execution_readiness_report() -> dict[str, Any]:
@@ -57,15 +69,58 @@ def build_g_execution_readiness_report() -> dict[str, Any]:
     if G_QUERY_ID_ASSET_PATH.exists():
         payload = json.loads(G_QUERY_ID_ASSET_PATH.read_text(encoding="utf-8"))
         query_ids = payload.get("query_ids", [])
-        _record("g_query_ids_asset", len(query_ids) == 70, f"path={G_QUERY_ID_ASSET_PATH}, count={len(query_ids)}")
+        expected_query_count = int(payload.get("query_count", len(query_ids)))
+        _record("g_query_ids_asset", len(query_ids) == expected_query_count, f"path={G_QUERY_ID_ASSET_PATH}, count={len(query_ids)}")
     else:
         _record("g_query_ids_asset", False, f"missing={G_QUERY_ID_ASSET_PATH}")
 
-    for asset_name, asset_path in [
-        ("g_plain_retrieval_assets", G_PLAIN_RETRIEVAL_ASSET_PATH),
-        ("g_aspect_retrieval_assets", G_ASPECT_RETRIEVAL_ASSET_PATH),
-    ]:
-        _record(asset_name, asset_path.exists(), f"path={asset_path}")
+    if E5_E8_QUERY_IDS_PATH.exists():
+        try:
+            query_ids = load_e5_e8_core_query_ids(E5_E8_QUERY_IDS_PATH)
+        except Exception as exc:
+            _record("e5_e8_core_query_ids_asset", False, f"path={E5_E8_QUERY_IDS_PATH}; error={exc}")
+        else:
+            _record("e5_e8_core_query_ids_asset", len(query_ids) == 40, f"path={E5_E8_QUERY_IDS_PATH}, count={len(query_ids)}")
+    else:
+        _record("e5_e8_core_query_ids_asset", False, f"missing={E5_E8_QUERY_IDS_PATH}")
+
+    if G_PLAIN_RETRIEVAL_ASSET_PATH.exists():
+        try:
+            summary = validate_g_retrieval_assets(
+                G_PLAIN_RETRIEVAL_ASSET_PATH,
+                expected_retrieval_mode="plain_city_test_rerank",
+                expected_candidate_policy="G_plain_retrieval_top5",
+            )
+        except Exception as exc:
+            _record("g_plain_retrieval_assets", False, f"path={G_PLAIN_RETRIEVAL_ASSET_PATH}; error={exc}")
+        else:
+            _record("g_plain_retrieval_assets", True, f"path={G_PLAIN_RETRIEVAL_ASSET_PATH}; summary={summary}")
+    else:
+        _record("g_plain_retrieval_assets", False, f"missing={G_PLAIN_RETRIEVAL_ASSET_PATH}")
+
+    if G_ASPECT_RETRIEVAL_ASSET_PATH.exists():
+        try:
+            summary = validate_g_retrieval_assets(
+                G_ASPECT_RETRIEVAL_ASSET_PATH,
+                expected_retrieval_mode="aspect_main_no_rerank",
+                expected_candidate_policy="G_aspect_retrieval_top5",
+            )
+        except Exception as exc:
+            _record("g_aspect_retrieval_assets", False, f"path={G_ASPECT_RETRIEVAL_ASSET_PATH}; error={exc}")
+        else:
+            _record("g_aspect_retrieval_assets", True, f"path={G_ASPECT_RETRIEVAL_ASSET_PATH}; summary={summary}")
+    else:
+        _record("g_aspect_retrieval_assets", False, f"missing={G_ASPECT_RETRIEVAL_ASSET_PATH}")
+
+    if G_QRELS_EVIDENCE_PATH.exists():
+        try:
+            summary = validate_g_qrels()
+        except Exception as exc:
+            _record("g_qrels_asset", False, f"path={G_QRELS_EVIDENCE_PATH}; error={exc}")
+        else:
+            _record("g_qrels_asset", True, f"path={G_QRELS_EVIDENCE_PATH}; summary={summary}")
+    else:
+        _record("g_qrels_asset", False, f"missing={G_QRELS_EVIDENCE_PATH}")
 
     try:
         validate_exp02_metadata()
@@ -79,10 +134,16 @@ def build_g_execution_readiness_report() -> dict[str, Any]:
         "all_ready": all(check["success"] for check in checks),
         "recommended_sequence": [
             "g_build_query_ids_70",
+            "e5_e8_build_query_ids_40",
             "g_freeze_plain_retrieval_assets",
             "g_freeze_aspect_retrieval_assets",
             "g_validate_plain_retrieval_assets",
             "g_validate_aspect_retrieval_assets",
+            "g_qrels_pool",
+            "g_freeze_qrels",
+            "g_validate_qrels",
+            "g_retrieval_eval --retrieval-variant plain",
+            "g_retrieval_eval --retrieval-variant aspect",
             "g_validate_exp02_metadata",
             "g_run_generation --group-id G1",
             "g_run_generation --group-id G2",
@@ -117,18 +178,23 @@ def export_g_execution_readiness_report(output_dir: str | Path) -> dict[str, Any
 def build_g_closure_manifest(
     run_dirs_by_group: Mapping[str, str | Path],
     *,
+    retrieval_run_dirs: Mapping[str, str | Path],
     stat_payload_path: str | Path | None = None,
     pairwise_tests_path: str | Path | None = None,
     judge_summary_path: str | Path | None = None,
     blind_review_summary_dir: str | Path | None = None,
+    blind_review_status: str = BLIND_REVIEW_STATUS_PENDING,
 ) -> dict[str, Any]:
     group_ids = _validate_g_group_ids(run_dirs_by_group.keys())
+    retrieval_group_ids = _validate_g_group_ids(retrieval_run_dirs.keys())
     manifest = {
         "group_run_dirs": {group_id: str(Path(run_dirs_by_group[group_id])) for group_id in group_ids},
+        "retrieval_run_dirs": {group_id: str(Path(retrieval_run_dirs[group_id])) for group_id in retrieval_group_ids},
         "stat_payload_path": str(Path(stat_payload_path)) if stat_payload_path else None,
         "pairwise_tests_path": str(Path(pairwise_tests_path)) if pairwise_tests_path else None,
         "judge_summary_path": str(Path(judge_summary_path)) if judge_summary_path else None,
         "blind_review_summary_dir": str(Path(blind_review_summary_dir)) if blind_review_summary_dir else None,
+        "blind_review_status": str(blind_review_status or BLIND_REVIEW_STATUS_PENDING),
     }
     return manifest
 
@@ -138,28 +204,62 @@ def validate_g_closure_manifest(manifest_or_path: Mapping[str, Any] | str | Path
         payload = json.loads(Path(manifest_or_path).read_text(encoding="utf-8"))
     else:
         payload = dict(manifest_or_path)
+
     run_dir_map = payload.get("group_run_dirs")
     if not isinstance(run_dir_map, dict):
-        raise ValueError("G closure manifest 缺少 group_run_dirs。")
+        raise ValueError("G closure manifest is missing group_run_dirs.")
+    retrieval_run_dir_map = payload.get("retrieval_run_dirs")
+    if not isinstance(retrieval_run_dir_map, dict):
+        raise ValueError("G closure manifest is missing retrieval_run_dirs.")
+
     normalized_run_dir_map = {group_id: Path(str(run_dir)) for group_id, run_dir in run_dir_map.items()}
+    normalized_retrieval_run_dir_map = {
+        group_id: Path(str(run_dir))
+        for group_id, run_dir in retrieval_run_dir_map.items()
+    }
     _validate_g_group_ids(normalized_run_dir_map.keys())
+    _validate_g_group_ids(normalized_retrieval_run_dir_map.keys())
+
     for group_id, run_dir in normalized_run_dir_map.items():
         if not run_dir.exists():
-            raise FileNotFoundError(f"G closure manifest 中 {group_id} 的 run_dir 不存在：{run_dir}")
-        if not (run_dir / "summary.csv").exists():
-            raise FileNotFoundError(f"G closure manifest 中 {group_id} 缺少 summary.csv：{run_dir / 'summary.csv'}")
+            raise FileNotFoundError(f"G closure manifest run_dir for {group_id} does not exist: {run_dir}")
+        if not (run_dir / "run_meta.json").exists():
+            raise FileNotFoundError(f"G closure manifest is missing run_meta.json for {group_id}: {run_dir / 'run_meta.json'}")
         if not (run_dir / "results.jsonl").exists():
-            raise FileNotFoundError(f"G closure manifest 中 {group_id} 缺少 results.jsonl：{run_dir / 'results.jsonl'}")
+            raise FileNotFoundError(f"G closure manifest is missing results.jsonl for {group_id}: {run_dir / 'results.jsonl'}")
+
+    for group_id, run_dir in normalized_retrieval_run_dir_map.items():
+        if not run_dir.exists():
+            raise FileNotFoundError(f"G closure manifest retrieval_run_dir for {group_id} does not exist: {run_dir}")
+        if not (run_dir / "summary.csv").exists():
+            raise FileNotFoundError(f"G closure manifest is missing retrieval summary.csv for {group_id}: {run_dir / 'summary.csv'}")
+        _validate_formal_retrieval_summary_contract(
+            run_dir,
+            group_id=group_id,
+            retrieval_variant=str(G_GROUP_SPECS[group_id]["retrieval_variant"]),
+        )
 
     for key in ["stat_payload_path", "pairwise_tests_path", "judge_summary_path"]:
         value = payload.get(key)
         if value is not None and not Path(str(value)).exists():
-            raise FileNotFoundError(f"G closure manifest 中 {key} 不存在：{value}")
+            raise FileNotFoundError(f"G closure manifest path does not exist for {key}: {value}")
+    blind_review_status = str(payload.get("blind_review_status") or BLIND_REVIEW_STATUS_PENDING)
+    if blind_review_status not in BLIND_REVIEW_STATUS_VALUES:
+        raise ValueError(
+            f"Invalid blind_review_status in G closure manifest: {blind_review_status}. "
+            f"Expected one of {sorted(BLIND_REVIEW_STATUS_VALUES)}"
+        )
     blind_review_summary_dir = payload.get("blind_review_summary_dir")
-    if blind_review_summary_dir is not None:
+    if blind_review_status in {
+        BLIND_REVIEW_STATUS_READY,
+        BLIND_REVIEW_STATUS_HUMAN_VERIFIED,
+        BLIND_REVIEW_STATUS_LLM_READY,
+    }:
+        if blind_review_summary_dir is None:
+            raise FileNotFoundError("G closure manifest blind_review_summary_dir is required when blind_review_status=ready")
         blind_review_summary_dir_path = Path(str(blind_review_summary_dir))
         if not blind_review_summary_dir_path.exists():
-            raise FileNotFoundError(f"G closure manifest 中 blind_review_summary_dir 不存在：{blind_review_summary_dir}")
+            raise FileNotFoundError(f"G closure manifest blind_review_summary_dir does not exist: {blind_review_summary_dir}")
         required_blind_review_files = [
             blind_review_summary_dir_path / "blind_review_item_summary.csv",
             blind_review_summary_dir_path / "blind_review_pairwise_summary.csv",
@@ -167,16 +267,25 @@ def validate_g_closure_manifest(manifest_or_path: Mapping[str, Any] | str | Path
         missing_blind_review_files = [str(path) for path in required_blind_review_files if not path.exists()]
         if missing_blind_review_files:
             raise FileNotFoundError(
-                "G closure manifest 中 blind_review_summary_dir 缺少必要汇总文件："
+                "G closure manifest blind_review_summary_dir is missing required files: "
                 + ", ".join(missing_blind_review_files)
             )
+    elif blind_review_summary_dir is not None:
+        blind_review_summary_dir_path = Path(str(blind_review_summary_dir))
+        if not blind_review_summary_dir_path.exists():
+            raise FileNotFoundError(f"G closure manifest blind_review_summary_dir does not exist: {blind_review_summary_dir}")
 
     return {
         "group_run_dirs": {group_id: str(run_dir) for group_id, run_dir in normalized_run_dir_map.items()},
+        "retrieval_run_dirs": {
+            group_id: str(run_dir)
+            for group_id, run_dir in normalized_retrieval_run_dir_map.items()
+        },
         "stat_payload_path": payload.get("stat_payload_path"),
         "pairwise_tests_path": payload.get("pairwise_tests_path"),
         "judge_summary_path": payload.get("judge_summary_path"),
         "blind_review_summary_dir": payload.get("blind_review_summary_dir"),
+        "blind_review_status": blind_review_status,
     }
 
 
@@ -184,17 +293,21 @@ def export_g_closure_manifest(
     run_dirs_by_group: Mapping[str, str | Path],
     output_path: str | Path,
     *,
+    retrieval_run_dirs: Mapping[str, str | Path],
     stat_payload_path: str | Path | None = None,
     pairwise_tests_path: str | Path | None = None,
     judge_summary_path: str | Path | None = None,
     blind_review_summary_dir: str | Path | None = None,
+    blind_review_status: str = BLIND_REVIEW_STATUS_PENDING,
 ) -> dict[str, Any]:
     manifest = build_g_closure_manifest(
         run_dirs_by_group,
+        retrieval_run_dirs=retrieval_run_dirs,
         stat_payload_path=stat_payload_path,
         pairwise_tests_path=pairwise_tests_path,
         judge_summary_path=judge_summary_path,
         blind_review_summary_dir=blind_review_summary_dir,
+        blind_review_status=blind_review_status,
     )
     validated_manifest = validate_g_closure_manifest(manifest)
     write_json(output_path, validated_manifest)
@@ -248,48 +361,69 @@ def _single_group_summary_row(run_dir: Path) -> dict[str, Any]:
     return summary_row
 
 
-def _load_retrieval_summary_row_for_group(group_id: str) -> dict[str, Any]:
-    asset_path = Path(str(G_GROUP_SPECS[group_id]["eval_units_path"]))
-    if not asset_path.exists():
-        raise FileNotFoundError(f"Missing retrieval asset for {group_id}: {asset_path}")
-    eval_units = load_generation_eval_units(asset_path)
-    if not eval_units:
-        raise ValueError(f"Retrieval asset for {group_id} contains no eval units: {asset_path}")
+def _rebuild_single_group_summary_row(run_dir: Path, *, expected_group_id: str) -> dict[str, Any]:
+    summary_payload = summarize_generation_run(run_dir)
+    summary_rows = cast(list[dict[str, Any]], summary_payload["summary_rows"])
+    if len(summary_rows) != 1:
+        raise ValueError(f"Expected single-group generation run in {run_dir}, got {len(summary_rows)} summary rows")
+    summary_row = dict(summary_rows[0])
+    actual_group_id = str(summary_row.get("group_id"))
+    if actual_group_id != expected_group_id:
+        raise ValueError(
+            f"Generation run group mismatch for {run_dir}: expected {expected_group_id}, got {actual_group_id}"
+        )
+    summary_row["source_run_id"] = str(summary_payload["run_meta"].get("run_id", ""))
+    summary_row["source_run_dir"] = str(summary_payload["run_dir"])
+    return summary_row
 
-    latencies: list[float] = []
-    candidate_hotel_count_total = 0
-    unique_hotel_count_total = 0
-    evidence_pack_count_total = 0
-    aspect_pack_count_total = 0
-    query_count = len(eval_units)
-    for unit in eval_units:
-        candidate_hotel_count_total += len(unit.candidate_hotels)
-        evidence_pack_count_total += len(unit.evidence_packs)
-        unique_hotel_count_total += len({candidate.hotel_id for candidate in unit.candidate_hotels})
-        for pack in unit.evidence_packs:
-            aspect_pack_count_total += len(pack.evidence_by_aspect)
-            retrieval_trace = pack.retrieval_trace if isinstance(pack.retrieval_trace, dict) else {}
-            latency_value = retrieval_trace.get("latency_ms")
-            if latency_value is not None:
-                latencies.append(float(latency_value))
 
-    avg_candidate_hotel_count = candidate_hotel_count_total / max(query_count, 1)
-    avg_unique_hotel_count = unique_hotel_count_total / max(query_count, 1)
-    avg_aspect_pack_count = aspect_pack_count_total / max(evidence_pack_count_total, 1)
-    avg_latency_ms = round(sum(latencies) / len(latencies), 3) if latencies else 0.0
-    retrieval_variant = str(G_GROUP_SPECS[group_id]["retrieval_variant"])
+def _load_formal_retrieval_summary_row(
+    run_dir: str | Path,
+    *,
+    group_id: str,
+    retrieval_variant: str,
+) -> dict[str, Any]:
+    run_dir = Path(run_dir)
+    summary_path = run_dir / "summary.csv"
+    if not summary_path.exists():
+        raise FileNotFoundError(f"Missing retrieval summary.csv: {summary_path}")
+    summary_df = pd.read_csv(summary_path)
+    if summary_df.empty:
+        raise ValueError(f"Empty retrieval summary.csv: {summary_path}")
+    if len(summary_df) != 1:
+        raise ValueError(f"Expected single-row retrieval summary in {summary_path}, got {len(summary_df)} rows")
+    summary_row = cast(dict[str, Any], summary_df.iloc[0].to_dict())
+    missing_fields = sorted(field for field in G_RETRIEVAL_METRICS if field not in summary_row)
+    if missing_fields:
+        raise ValueError(f"retrieval summary.csv is missing required fields {missing_fields} ({summary_path})")
+    actual_variant = summary_row.get("retrieval_variant")
+    if actual_variant and str(actual_variant) != retrieval_variant:
+        raise ValueError(
+            f"retrieval summary variant mismatch for {group_id}: expected {retrieval_variant}, got {actual_variant}"
+        )
+    summary_row["group_id"] = group_id
+    summary_row["retrieval_variant"] = retrieval_variant
+    summary_row["retrieval_summary_source"] = str(summary_row.get("retrieval_summary_source") or "formal_retrieval_eval")
+    summary_row["retrieval_summary_run_dir"] = str(run_dir)
+    return summary_row
 
-    return {
-        "group_id": group_id,
-        "aspect_recall_at_5": round(min(avg_aspect_pack_count / max(avg_candidate_hotel_count, 1.0), 1.0), 4),
-        "ndcg_at_5": round(min(avg_aspect_pack_count / 3.0, 1.0), 4),
-        "precision_at_5": round(min(avg_aspect_pack_count / 5.0, 1.0), 4),
-        "mrr_at_5": round(1.0 if avg_aspect_pack_count > 0 else 0.0, 4),
-        "evidence_diversity_at_5": round(avg_unique_hotel_count + avg_aspect_pack_count, 4),
-        "avg_latency_ms": avg_latency_ms,
-        "retrieval_variant": retrieval_variant,
-        "retrieval_summary_source": "asset_derived_proxy",
-    }
+
+def _validate_formal_retrieval_summary_contract(
+    run_dir: str | Path,
+    *,
+    group_id: str,
+    retrieval_variant: str,
+) -> None:
+    summary_row = _load_formal_retrieval_summary_row(
+        run_dir,
+        group_id=group_id,
+        retrieval_variant=retrieval_variant,
+    )
+    summary_source = str(summary_row.get("retrieval_summary_source") or "")
+    if summary_source != "formal_retrieval_eval":
+        raise ValueError(
+            f"retrieval summary source mismatch for {group_id}: expected formal_retrieval_eval, got {summary_source}"
+        )
 
 
 def _decode_pairwise_preference_label(preference_label: str, bundle_mapping: dict[str, str]) -> str:
@@ -336,8 +470,7 @@ def extract_g_group_score_map(
         _payload(
             "evidence_verifiability_mean",
             [
-                float(sum(audit_row.get("support_score", 0) for audit_row in row["audit_rows"]) / len(row["audit_rows"]))
-                if row["audit_rows"] else 0.0
+                float(compute_query_evidence_mean(row))
                 for row in rows
             ],
         )
@@ -365,19 +498,15 @@ def extract_g_group_score_map(
         _payload(
             "hallucination_rate",
             [
-                round(compute_hallucination_rate(row["audit_rows"]), 6)
+                round(compute_query_hallucination_rate(row), 6)
                 for row in rows
             ],
         )
-        _payload(
-            "unsupported_honesty_rate",
-            [
-                float(row["unsupported_honesty"])
-                if row["unsupported_honesty"] is not None
-                else 0.0
-                for row in rows
-            ],
-        )
+        unsupported_rows = [row for row in rows if row["unsupported_honesty"] is not None]
+        group_score_map[group_id]["unsupported_honesty_rate"] = {
+            "scores": [round(float(row["unsupported_honesty"]), 6) for row in unsupported_rows],
+            "query_ids": [str(row["query_id"]) for row in unsupported_rows],
+        }
         _payload("latency_ms", [float(row["latency_ms"]) for row in rows])
 
     if output_path is not None:
@@ -567,30 +696,41 @@ def ensure_exp02_metadata_placeholder(output_path: str | Path = EXP02_METADATA_P
 def build_g_chapter_report(
     run_dirs_by_group: Mapping[str, str | Path],
     *,
+    retrieval_run_dirs: Mapping[str, str | Path],
     pairwise_tests_path: str | Path | None = None,
     judge_summary_path: str | Path | None = None,
     blind_review_summary_dir: str | Path | None = None,
+    blind_review_status: str = BLIND_REVIEW_STATUS_PENDING,
     output_dir: str | Path,
 ) -> dict[str, Any]:
     group_ids = _validate_g_group_ids(run_dirs_by_group.keys())
+    retrieval_group_ids = _validate_g_group_ids(retrieval_run_dirs.keys())
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     summary_rows = []
     retrieval_rows = []
     for group_id in group_ids:
-        row = _single_group_summary_row(Path(run_dirs_by_group[group_id]))
+        row = _rebuild_single_group_summary_row(Path(run_dirs_by_group[group_id]), expected_group_id=group_id)
         row["group_id"] = group_id
         row["retrieval_variant"] = G_GROUP_SPECS[group_id]["retrieval_variant"]
         row["requires_peft"] = bool(G_GROUP_SPECS[group_id]["requires_peft"])
         summary_rows.append(row)
-        retrieval_rows.append(_load_retrieval_summary_row_for_group(group_id))
+        retrieval_rows.append(
+            _load_formal_retrieval_summary_row(
+                retrieval_run_dirs[group_id],
+                group_id=group_id,
+                retrieval_variant=str(G_GROUP_SPECS[group_id]["retrieval_variant"]),
+            )
+        )
 
     retrieval_table = pd.DataFrame(retrieval_rows)[
         [
             "group_id",
+            *(["retrieval_variant"] if "retrieval_variant" in retrieval_rows[0] else []),
             *[metric for metric in G_RETRIEVAL_METRICS if metric in retrieval_rows[0]],
             *(["retrieval_summary_source"] if "retrieval_summary_source" in retrieval_rows[0] else []),
+            *(["retrieval_summary_run_dir"] if "retrieval_summary_run_dir" in retrieval_rows[0] else []),
         ]
     ]
     generation_table = pd.DataFrame(summary_rows)[["group_id", *[metric for metric in G_GENERATION_METRICS if metric in summary_rows[0]]]]
@@ -602,7 +742,8 @@ def build_g_chapter_report(
         "",
         "## Retrieval Summary",
         "",
-        "> Note: current retrieval-side rows are derived from frozen retrieval assets for G-series closure reporting. They should be treated as asset-derived proxies unless paired with separately frozen retrieval-evaluation outputs.",
+        "> Retrieval-side rows below are loaded from formal qrels-based G retrieval evaluation runs.",
+        "> The CSV also records the retrieval variant and source run directory for each group.",
         "",
     ]
     lines.extend(markdown_table(cast(Any, retrieval_table).to_dict(orient="records")))
@@ -619,18 +760,48 @@ def build_g_chapter_report(
         judge_df.to_csv(output_dir / "judge_summary.csv", index=False, encoding="utf-8-sig")
         lines.extend(["", "## LLM Judge Summary", ""])
         lines.extend(markdown_table(cast(Any, judge_df).to_dict(orient="records")))
-    if blind_review_summary_dir is not None:
+    blind_review_status = str(blind_review_status or BLIND_REVIEW_STATUS_PENDING)
+    if blind_review_status in {
+        BLIND_REVIEW_STATUS_READY,
+        BLIND_REVIEW_STATUS_HUMAN_VERIFIED,
+        BLIND_REVIEW_STATUS_LLM_READY,
+    } and blind_review_summary_dir is not None:
         blind_review_summary_dir = Path(blind_review_summary_dir)
         item_summary_path = blind_review_summary_dir / "blind_review_item_summary.csv"
         pairwise_summary_path = blind_review_summary_dir / "blind_review_pairwise_summary.csv"
+        if blind_review_status == BLIND_REVIEW_STATUS_READY:
+            item_heading = "## Human Blind Review Item Summary"
+            pairwise_heading = "## Human Blind Review Pairwise Summary"
+        elif blind_review_status == BLIND_REVIEW_STATUS_HUMAN_VERIFIED:
+            lines.extend(["", "## Human-Verified Blind Review", ""])
+            lines.extend([
+                "- These blind-review annotations were manually checked and accepted by the researcher.",
+                "- The current workspace treats them as formal human-verified review results.",
+            ])
+            item_heading = "## Human-Verified Blind Review Item Summary"
+            pairwise_heading = "## Human-Verified Blind Review Pairwise Summary"
+        else:
+            lines.extend(["", "## LLM Blind Re-Review", ""])
+            lines.extend([
+                "- The following blind review tables are produced by DeepSeek Reasoner as an automated anonymous re-review pass.",
+                "- These results may be cited as LLM-based blind re-review, but they must not be presented as independent human evaluation.",
+            ])
+            item_heading = "## LLM Blind Re-Review Item Summary"
+            pairwise_heading = "## LLM Blind Re-Review Pairwise Summary"
         if item_summary_path.exists():
             item_df = pd.read_csv(item_summary_path)
-            lines.extend(["", "## Human Blind Review Item Summary", ""])
+            lines.extend(["", item_heading, ""])
             lines.extend(markdown_table(cast(Any, item_df).to_dict(orient="records")))
         if pairwise_summary_path.exists():
             pairwise_df = pd.read_csv(pairwise_summary_path)
-            lines.extend(["", "## Human Blind Review Pairwise Summary", ""])
+            lines.extend(["", pairwise_heading, ""])
             lines.extend(markdown_table(cast(Any, pairwise_df).to_dict(orient="records")))
+    else:
+        lines.extend(["", "## Human Blind Review", ""])
+        lines.extend([
+            "- Current blind review results are intentionally excluded from the formal chapter report.",
+            "- A new independent human review round is required before human evaluation tables can be reported as official thesis results.",
+        ])
 
     (output_dir / "analysis.md").write_text("\n".join(lines), encoding="utf-8")
     write_json(
@@ -638,9 +809,12 @@ def build_g_chapter_report(
         {
             "task": "G_CHAPTER_REPORT",
             "group_ids": group_ids,
+            "retrieval_group_ids": retrieval_group_ids,
+            "retrieval_run_dirs": {group_id: str(Path(retrieval_run_dirs[group_id])) for group_id in retrieval_group_ids},
             "pairwise_tests_path": str(pairwise_tests_path) if pairwise_tests_path else None,
             "judge_summary_path": str(judge_summary_path) if judge_summary_path else None,
             "blind_review_summary_dir": str(blind_review_summary_dir) if blind_review_summary_dir else None,
+            "blind_review_status": blind_review_status,
         },
     )
     return {

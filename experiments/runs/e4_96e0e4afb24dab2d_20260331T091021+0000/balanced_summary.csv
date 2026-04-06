@@ -1,3 +1,0 @@
-﻿group_id,query_count,clarification_accuracy,precision,recall,f1,over_clarification_rate,under_clarification_rate,schema_valid_rate,avg_latency_ms,config_hash
-A_rule_clarify,32,0.9688,0.9412,1.0,0.9697,0.0625,0.0,1.0,0.043,d21cd5f3d8eb4a15
-B_base_llm_clarify,32,0.7812,1.0,0.5625,0.72,0.0,0.4375,1.0,167.173,a47c1dd3d4b4355f

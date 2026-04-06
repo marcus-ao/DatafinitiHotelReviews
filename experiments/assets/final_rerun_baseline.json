@@ -1,0 +1,21 @@
+{
+  "baseline_type": "pre_final_rerun_freeze",
+  "generated_at": "2026-04-06T09:25:00-07:00",
+  "head_sha": "8df86f7d30b905944c9c59691fd9a99b7936d2ab",
+  "protocol_report_path": "experiments/reports/11_final_experiment_audit_protocol.md",
+  "master_table_path": "experiments/reports/12_experiment_audit_master_table.md",
+  "metric_contract_path": "experiments/reports/13_experiment_control_and_metric_contracts.md",
+  "execution_protocol_path": "experiments/reports/14_final_rerun_execution_protocol.md",
+  "full_rerun_override": true,
+  "requirements_txt_sha256": "d60039aaef5b9d0d7a6d2be3c64d4bd3e1b9dd0265c70a9a839011fbeef5a5f7",
+  "env_example_sha256": "e1cefaf3e6c11681f5fcf2b95c5e79b5a27ca9b8e48f57f5dfc5068f88e694cc",
+  "g_query_asset_path": "experiments/assets/g_eval_query_ids_68.json",
+  "g_query_scope_count": 68,
+  "g_excluded_query_ids": [
+    "q021",
+    "q024"
+  ],
+  "archive_root_path": "D:\\VSCodeWorkspace\\GraduationDesign\\_archive\\DatafinitiHotelReviews_pre_final_rerun_20260406T000221",
+  "archive_manifest_path": "D:\\VSCodeWorkspace\\GraduationDesign\\_archive\\DatafinitiHotelReviews_pre_final_rerun_20260406T000221\\archive_manifest.json",
+  "note": "This file is stored as UTF-8 without BOM for reliable terminal inspection during the final rerun."
+}

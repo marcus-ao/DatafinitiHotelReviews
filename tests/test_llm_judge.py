@@ -23,6 +23,35 @@ class _FakeClient:
         self.responses = _FakeResponsesAPI(payloads)
 
 
+class _FakeChatCompletionsAPI:
+    def __init__(self, payloads):
+        self.payloads = list(payloads)
+
+    def create(self, model, messages, stream=False):
+        if not self.payloads:
+            raise AssertionError("No fake payload left")
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": self.payloads.pop(0),
+                    }
+                }
+            ]
+        }
+
+
+class _FakeChatNamespace:
+    def __init__(self, payloads):
+        self.completions = _FakeChatCompletionsAPI(payloads)
+
+
+class _FakeDeepSeekClient:
+    def __init__(self, payloads):
+        self.chat = _FakeChatNamespace(payloads)
+        self._judge_base_url = "https://api.deepseek.com"
+
+
 class LLMJudgeTestCase(unittest.TestCase):
     def test_build_judge_prompt_does_not_leak_group_or_run(self):
         prompt = judge_mod.build_judge_prompt(
@@ -73,6 +102,37 @@ class LLMJudgeTestCase(unittest.TestCase):
         self.assertEqual(row["query_id"], "q001")
         self.assertEqual(row["group_id"], "G1")
         self.assertEqual(row["traceability"], 5.0)
+        self.assertEqual(row["overall_mean"], 4.2)
+
+    def test_score_single_response_supports_chat_completions_for_deepseek(self):
+        client = _FakeDeepSeekClient(
+            [
+                json.dumps(
+                    {
+                        "relevance": 4,
+                        "traceability": 4,
+                        "fluency": 5,
+                        "completeness": 3,
+                        "honesty": 5,
+                        "overall_mean": 4.2,
+                        "brief_rationale": "整体可信",
+                    },
+                    ensure_ascii=False,
+                )
+            ]
+        )
+        row = judge_mod.score_single_response(
+            {"query_id": "q001", "query_text_zh": "请推荐安静的酒店。"},
+            {
+                "query_id": "q001",
+                "group_id": "G2",
+                "response_payload": {"summary": "推荐酒店", "recommendations": []},
+            },
+            client,
+            model="deepseek-chat",
+        )
+        self.assertEqual(row["group_id"], "G2")
+        self.assertEqual(row["fluency"], 5.0)
         self.assertEqual(row["overall_mean"], 4.2)
 
     def test_parse_score_payload_rejects_out_of_range_score(self):
@@ -144,6 +204,16 @@ class LLMJudgeTestCase(unittest.TestCase):
             df = judge_mod.run_llm_judge(run_dir, client=client)
         self.assertEqual(len(df), 1)
         self.assertEqual(df.iloc[0]["group_id"], "G1")
+
+    def test_resolve_judge_api_mode_uses_chat_completions_for_deepseek(self):
+        self.assertEqual(
+            judge_mod._resolve_judge_api_mode("deepseek-chat", "https://api.deepseek.com"),
+            "chat_completions",
+        )
+        self.assertEqual(
+            judge_mod._resolve_judge_api_mode("gpt-4o", "https://api.openai.com/v1"),
+            "responses",
+        )
 
     def test_aggregate_judge_scores_groups_by_group_id(self):
         df = pd.DataFrame(

@@ -1,3 +1,0 @@
-﻿group_id,compare_role,query_count,citation_precision,evidence_verifiability_mean,unsupported_honesty_rate,schema_valid_rate,recommendation_coverage,avg_latency_ms,retry_trigger_rate,fallback_to_honest_notice_rate,config_hash
-B_grounded_generation,with_rag,40,0.95,1.9924,1.0,1.0,0.95,2182.405,0.0,0.0,1360500f65c2aa26
-D_no_evidence_generation,without_rag,40,0.0,0.0,1.0,0.975,0.825,1052.184,0.0,0.0,01226814e2603934

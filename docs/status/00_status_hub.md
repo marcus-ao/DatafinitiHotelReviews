@@ -49,7 +49,7 @@
 
 - `E1-E10` 作为论文第五章和第六章的辅助证据已经基本冻结
 - `G1-G4` 的检索、生成、统计检验、LLM Judge、人工盲评导出等代码底座已大体接通
-- 但 `G1-G4` 的正式 70 条结果、统计检验结果、Judge 结果和章节总报告尚未正式产出
+- 但 `G1-G4` 的正式统一结果、统计检验结果、Judge 结果和章节总报告尚未正式产出；当前正式 decisive scope 已按 Protocol A 调整为 `68` 条（`39 core + 29 robustness`），其中 `q021 / q024` 作为 supporting boundary cases 排除
 
 ## 最近更新时间
 

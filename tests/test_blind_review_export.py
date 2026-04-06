@@ -3,7 +3,24 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pandas as pd
+
 from scripts.evaluation import blind_review_export as blind_mod
+
+
+class _FakeResponsesAPI:
+    def __init__(self, payloads):
+        self.payloads = list(payloads)
+
+    def create(self, model, input):
+        if not self.payloads:
+            raise AssertionError("No fake payload left")
+        return {"output_text": self.payloads.pop(0)}
+
+
+class _FakeClient:
+    def __init__(self, payloads):
+        self.responses = _FakeResponsesAPI(payloads)
 
 
 class BlindReviewExportTestCase(unittest.TestCase):
@@ -181,6 +198,101 @@ class BlindReviewExportTestCase(unittest.TestCase):
             self.assertIn("source_group_id", mapping_text)
             self.assertIn("G1", mapping_text)
             self.assertIn("G2", mapping_text)
+
+    def test_fill_blind_review_worksheet_with_llm_scores_items_and_pairwise_rows(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            worksheet_path = tmp_path / "blind_review_worksheet.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "review_item_id": "blind_001_A",
+                        "query_bundle_id": "bundle_001",
+                        "blind_label": "A",
+                        "query_text_zh": "请推荐安静的酒店",
+                        "response_text": "Summary: 推荐酒店A",
+                        "overall_quality_score": "",
+                        "evidence_credibility_score": "",
+                        "practical_value_score": "",
+                        "reviewer_notes": "",
+                        "available_blind_labels": "",
+                        "pairwise_preference": "",
+                        "pairwise_notes": "",
+                    },
+                    {
+                        "review_item_id": "blind_001_B",
+                        "query_bundle_id": "bundle_001",
+                        "blind_label": "B",
+                        "query_text_zh": "请推荐安静的酒店",
+                        "response_text": "Summary: 推荐酒店B",
+                        "overall_quality_score": "",
+                        "evidence_credibility_score": "",
+                        "practical_value_score": "",
+                        "reviewer_notes": "",
+                        "available_blind_labels": "",
+                        "pairwise_preference": "",
+                        "pairwise_notes": "",
+                    },
+                    {
+                        "review_item_id": None,
+                        "query_bundle_id": "bundle_001",
+                        "blind_label": None,
+                        "query_text_zh": None,
+                        "response_text": None,
+                        "overall_quality_score": "",
+                        "evidence_credibility_score": "",
+                        "practical_value_score": "",
+                        "reviewer_notes": "",
+                        "available_blind_labels": "A,B",
+                        "pairwise_preference": "",
+                        "pairwise_notes": "",
+                    },
+                ]
+            ).to_csv(worksheet_path, index=False, encoding="utf-8-sig")
+
+            client = _FakeClient(
+                [
+                    json.dumps(
+                        {
+                            "overall_quality_score": 4.6,
+                            "evidence_credibility_score": 4.7,
+                            "practical_value_score": 4.5,
+                            "reviewer_notes": "Strong and useful.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(
+                        {
+                            "overall_quality_score": 4.2,
+                            "evidence_credibility_score": 4.1,
+                            "practical_value_score": 4.0,
+                            "reviewer_notes": "Good but slightly weaker.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(
+                        {
+                            "pairwise_preference": "A>B",
+                            "pairwise_notes": "A is slightly more complete.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                ]
+            )
+
+            result = blind_mod.fill_blind_review_worksheet_with_llm(
+                worksheet_path,
+                client=client,
+                model="deepseek-reasoner",
+            )
+
+            filled_df = pd.read_csv(result["output_path"])
+            self.assertEqual(result["item_row_count"], 2)
+            self.assertEqual(result["pairwise_row_count"], 1)
+            self.assertAlmostEqual(float(filled_df.loc[0, "overall_quality_score"]), 4.6, places=2)
+            self.assertEqual(str(filled_df.loc[0, "reviewer_notes"]), "Strong and useful.")
+            self.assertEqual(str(filled_df.loc[2, "pairwise_preference"]), "A>B")
+            self.assertTrue(Path(result["log_path"]).exists())
 
 
 if __name__ == "__main__":
