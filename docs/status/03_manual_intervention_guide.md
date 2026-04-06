@@ -4,15 +4,15 @@
 
 ## 当前结论
 
-当前最需要你亲自处理的工作，已经从 `E10` 迭代切换成了 `G1-G4` 的正式实验闭环。
+当前最需要你亲自处理的工作，已经从“保留旧实验、只补 G”切换成了“按统一协议正式重跑 `E1-E10 + G1-G4`”。
 
 > 当前正式 decisive G scope 已按 Protocol A 调整为 `68` 条查询（`39 core + 29 robustness`），`q021 / q024` 因在 frozen aspect mainline 下无法形成 evidence-backed candidate，已转为 supporting boundary cases，不再纳入 decisive matrix。
 
 也就是说：
 
-- `E1-E10` 历史结果继续保留并视为冻结证据
-- `G` 系列的代码底座已经基本具备
-- 现在最关键的是把四组正式结果真正跑出来，并把统计检验、Judge 和盲评材料一并收口
+- `E1-E10` 历史结果继续保留，但仅作为 archive 参考
+- `E1-E10 + G1-G4` 本轮都需要重新产出 canonical 结果
+- `G` 系列闭环仍然是最后一段 decisive pipeline，但不是唯一需要执行的部分
 
 ## 手册 A：上云前必须先确认什么
 
@@ -59,7 +59,21 @@ python -m scripts.evaluation.run_experiment_suite --task g_freeze_plain_retrieva
 python -m scripts.evaluation.run_experiment_suite --task g_freeze_aspect_retrieval_assets
 ```
 
-## 手册 B：云端如何跑 G1-G4
+## 手册 B：云端如何按顺序跑 `E1-E10 + G1-G4`
+
+### 建议顺序
+
+1. 先在本地完成 `E1-E10` 所需冻结资产与配置确认
+2. 本地或云端重跑 `E1-E4`
+3. 本地或云端重跑 `E5-E8`
+4. 本地或云端重跑 `E9-E10`
+5. 最后在云端跑 `G1-G4`
+
+### 为什么 G 仍然放在最后
+
+因为本轮正式结果中，`G1-G4` 要承担 decisive matrix 角色，而 `E1-E10` 也必须先形成新的 canonical supporting / prerequisite 结果，后续 registry 与论文引用才能完全统一。
+
+## 手册 C：云端如何跑 G1-G4
 
 ### G1 / G2：Base 组
 
@@ -104,7 +118,7 @@ python -m scripts.evaluation.run_experiment_suite --task g_run_generation --grou
 python -m scripts.evaluation.run_experiment_suite --task g_run_generation --group-id G4
 ```
 
-## 手册 C：云端如何生成关键 compare
+## 手册 D：云端如何生成关键 compare
 
 至少要跑下面四组：
 
@@ -122,7 +136,7 @@ python -m scripts.evaluation.run_experiment_suite --task g_compare_runs --left-r
 python -m scripts.evaluation.run_experiment_suite --task g_compare_runs --left-run-dir /abs/path/to/G1_run --right-run-dir /abs/path/to/G4_run --left-label G1 --right-label G4
 ```
 
-## 手册 D：如何做统计检验、Judge 和盲评材料导出
+## 手册 E：如何做统计检验、Judge 和盲评材料导出
 
 ### 1. 先准备四组 run 映射文件
 
@@ -139,7 +153,7 @@ python -m scripts.evaluation.run_experiment_suite --task g_compare_runs --left-r
 
 ### 2. 统计检验
 
-当前 `g_workflow_closure.py` 已经实现了 score map 提取 helper，但还没有统一接入 runner。当前推荐先用一段临时 Python 调用：
+当前正式协议优先使用 runner 已接入的标准 task，而不是临时 Python 调用。
 
 ```bash
 python - <<'PY'

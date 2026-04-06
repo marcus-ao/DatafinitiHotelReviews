@@ -1,0 +1,5 @@
+﻿group_id,query_count,citation_precision,evidence_verifiability_mean,schema_valid_rate,recommendation_coverage,aspect_alignment_rate,hallucination_rate,unsupported_honesty_rate,avg_latency_ms,config_hash,retry_trigger_rate,fallback_to_honest_notice_rate
+A_free_generation,40,0.9437,1.8813,1.0,0.95,0.8875,0.0063,1.0,2407.179,a02eee685d569bda,0.0,0.0
+B_grounded_generation,40,0.9688,1.9187,1.0,0.975,0.8792,0.0063,1.0,2420.519,1360500f65c2aa26,0.0,0.0
+C_grounded_generation_with_verifier,40,0.95,1.8813,1.0,0.95,0.8625,0.0,1.0,2507.17,25d4dbb89dc34f17,0.025,0.025
+D_no_evidence_generation,40,0.0,0.0,0.975,0.85,0.7333,0.85,1.0,1304.697,01226814e2603934,0.0,0.0

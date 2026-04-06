@@ -1158,6 +1158,7 @@ def run_e4_clarification_eval(
                     "gold": gold,
                     "result": decision.model_dump(),
                     "query_text_zh": query_row["query_text_zh"],
+                    "latency_ms": latency_ms,
                 }
             )
             log_rows.append(
@@ -1184,7 +1185,7 @@ def run_e4_clarification_eval(
     def metric_row(rows: list[dict[str, Any]], group_id: str) -> dict[str, Any]:
         gold_flags = [int(row["gold"]["clarify_needed"]) for row in rows]
         pred_flags = [int(row["result"]["clarify_needed"]) for row in rows]
-        latency_values = [float(row["latency_ms"]) for row in rows]
+        latency_values = [float(row.get("latency_ms", 0.0)) for row in rows]
         tp = sum(int(g == 1 and p == 1) for g, p in zip(gold_flags, pred_flags))
         fp = sum(int(g == 0 and p == 1) for g, p in zip(gold_flags, pred_flags))
         fn = sum(int(g == 1 and p == 0) for g, p in zip(gold_flags, pred_flags))

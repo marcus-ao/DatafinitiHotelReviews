@@ -53,8 +53,8 @@
   },
   "train_base_record_count": 234,
   "dev_base_record_count": 54,
-  "train_grounded_record_count_raw": 23,
-  "dev_grounded_record_count_raw": 13,
+  "train_grounded_record_count_raw": 24,
+  "dev_grounded_record_count_raw": 14,
   "train_grounded_record_count_final": 157,
   "train_grounded_share_of_final_manifest": 0.4015,
   "train_task_distribution": {
@@ -68,49 +68,48 @@
     "clarification": 16,
     "constraint_honesty": 6,
     "feedback_update": 16,
-    "grounded_recommendation": 13,
+    "grounded_recommendation": 14,
     "preference_parse": 16
   },
   "train_grounded_slice_distribution": {
     "focus_avoid": 48,
-    "multi_hotel_pack_boundary": 100,
-    "partial_support_keep_recommendation": 96,
-    "quiet_sleep": 154
+    "multi_hotel_pack_boundary": 101,
+    "partial_support_keep_recommendation": 98,
+    "quiet_sleep": 153
   },
   "dev_grounded_slice_distribution": {
-    "focus_avoid": 10,
+    "focus_avoid": 11,
     "multi_hotel_pack_boundary": 2,
-    "quiet_sleep": 8
+    "quiet_sleep": 9
   },
   "train_grounded_slice_share": {
     "focus_avoid": 0.3057,
-    "multi_hotel_pack_boundary": 0.6369,
-    "partial_support_keep_recommendation": 0.6115,
-    "quiet_sleep": 0.9809
+    "multi_hotel_pack_boundary": 0.6433,
+    "partial_support_keep_recommendation": 0.6242,
+    "quiet_sleep": 0.9745
   },
   "dev_grounded_slice_share": {
-    "focus_avoid": 0.7692,
-    "multi_hotel_pack_boundary": 0.1538,
-    "quiet_sleep": 0.6154
+    "focus_avoid": 0.7857,
+    "multi_hotel_pack_boundary": 0.1429,
+    "quiet_sleep": 0.6429
   },
   "train_grounded_source_distribution": {
-    "judged": 3,
-    "synthetic": 154
+    "judged": 4,
+    "synthetic": 153
   },
   "dev_grounded_source_distribution": {
     "judged": 6,
-    "synthetic": 7
+    "synthetic": 8
   },
   "train_grounded_source_share": {
-    "judged": 0.0191,
-    "synthetic": 0.9809
+    "judged": 0.0255,
+    "synthetic": 0.9745
   },
   "dev_grounded_source_share": {
-    "judged": 0.4615,
-    "synthetic": 0.5385
+    "judged": 0.4286,
+    "synthetic": 0.5714
   },
   "dropped_reason_counts": {
-    "dev:english_long_span": 1,
-    "train:english_long_span": 3
+    "train:english_long_span": 2
   }
 }

@@ -46,8 +46,8 @@
   "clarify_needed_source_count": 10,
   "train_base_record_count": 234,
   "dev_base_record_count": 54,
-  "train_grounded_record_count_raw": 38,
-  "dev_grounded_record_count_raw": 36,
+  "train_grounded_record_count_raw": 35,
+  "dev_grounded_record_count_raw": 34,
   "train_grounded_record_count_final": 156,
   "train_grounded_share_of_final_manifest": 0.4,
   "train_task_distribution": {
@@ -61,23 +61,24 @@
     "clarification": 16,
     "constraint_honesty": 6,
     "feedback_update": 16,
-    "grounded_recommendation": 36,
+    "grounded_recommendation": 34,
     "preference_parse": 16
   },
   "train_grounded_slice_distribution": {
-    "focus_avoid": 42,
-    "partial_abstain": 34,
-    "quiet_sleep": 30
+    "focus_avoid": 46,
+    "partial_abstain": 24,
+    "quiet_sleep": 29
   },
   "dev_grounded_slice_distribution": {
-    "focus_avoid": 9,
-    "partial_abstain": 8,
+    "focus_avoid": 8,
+    "partial_abstain": 9,
     "quiet_sleep": 5,
     "zero_recommendation": 1
   },
   "dropped_reason_counts": {
-    "dev:english_long_span": 3,
+    "dev:english_long_span": 5,
     "dev:unsupported_driven_abstain": 1,
-    "train:english_long_span": 2
+    "train:english_long_span": 4,
+    "train:unsupported_driven_abstain": 1
   }
 }

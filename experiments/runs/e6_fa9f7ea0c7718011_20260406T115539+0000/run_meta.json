@@ -1,0 +1,36 @@
+{
+  "run_id": "e6_fa9f7ea0c7718011_20260406T115539+0000",
+  "generated_at": "2026-04-06T11:55:39+00:00",
+  "stable_run_config": {
+    "task": "E6",
+    "split_config_hash": "9219c89c8c419d0c",
+    "query_types": [
+      "focus_and_avoid",
+      "multi_aspect",
+      "multi_aspect_strong",
+      "single_aspect"
+    ],
+    "query_count": 40,
+    "target_unit_count": 80,
+    "target_scope": "focus_and_avoid",
+    "candidate_set_policy": "city_test_hotels",
+    "dense_top_k": 20,
+    "final_top_k": 5,
+    "embedding_model": "BAAI/bge-small-en-v1.5",
+    "reranker_model": "BAAI/bge-reranker-base",
+    "collection": "hotel_evidence",
+    "fallback_rule": {
+      "min_sentences": 2,
+      "min_unique_reviews": 2
+    },
+    "qrels_hash": "517921da80d09885",
+    "official_modes": [
+      "plain_city_test_rerank",
+      "aspect_main_rerank"
+    ]
+  },
+  "official_modes": [
+    "plain_city_test_rerank",
+    "aspect_main_rerank"
+  ]
+}

@@ -20,11 +20,11 @@
 - `01_current_progress.md`
   先看当前代码、资产、历史 run 和 G 系列实验框架已经落地到哪里。
 - `../plans/01_thesis_overall_plan.md`
-  当前论文主线的唯一总计划，已切换到 “E5-E10 保留 + G1-G4 统一框架”。
+  当前论文主线的唯一总计划；本轮正式执行口径已统一为“全量重跑 `E1-E10 + G1-G4`，旧结果仅作 archive 参考”。
 - `02_next_steps.md`
-  当前最重要的不是继续扩写 E10，而是补齐 G 系列闭环并准备上云。
+  当前最重要的是按统一协议正式重跑 `E1-E10 + G1-G4`，再完成统计检验、Judge、盲评和章节收口。
 - `03_manual_intervention_guide.md`
-  当前人工动作已经切换到 G1-G4 资产冻结、云端运行、统计检验、Judge 和盲评汇总。
+  当前人工动作围绕“全量正式重跑 `E1-E10 + G1-G4`”展开，G 系列闭环只是其中最后一段 decisive pipeline。
 - `../../experiments/reports/05_behavior_stage_3_chapter_materials.md`
   第五章行为层与桥接层现成可写材料。
 - `../../experiments/reports/06_generation_stage_1_e9_formal_summary.md`
@@ -41,15 +41,15 @@
 - 本目录中的文件以“当前真实状态”为准，不以早期设想为准。
 - 如果代码已经落地，但还没有正式云端运行，会明确写成“代码已实现，结果待正式运行”。
 - 如果某项工作只存在 helper/library，尚未接入统一 runner，也会明确说明，不把“可调用”包装成“已形成正式实验闭环”。
-- 历史 `E1-E10` run 与报告保持只读，不覆盖、不回写。
+- 历史 `E1-E10` run 与报告保持只读，不作为本轮正式 canonical 结果；本轮正式结果只认新 rerun 产物。
 
 ## 当前阶段一句话判断
 
-当前项目已经从 “E10 v3/v4 迭代评估” 正式切换到 “G1-G4 统一框架闭环前的最终工程收口” 阶段：
+当前项目已经从“历史实验结果冻结展示”切换到“全量正式重跑 `E1-E10 + G1-G4` 并形成 canonical 论文结果”的执行阶段：
 
-- `E1-E10` 作为论文第五章和第六章的辅助证据已经基本冻结
-- `G1-G4` 的检索、生成、统计检验、LLM Judge、人工盲评导出等代码底座已大体接通
-- 但 `G1-G4` 的正式统一结果、统计检验结果、Judge 结果和章节总报告尚未正式产出；当前正式 decisive scope 已按 Protocol A 调整为 `68` 条（`39 core + 29 robustness`），其中 `q021 / q024` 作为 supporting boundary cases 排除
+- `E1-E10` 与 `G1-G4` 的代码底座、冻结资产与执行协议已经基本准备好
+- 旧的 `E1-E10` 结果只作为 archive 参考，不再直接作为本轮正式论文结果引用
+- 当前本轮正式结果仍待完整重跑并登记；其中 `G1-G4` 的正式 decisive scope 已按 Protocol A 调整为 `68` 条（`39 core + 29 robustness`），`q021 / q024` 作为 supporting boundary cases 排除
 
 ## 最近更新时间
 
