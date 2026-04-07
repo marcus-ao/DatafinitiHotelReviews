@@ -7,29 +7,197 @@
   "g_query_scope_count": 68,
   "note": "Populate only with canonical results from the final full rerun.",
   "experiments": {
-    "E1": null,
-    "E2": null,
-    "E3": null,
-    "E4": null,
-    "E5": null,
-    "E6": null,
-    "E7": null,
-    "E8": null,
-    "E9": null,
-    "E10_base": null,
-    "E10_v1": null,
-    "E10_v2": null,
-    "E10_v3": null,
-    "E10_v4": null,
-    "G1": null,
-    "G2": null,
-    "G3": null,
-    "G4": null,
-    "G_retrieval_plain": null,
-    "G_retrieval_aspect": null,
-    "G_pairwise_stats": null,
-    "G_llm_judge": null,
-    "G_blind_review": null,
-    "G_chapter": null
+    "E1": {
+      "run_dir": "experiments\\labels\\e1_aspect_reliability",
+      "summary_path": "experiments\\labels\\e1_aspect_reliability\\e1_metrics.json",
+      "analysis_path": "experiments\\labels\\e1_aspect_reliability\\e1_metrics.json",
+      "query_scope": "344 labeled sentences",
+      "metric_contract_version": "v1",
+      "thesis_role": "prerequisite evidence"
+    },
+    "E2": {
+      "run_dir": "experiments\\runs\\e2_770d3e0e2f4ded57_20260406T113346+0000",
+      "summary_path": "experiments\\runs\\e2_770d3e0e2f4ded57_20260406T113346+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e2_770d3e0e2f4ded57_20260406T113346+0000\\analysis.md",
+      "query_scope": "40 core queries",
+      "metric_contract_version": "v1",
+      "thesis_role": "prerequisite evidence"
+    },
+    "E3": {
+      "run_dir": "experiments\\runs\\e3_66e28870517fafff_20260406T113808+0000",
+      "summary_path": "experiments\\runs\\e3_66e28870517fafff_20260406T113808+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e3_66e28870517fafff_20260406T113808+0000\\analysis.md",
+      "query_scope": "70 audited behavior queries",
+      "metric_contract_version": "v1",
+      "thesis_role": "prerequisite evidence"
+    },
+    "E4": {
+      "run_dir": "experiments\\runs\\e4_29957e53b85462b3_20260406T114447+0000",
+      "summary_path": "experiments\\runs\\e4_29957e53b85462b3_20260406T114447+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e4_29957e53b85462b3_20260406T114447+0000\\analysis.md",
+      "query_scope": "70 audited behavior queries",
+      "metric_contract_version": "v1",
+      "thesis_role": "prerequisite evidence"
+    },
+    "E5": {
+      "run_dir": "experiments\\runs\\e5_4e1bae98861e1b6d_20260406T115322+0000",
+      "summary_path": "experiments\\runs\\e5_4e1bae98861e1b6d_20260406T115322+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e5_4e1bae98861e1b6d_20260406T115322+0000\\analysis.md",
+      "query_scope": "40 core queries / 80 units",
+      "metric_contract_version": "v1",
+      "thesis_role": "supporting evidence"
+    },
+    "E6": {
+      "run_dir": "experiments\\runs\\e6_fa9f7ea0c7718011_20260406T115539+0000",
+      "summary_path": "experiments\\runs\\e6_fa9f7ea0c7718011_20260406T115539+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e6_fa9f7ea0c7718011_20260406T115539+0000\\analysis.md",
+      "query_scope": "40 core queries / 80 units",
+      "metric_contract_version": "v1",
+      "thesis_role": "supporting evidence"
+    },
+    "E7": {
+      "run_dir": "experiments\\runs\\e7_f37ef548454e7216_20260406T115918+0000",
+      "summary_path": "experiments\\runs\\e7_f37ef548454e7216_20260406T115918+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e7_f37ef548454e7216_20260406T115918+0000\\analysis.md",
+      "query_scope": "40 core queries / 80 units",
+      "metric_contract_version": "v1",
+      "thesis_role": "supporting evidence"
+    },
+    "E8": {
+      "run_dir": "experiments\\runs\\e8_26b2fbcb12c06caa_20260406T120256+0000",
+      "summary_path": "experiments\\runs\\e8_26b2fbcb12c06caa_20260406T120256+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e8_26b2fbcb12c06caa_20260406T120256+0000\\analysis.md",
+      "query_scope": "40 core queries / 80 units",
+      "metric_contract_version": "v1",
+      "thesis_role": "supporting evidence"
+    },
+    "E9": {
+      "run_dir": "experiments\\runs\\e9_8449c12a50585e42_20260406T122227+0000",
+      "summary_path": "experiments\\runs\\e9_8449c12a50585e42_20260406T122227+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e9_8449c12a50585e42_20260406T122227+0000\\analysis.md",
+      "query_scope": "40 official E9 queries",
+      "metric_contract_version": "v1",
+      "thesis_role": "supporting evidence"
+    },
+    "E10_base": {
+      "run_dir": "experiments\\runs\\e10_0dc5c2e6f867c66f_20260406T135631+0000",
+      "summary_path": "experiments\\runs\\e10_0dc5c2e6f867c66f_20260406T135631+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e10_0dc5c2e6f867c66f_20260406T135631+0000\\analysis.md",
+      "query_scope": "40 official E10 queries",
+      "metric_contract_version": "v1",
+      "thesis_role": "supporting evidence"
+    },
+    "E10_v1": {
+      "run_dir": "experiments\\runs\\e10_540bebbc760d85fc_20260406T140222+0000",
+      "summary_path": "experiments\\runs\\e10_540bebbc760d85fc_20260406T140222+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e10_540bebbc760d85fc_20260406T140222+0000\\analysis.md",
+      "query_scope": "40 official E10 queries",
+      "metric_contract_version": "v1",
+      "thesis_role": "supporting evidence"
+    },
+    "E10_v2": {
+      "run_dir": "experiments\\runs\\e10_a2dd1a0bd73c57b5_20260406T140751+0000",
+      "summary_path": "experiments\\runs\\e10_a2dd1a0bd73c57b5_20260406T140751+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e10_a2dd1a0bd73c57b5_20260406T140751+0000\\analysis.md",
+      "query_scope": "40 official E10 queries",
+      "metric_contract_version": "v1",
+      "thesis_role": "supporting evidence"
+    },
+    "E10_v3": {
+      "run_dir": "experiments\\runs\\e10_927c1d0a2fbc5870_20260406T141302+0000",
+      "summary_path": "experiments\\runs\\e10_927c1d0a2fbc5870_20260406T141302+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e10_927c1d0a2fbc5870_20260406T141302+0000\\analysis.md",
+      "query_scope": "40 official E10 queries",
+      "metric_contract_version": "v1",
+      "thesis_role": "supporting evidence"
+    },
+    "E10_v4": {
+      "run_dir": "experiments\\runs\\e10_142a017f2c32b357_20260406T143755+0000",
+      "summary_path": "experiments\\runs\\e10_142a017f2c32b357_20260406T143755+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\e10_142a017f2c32b357_20260406T143755+0000\\analysis.md",
+      "query_scope": "40 official E10 queries",
+      "metric_contract_version": "v1",
+      "thesis_role": "supporting evidence"
+    },
+    "G1": {
+      "run_dir": "experiments\\runs\\ggen_1f8cbadcfff55384_20260406T154446+0000",
+      "summary_path": "experiments\\runs\\ggen_1f8cbadcfff55384_20260406T154446+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\ggen_1f8cbadcfff55384_20260406T154446+0000\\analysis.md",
+      "query_scope": "68",
+      "metric_contract_version": "v1",
+      "thesis_role": "decisive evidence"
+    },
+    "G2": {
+      "run_dir": "experiments\\runs\\ggen_9fe5ef46cda09dd4_20260406T155208+0000",
+      "summary_path": "experiments\\runs\\ggen_9fe5ef46cda09dd4_20260406T155208+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\ggen_9fe5ef46cda09dd4_20260406T155208+0000\\analysis.md",
+      "query_scope": "68",
+      "metric_contract_version": "v1",
+      "thesis_role": "decisive evidence"
+    },
+    "G3": {
+      "run_dir": "experiments\\runs\\ggen_a3e6f7da3d69ef54_20260406T155927+0000",
+      "summary_path": "experiments\\runs\\ggen_a3e6f7da3d69ef54_20260406T155927+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\ggen_a3e6f7da3d69ef54_20260406T155927+0000\\analysis.md",
+      "query_scope": "68",
+      "metric_contract_version": "v1",
+      "thesis_role": "decisive evidence"
+    },
+    "G4": {
+      "run_dir": "experiments\\runs\\ggen_49001bbb5794fd52_20260406T160643+0000",
+      "summary_path": "experiments\\runs\\ggen_49001bbb5794fd52_20260406T160643+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\ggen_49001bbb5794fd52_20260406T160643+0000\\analysis.md",
+      "query_scope": "68",
+      "metric_contract_version": "v1",
+      "thesis_role": "decisive evidence"
+    },
+    "G_retrieval_plain": {
+      "run_dir": "experiments\\runs\\gret_plain_8b50bf28a263c259_20260407T042745+0000",
+      "summary_path": "experiments\\runs\\gret_plain_8b50bf28a263c259_20260407T042745+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\gret_plain_8b50bf28a263c259_20260407T042745+0000\\analysis.md",
+      "query_scope": "68",
+      "metric_contract_version": "v1",
+      "thesis_role": "decisive supplementary evidence"
+    },
+    "G_retrieval_aspect": {
+      "run_dir": "experiments\\runs\\gret_aspect_6799b0368d72fbf5_20260407T042950+0000",
+      "summary_path": "experiments\\runs\\gret_aspect_6799b0368d72fbf5_20260407T042950+0000\\summary.csv",
+      "analysis_path": "experiments\\runs\\gret_aspect_6799b0368d72fbf5_20260407T042950+0000\\analysis.md",
+      "query_scope": "68",
+      "metric_contract_version": "v1",
+      "thesis_role": "decisive supplementary evidence"
+    },
+    "G_pairwise_stats": {
+      "run_dir": "experiments\\runs\\gstats_7429c45b6c3b7cd4_20260407T012813+0000",
+      "summary_path": "experiments\\runs\\gstats_7429c45b6c3b7cd4_20260407T012813+0000\\pairwise_tests.csv",
+      "analysis_path": "experiments\\runs\\gstats_7429c45b6c3b7cd4_20260407T012813+0000\\pairwise_tests.csv",
+      "query_scope": "68",
+      "metric_contract_version": "v1",
+      "thesis_role": "decisive supplementary evidence"
+    },
+    "G_llm_judge": {
+      "run_dir": "experiments\\runs\\gjudgebatch_883be7a96c5ea2b5_20260407T021559+0000",
+      "summary_path": "experiments\\runs\\gjudgebatch_883be7a96c5ea2b5_20260407T021559+0000\\judge_summary.csv",
+      "analysis_path": "experiments\\runs\\gjudgebatch_883be7a96c5ea2b5_20260407T021559+0000\\judge_summary.csv",
+      "query_scope": "68",
+      "metric_contract_version": "v1",
+      "thesis_role": "decisive supplementary evidence"
+    },
+    "G_blind_review": {
+      "run_dir": "experiments\\runs\\gblindsum_7c57638ae6107a8b_20260407T041805+0000",
+      "summary_path": "experiments\\runs\\gblindsum_7c57638ae6107a8b_20260407T041805+0000\\blind_review_item_summary.csv",
+      "analysis_path": "experiments\\runs\\gblindsum_7c57638ae6107a8b_20260407T041805+0000\\blind_review_item_summary.csv",
+      "query_scope": "sampled human-verified subset",
+      "metric_contract_version": "v1",
+      "thesis_role": "decisive supplementary evidence"
+    },
+    "G_chapter": {
+      "run_dir": "experiments\\runs\\gchapter_6690537f8698c038_20260407T115018+0000",
+      "summary_path": "experiments\\runs\\gchapter_6690537f8698c038_20260407T115018+0000\\analysis.md",
+      "analysis_path": "experiments\\runs\\gchapter_6690537f8698c038_20260407T115018+0000\\analysis.md",
+      "query_scope": "68",
+      "metric_contract_version": "v1",
+      "thesis_role": "chapter-ready decisive synthesis"
+    }
   }
 }

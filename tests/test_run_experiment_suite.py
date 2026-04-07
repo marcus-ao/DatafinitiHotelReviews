@@ -393,6 +393,16 @@ class RunExperimentSuiteDispatchTests(unittest.TestCase):
                 encoding="utf-8",
             )
             with patch(
+                "scripts.evaluation.g_workflow_closure.validate_registry_matches_g_closure_manifest",
+                return_value={
+                    "group_run_dirs": run_dirs,
+                    "retrieval_run_dirs": retrieval_run_dirs,
+                    "pairwise_tests_path": str(stats_path),
+                    "judge_summary_path": str(judge_path),
+                    "blind_review_summary_dir": str(blind_dir),
+                    "blind_review_status": "pending_independent_rerun",
+                },
+            ) as mocked_validate, patch(
                 "scripts.evaluation.g_workflow_closure.build_g_chapter_report",
                 return_value={"output_dir": str(output_root / "gchapter_fake")},
             ) as mocked_build:
@@ -404,6 +414,7 @@ class RunExperimentSuiteDispatchTests(unittest.TestCase):
                     "--input-path",
                     str(manifest_path),
                 )
+            mocked_validate.assert_called_once_with(manifest_or_path=manifest_path)
             mocked_build.assert_called_once()
             self.assertEqual(mocked_build.call_args.args[0], run_dirs)
             self.assertEqual(mocked_build.call_args.kwargs["retrieval_run_dirs"], retrieval_run_dirs)

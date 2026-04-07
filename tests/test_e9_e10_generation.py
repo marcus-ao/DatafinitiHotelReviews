@@ -685,6 +685,7 @@ class E9E10GenerationTestCase(unittest.TestCase):
             {"task": "E10"},
         )
         self.assertIsNone(metric_row["unsupported_honesty_rate"])
+        self.assertFalse(metric_row["unsupported_honesty_applicable"])
         self.assertEqual(metric_row["reasoning_leak_rate"], 1.0)
         self.assertEqual(metric_row["auditable_query_rate"], 0.0)
         self.assertIn("recommendation_coverage", metric_row)

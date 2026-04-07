@@ -1,9 +1,0 @@
-{
-  "run_id": "gcmp_ee4792d07d5e7a38_20260407T012040+0000",
-  "generated_at": "2026-04-07T01:20:40+00:00",
-  "left_run_id": "ggen_1f8cbadcfff55384_20260406T154446+0000",
-  "right_run_id": "ggen_a3e6f7da3d69ef54_20260406T155927+0000",
-  "left_label": "G1",
-  "right_label": "G3",
-  "latency_formally_comparable": true
-}

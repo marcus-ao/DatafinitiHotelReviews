@@ -185,6 +185,8 @@ def main() -> None:
             "g_run_execution_readiness",
             "g_prepare_exp02_metadata_placeholder",
             "g_validate_exp02_metadata",
+            "g_update_final_registry",
+            "g_validate_registry_against_manifest",
             "e6_retrieval",
             "e7_reranker",
             "e8_fallback",
@@ -225,6 +227,10 @@ def main() -> None:
     parser.add_argument("--sample-size", type=int, default=20)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--include-ablation", action="store_true")
+    parser.add_argument("--run-dir", default=None)
+    parser.add_argument("--experiment-id", default=None)
+    parser.add_argument("--query-scope", default=None)
+    parser.add_argument("--thesis-role", default=None)
     args = parser.parse_args()
 
     output_root = Path(args.output_root)
@@ -534,13 +540,14 @@ def main() -> None:
     elif args.task == "g_build_chapter_report":
         from scripts.evaluation.g_workflow_closure import build_g_chapter_report
         from scripts.evaluation.g_workflow_closure import validate_g_closure_manifest
+        from scripts.evaluation.g_workflow_closure import validate_registry_matches_g_closure_manifest
 
         if not args.input_path:
             raise ValueError("g_build_chapter_report 需要提供 --input-path。")
         input_path = Path(args.input_path)
         if not input_path.exists():
             raise FileNotFoundError(f"g_build_chapter_report 输入不存在：{input_path}")
-        manifest = validate_g_closure_manifest(input_path)
+        manifest = validate_registry_matches_g_closure_manifest(manifest_or_path=input_path)
         run_dir = _build_aux_run_dir(output_root, "gchapter", {"task": "G_CHAPTER_REPORT", "input_path": str(input_path)})
         result = build_g_chapter_report(
             manifest["group_run_dirs"],
@@ -569,6 +576,38 @@ def main() -> None:
 
         payload = validate_exp02_metadata()
         print(f"[OK] exp02 metadata validated: {payload['adapter_name']}")
+    elif args.task == "g_update_final_registry":
+        from scripts.evaluation.g_workflow_closure import build_registry_payload_for_artifact
+        from scripts.evaluation.g_workflow_closure import build_registry_payload_for_run
+        from scripts.evaluation.g_workflow_closure import update_final_rerun_registry
+
+        if not args.experiment_id or not args.query_scope or not args.thesis_role:
+            raise ValueError("g_update_final_registry requires --experiment-id, --query-scope, and --thesis-role")
+        if bool(args.run_dir) == bool(args.input_path):
+            raise ValueError("g_update_final_registry requires exactly one of --run-dir or --input-path")
+        if args.run_dir:
+            payload = build_registry_payload_for_run(
+                args.experiment_id,
+                run_dir=args.run_dir,
+                query_scope=args.query_scope,
+                thesis_role=args.thesis_role,
+            )
+        else:
+            payload = build_registry_payload_for_artifact(
+                args.experiment_id,
+                artifact_path=args.input_path,
+                query_scope=args.query_scope,
+                thesis_role=args.thesis_role,
+            )
+        registry = update_final_rerun_registry({args.experiment_id: payload})
+        print(f"[OK] final rerun registry updated for {args.experiment_id}: {registry['experiments'][args.experiment_id]}")
+    elif args.task == "g_validate_registry_against_manifest":
+        from scripts.evaluation.g_workflow_closure import validate_registry_matches_g_closure_manifest
+
+        if not args.input_path:
+            raise ValueError("g_validate_registry_against_manifest requires --input-path")
+        manifest = validate_registry_matches_g_closure_manifest(manifest_or_path=args.input_path)
+        print(f"[OK] registry matches manifest for groups: {sorted(manifest['group_run_dirs'])}")
     elif args.task == "e6_retrieval":
         from scripts.evaluation.evaluate_e6_e8_retrieval import run_retrieval_eval
 

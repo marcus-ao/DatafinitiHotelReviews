@@ -55,10 +55,13 @@
 | G3 | 68 | 3.9059 | 3.8868 | 4.5882 | 3.1735 | 4.5647 | 4.0244 |
 | G4 | 68 | 4.025 | 4.4265 | 4.6235 | 3.3206 | 4.7029 | 4.2197 |
 
+> Interpretation note: LLM Judge results may favor response regularity, honesty phrasing, and perceived completeness more strongly than human blind review.
+> They should be treated as supplementary evidence rather than a single authoritative final ranking.
+
 ## Human-Verified Blind Review
 
-- These blind-review annotations were manually checked and accepted by the researcher.
-- The current workspace treats them as formal human-verified review results.
+- These blind-review annotations were manually checked and accepted by the researcher on a sampled subset.
+- They may be cited as human-verified blind-review evidence, but should not be overstated as large-scale fully independent external evaluation.
 
 ## Human-Verified Blind Review Item Summary
 
@@ -81,3 +84,12 @@
 | G4>G1 | 2 |
 | G4>G2 | 2 |
 | G4>G3 | 1 |
+
+> Interpretation note: if human blind-review preferences and LLM Judge rankings diverge, the final thesis conclusion must report the disagreement explicitly rather than collapsing them into a single ‘best group’.
+
+## Interpretation Risk Notes
+
+- `E4` precision/recall/F1 may be non-informative when positive clarification cases are extremely sparse; accuracy and over/under-clarification rates should take precedence in the thesis narrative.
+- `E7` reranker and `E8` fallback results should be preserved as negative or mixed findings if they do not improve core retrieval metrics under the official protocol.
+- `E10` PEFT comparisons should not be framed as stable net improvement over base unless the final metrics support that claim across schema validity, evidence quality, and hallucination behavior.
+- `unsupported_honesty_rate` must be presented with applicability context whenever the evaluated query slice contains no applicable unsupported-request cases.

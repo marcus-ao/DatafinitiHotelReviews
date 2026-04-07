@@ -852,6 +852,7 @@ def build_generation_metric_row(
             if include_retry_fields
             else (round(sum(unsupported_rows) / len(unsupported_rows), 4) if unsupported_rows else None)
         ),
+        "unsupported_honesty_applicable": bool(unsupported_rows) if not include_retry_fields else True,
         "avg_latency_ms": round(sum(row["latency_ms"] for row in rows) / max(len(rows), 1), 3),
         "config_hash": stable_hash(stable_run_config | {"group_id": group_id}),
     }

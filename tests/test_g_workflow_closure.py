@@ -227,6 +227,71 @@ class GWorkflowClosureTestCase(unittest.TestCase):
             self.assertEqual(sorted(validated["retrieval_run_dirs"]), ["G1", "G2", "G3", "G4"])
             self.assertEqual(validated["blind_review_status"], closure_mod.BLIND_REVIEW_STATUS_PENDING)
 
+    def test_update_final_rerun_registry_updates_known_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            registry_path = Path(tempdir) / "final_rerun_registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "registry_version": 1,
+                        "experiments": {"G1": None},
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            run_dir = Path(tempdir) / "g1_run"
+            run_dir.mkdir()
+            (run_dir / "summary.csv").write_text("group_id\nG1\n", encoding="utf-8")
+            (run_dir / "analysis.md").write_text("# analysis\n", encoding="utf-8")
+            payload = closure_mod.build_registry_payload_for_run(
+                "G1",
+                run_dir=run_dir,
+                query_scope="68",
+                thesis_role="decisive evidence",
+            )
+            updated = closure_mod.update_final_rerun_registry({"G1": payload}, path=registry_path)
+            self.assertEqual(updated["experiments"]["G1"]["run_dir"], str(run_dir))
+
+    def test_validate_registry_matches_g_closure_manifest_detects_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_root = Path(tempdir)
+            run_dirs = {group_id: str(self._write_generation_run(temp_root, group_id)) for group_id in ["G1", "G2", "G3", "G4"]}
+            plain_run = self._write_retrieval_run(temp_root, "plain_ret", "plain", 0.55)
+            aspect_run = self._write_retrieval_run(temp_root, "aspect_ret", "aspect", 0.77)
+            manifest_path = temp_root / "g_manifest.json"
+            closure_mod.export_g_closure_manifest(
+                run_dirs,
+                manifest_path,
+                retrieval_run_dirs={"G1": plain_run, "G2": aspect_run, "G3": plain_run, "G4": aspect_run},
+            )
+            registry_path = temp_root / "final_rerun_registry.json"
+            registry_path.write_text(
+                json.dumps(
+                    {
+                        "registry_version": 1,
+                        "experiments": {
+                            "G1": {"run_dir": str(temp_root / "wrong_g1")},
+                            "G2": {"run_dir": run_dirs["G2"]},
+                            "G3": {"run_dir": run_dirs["G3"]},
+                            "G4": {"run_dir": run_dirs["G4"]},
+                            "G_retrieval_plain": {"run_dir": str(plain_run)},
+                            "G_retrieval_aspect": {"run_dir": str(aspect_run)},
+                            "G_pairwise_stats": {"summary_path": None},
+                            "G_llm_judge": {"summary_path": None},
+                            "G_blind_review": {"run_dir": None},
+                        },
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                closure_mod.validate_registry_matches_g_closure_manifest(
+                    manifest_or_path=manifest_path,
+                    registry_path=registry_path,
+                )
+
     def test_export_latest_g_closure_manifest_from_workspace_raises_clear_error_when_retrieval_runs_missing(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             temp_root = Path(tempdir)

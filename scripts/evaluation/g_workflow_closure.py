@@ -30,6 +30,7 @@ EXP02_METADATA_PLACEHOLDER_PATH = EXPERIMENT_ASSETS_DIR / "e10_adapter_metadata.
 G_PLAIN_RETRIEVAL_ASSET_PATH = EXPERIMENT_ASSETS_DIR / "g_plain_generation_eval_units.jsonl"
 G_ASPECT_RETRIEVAL_ASSET_PATH = EXPERIMENT_ASSETS_DIR / "g_aspect_generation_eval_units.jsonl"
 G_QUERY_ID_ASSET_PATH = EXPERIMENT_ASSETS_DIR / "g_eval_query_ids_68.json"
+FINAL_RERUN_REGISTRY_PATH = EXPERIMENT_ASSETS_DIR / "final_rerun_registry.json"
 DEFAULT_G_JUDGE_MODEL = DEFAULT_JUDGE_MODEL
 
 G_RETRIEVAL_METRICS = [
@@ -290,6 +291,55 @@ def validate_g_closure_manifest(manifest_or_path: Mapping[str, Any] | str | Path
     }
 
 
+def validate_registry_matches_g_closure_manifest(
+    *,
+    manifest_or_path: Mapping[str, Any] | str | Path,
+    registry_path: str | Path = FINAL_RERUN_REGISTRY_PATH,
+) -> dict[str, Any]:
+    manifest = validate_g_closure_manifest(manifest_or_path)
+    registry = load_final_rerun_registry(registry_path)
+    experiments = cast(dict[str, Any], registry["experiments"])
+
+    required_mapping = {
+        "G1": manifest["group_run_dirs"]["G1"],
+        "G2": manifest["group_run_dirs"]["G2"],
+        "G3": manifest["group_run_dirs"]["G3"],
+        "G4": manifest["group_run_dirs"]["G4"],
+        "G_retrieval_plain": manifest["retrieval_run_dirs"]["G1"],
+        "G_retrieval_aspect": manifest["retrieval_run_dirs"]["G2"],
+        "G_pairwise_stats": manifest.get("pairwise_tests_path"),
+        "G_llm_judge": manifest.get("judge_summary_path"),
+        "G_blind_review": manifest.get("blind_review_summary_dir"),
+    }
+
+    mismatches: list[str] = []
+
+    def _normalize_path(value: str | Path | None) -> str:
+        if value is None:
+            return ""
+        return str(Path(value).resolve())
+
+    for experiment_id, expected_path in required_mapping.items():
+        registry_payload = experiments.get(experiment_id)
+        if not registry_payload:
+            mismatches.append(f"{experiment_id}: missing in registry")
+            continue
+        if experiment_id.startswith("G_retrieval"):
+            actual_path = str(registry_payload.get("run_dir") or "")
+        elif experiment_id in {"G_pairwise_stats", "G_llm_judge"}:
+            actual_path = str(registry_payload.get("summary_path") or "")
+        elif experiment_id == "G_blind_review":
+            actual_path = str(registry_payload.get("run_dir") or "")
+        else:
+            actual_path = str(registry_payload.get("run_dir") or "")
+        if _normalize_path(str(expected_path or "")) != _normalize_path(actual_path):
+            mismatches.append(f"{experiment_id}: manifest={expected_path}, registry={actual_path}")
+
+    if mismatches:
+        raise ValueError("G closure manifest and final rerun registry are inconsistent: " + "; ".join(mismatches))
+    return manifest
+
+
 def export_g_closure_manifest(
     run_dirs_by_group: Mapping[str, str | Path],
     output_path: str | Path,
@@ -313,6 +363,85 @@ def export_g_closure_manifest(
     validated_manifest = validate_g_closure_manifest(manifest)
     write_json(output_path, validated_manifest)
     return validated_manifest
+
+
+def load_final_rerun_registry(path: str | Path = FINAL_RERUN_REGISTRY_PATH) -> dict[str, Any]:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Missing final rerun registry: {path}")
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("final_rerun_registry.json must contain a JSON object")
+    experiments = payload.get("experiments")
+    if not isinstance(experiments, dict):
+        raise ValueError("final_rerun_registry.json must contain an 'experiments' object")
+    return payload
+
+
+def update_final_rerun_registry(
+    updates: Mapping[str, Mapping[str, Any]],
+    *,
+    path: str | Path = FINAL_RERUN_REGISTRY_PATH,
+) -> dict[str, Any]:
+    registry = load_final_rerun_registry(path)
+    experiments = cast(dict[str, Any], registry["experiments"])
+    unknown_keys = sorted(set(updates) - set(experiments))
+    if unknown_keys:
+        raise KeyError(f"Unknown canonical registry keys: {unknown_keys}")
+    for experiment_id, payload in updates.items():
+        experiments[experiment_id] = dict(payload)
+    write_json(path, registry)
+    return registry
+
+
+def build_registry_payload_for_run(
+    experiment_id: str,
+    *,
+    run_dir: str | Path,
+    query_scope: str,
+    thesis_role: str,
+    summary_file: str = "summary.csv",
+    analysis_file: str = "analysis.md",
+    metric_contract_version: str = "v1",
+) -> dict[str, Any]:
+    run_dir = Path(run_dir)
+    if not run_dir.exists():
+        raise FileNotFoundError(f"Missing canonical run dir for registry update: {run_dir}")
+    summary_path = run_dir / summary_file
+    analysis_path = run_dir / analysis_file
+    if not summary_path.exists():
+        raise FileNotFoundError(f"Missing summary file for registry update: {summary_path}")
+    if not analysis_path.exists():
+        raise FileNotFoundError(f"Missing analysis file for registry update: {analysis_path}")
+    return {
+        "run_dir": str(run_dir),
+        "summary_path": str(summary_path),
+        "analysis_path": str(analysis_path),
+        "query_scope": query_scope,
+        "metric_contract_version": metric_contract_version,
+        "thesis_role": thesis_role,
+    }
+
+
+def build_registry_payload_for_artifact(
+    experiment_id: str,
+    *,
+    artifact_path: str | Path,
+    query_scope: str,
+    thesis_role: str,
+    metric_contract_version: str = "v1",
+) -> dict[str, Any]:
+    artifact_path = Path(artifact_path)
+    if not artifact_path.exists():
+        raise FileNotFoundError(f"Missing artifact for registry update: {artifact_path}")
+    return {
+        "run_dir": str(artifact_path.parent),
+        "summary_path": str(artifact_path),
+        "analysis_path": str(artifact_path),
+        "query_scope": query_scope,
+        "metric_contract_version": metric_contract_version,
+        "thesis_role": thesis_role,
+    }
 
 
 def _latest_run_dir_or_raise(run_root: str | Path, pattern: str, *, label: str) -> Path:
@@ -812,6 +941,11 @@ def build_g_chapter_report(
         judge_df.to_csv(output_dir / "judge_summary.csv", index=False, encoding="utf-8-sig")
         lines.extend(["", "## LLM Judge Summary", ""])
         lines.extend(markdown_table(cast(Any, judge_df).to_dict(orient="records")))
+        lines.extend([
+            "",
+            "> Interpretation note: LLM Judge results may favor response regularity, honesty phrasing, and perceived completeness more strongly than human blind review.",
+            "> They should be treated as supplementary evidence rather than a single authoritative final ranking.",
+        ])
     blind_review_status = str(blind_review_status or BLIND_REVIEW_STATUS_PENDING)
     if blind_review_status in {
         BLIND_REVIEW_STATUS_READY,
@@ -827,8 +961,8 @@ def build_g_chapter_report(
         elif blind_review_status == BLIND_REVIEW_STATUS_HUMAN_VERIFIED:
             lines.extend(["", "## Human-Verified Blind Review", ""])
             lines.extend([
-                "- These blind-review annotations were manually checked and accepted by the researcher.",
-                "- The current workspace treats them as formal human-verified review results.",
+                "- These blind-review annotations were manually checked and accepted by the researcher on a sampled subset.",
+                "- They may be cited as human-verified blind-review evidence, but should not be overstated as large-scale fully independent external evaluation.",
             ])
             item_heading = "## Human-Verified Blind Review Item Summary"
             pairwise_heading = "## Human-Verified Blind Review Pairwise Summary"
@@ -848,12 +982,26 @@ def build_g_chapter_report(
             pairwise_df = pd.read_csv(pairwise_summary_path)
             lines.extend(["", pairwise_heading, ""])
             lines.extend(markdown_table(cast(Any, pairwise_df).to_dict(orient="records")))
+        lines.extend([
+            "",
+            "> Interpretation note: if human blind-review preferences and LLM Judge rankings diverge, the final thesis conclusion must report the disagreement explicitly rather than collapsing them into a single ‘best group’.",
+        ])
     else:
         lines.extend(["", "## Human Blind Review", ""])
         lines.extend([
             "- Current blind review results are intentionally excluded from the formal chapter report.",
             "- A new independent human review round is required before human evaluation tables can be reported as official thesis results.",
         ])
+
+    lines.extend([
+        "",
+        "## Interpretation Risk Notes",
+        "",
+        "- `E4` precision/recall/F1 may be non-informative when positive clarification cases are extremely sparse; accuracy and over/under-clarification rates should take precedence in the thesis narrative.",
+        "- `E7` reranker and `E8` fallback results should be preserved as negative or mixed findings if they do not improve core retrieval metrics under the official protocol.",
+        "- `E10` PEFT comparisons should not be framed as stable net improvement over base unless the final metrics support that claim across schema validity, evidence quality, and hallucination behavior.",
+        "- `unsupported_honesty_rate` must be presented with applicability context whenever the evaluated query slice contains no applicable unsupported-request cases.",
+    ])
 
     (output_dir / "analysis.md").write_text("\n".join(lines), encoding="utf-8")
     write_json(
