@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 
@@ -46,9 +47,47 @@ class _FakeChatNamespace:
         self.completions = _FakeChatCompletionsAPI(payloads)
 
 
+class _RetryableJudgeError(Exception):
+    def __init__(self, status_code):
+        super().__init__(f"retryable status={status_code}")
+        self.status_code = status_code
+
+
+class _FlakyChatCompletionsAPI:
+    def __init__(self, payloads):
+        self.payloads = list(payloads)
+
+    def create(self, model, messages, stream=False):
+        if not self.payloads:
+            raise AssertionError("No fake payload left")
+        current = self.payloads.pop(0)
+        if isinstance(current, Exception):
+            raise current
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "content": current,
+                    }
+                }
+            ]
+        }
+
+
+class _FlakyChatNamespace:
+    def __init__(self, payloads):
+        self.completions = _FlakyChatCompletionsAPI(payloads)
+
+
 class _FakeDeepSeekClient:
     def __init__(self, payloads):
         self.chat = _FakeChatNamespace(payloads)
+        self._judge_base_url = "https://api.deepseek.com"
+
+
+class _FlakyDeepSeekClient:
+    def __init__(self, payloads):
+        self.chat = _FlakyChatNamespace(payloads)
         self._judge_base_url = "https://api.deepseek.com"
 
 
@@ -205,6 +244,83 @@ class LLMJudgeTestCase(unittest.TestCase):
         self.assertEqual(len(df), 1)
         self.assertEqual(df.iloc[0]["group_id"], "G1")
 
+    def test_run_llm_judge_resumes_from_existing_csv(self):
+        client = _FakeClient(
+            [
+                json.dumps(
+                    {
+                        "relevance": 5,
+                        "traceability": 4,
+                        "fluency": 4,
+                        "completeness": 5,
+                        "honesty": 5,
+                        "overall_mean": 4.6,
+                        "brief_rationale": "only remaining row was judged",
+                    },
+                    ensure_ascii=False,
+                )
+            ]
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            run_dir = Path(tmp_dir) / "run"
+            run_dir.mkdir()
+            (run_dir / "results.jsonl").write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "query_id": "q001",
+                                "group_id": "G1",
+                                "intermediate_objects": {
+                                    "eval_unit": {"query_id": "q001", "query_text_zh": "query 1"},
+                                    "response": {"summary": "resp 1", "recommendations": []},
+                                },
+                            },
+                            ensure_ascii=False,
+                        ),
+                        json.dumps(
+                            {
+                                "query_id": "q002",
+                                "group_id": "G1",
+                                "intermediate_objects": {
+                                    "eval_unit": {"query_id": "q002", "query_text_zh": "query 2"},
+                                    "response": {"summary": "resp 2", "recommendations": []},
+                                },
+                            },
+                            ensure_ascii=False,
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            existing_output_path = Path(tmp_dir) / "judge_scores.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "query_id": "q001",
+                        "group_id": "G1",
+                        "judge_model": "deepseek-chat",
+                        "relevance": 4.0,
+                        "traceability": 4.0,
+                        "fluency": 4.0,
+                        "completeness": 4.0,
+                        "honesty": 4.0,
+                        "overall_mean": 4.0,
+                        "brief_rationale": "cached row",
+                    }
+                ]
+            ).to_csv(existing_output_path, index=False, encoding="utf-8-sig")
+            with mock.patch.object(judge_mod.time, "sleep", return_value=None):
+                df = judge_mod.run_llm_judge(run_dir, output_path=existing_output_path, client=client)
+
+            self.assertEqual(len(df), 2)
+            self.assertEqual(df.iloc[0]["query_id"], "q001")
+            self.assertEqual(df.iloc[1]["query_id"], "q002")
+            persisted_df = pd.read_csv(existing_output_path)
+            self.assertEqual(len(persisted_df), 2)
+            self.assertEqual(set(persisted_df["query_id"]), {"q001", "q002"})
+
     def test_resolve_judge_api_mode_uses_chat_completions_for_deepseek(self):
         self.assertEqual(
             judge_mod._resolve_judge_api_mode("deepseek-chat", "https://api.deepseek.com"),
@@ -214,6 +330,56 @@ class LLMJudgeTestCase(unittest.TestCase):
             judge_mod._resolve_judge_api_mode("gpt-4o", "https://api.openai.com/v1"),
             "responses",
         )
+
+    def test_deepseek_model_prefers_deepseek_env_over_openai_env(self):
+        with mock.patch.dict(
+            "os.environ",
+            {
+                "OPENAI_BASE_URL": "http://127.0.0.1:8000/v1",
+                "OPENAI_API_KEY": "EMPTY",
+                "DEEPSEEK_BASE_URL": "https://api.deepseek.com",
+                "DEEPSEEK_API_KEY": "deepseek-secret",
+            },
+            clear=False,
+        ):
+            self.assertEqual(
+                judge_mod._resolve_judge_base_url("deepseek-chat"),
+                "https://api.deepseek.com",
+            )
+            self.assertEqual(
+                judge_mod._resolve_judge_api_key("deepseek-chat"),
+                "deepseek-secret",
+            )
+            self.assertEqual(
+                judge_mod._resolve_judge_base_url("gpt-4o"),
+                "http://127.0.0.1:8000/v1",
+            )
+            self.assertEqual(
+                judge_mod._resolve_judge_api_key("gpt-4o"),
+                "EMPTY",
+            )
+
+    def test_invoke_judge_model_retries_retryable_503(self):
+        client = _FlakyDeepSeekClient(
+            [
+                _RetryableJudgeError(503),
+                json.dumps(
+                    {
+                        "relevance": 4,
+                        "traceability": 4,
+                        "fluency": 5,
+                        "completeness": 4,
+                        "honesty": 5,
+                        "overall_mean": 4.4,
+                        "brief_rationale": "重试后成功",
+                    },
+                    ensure_ascii=False,
+                ),
+            ]
+        )
+        with mock.patch.object(judge_mod.time, "sleep", return_value=None):
+            raw = judge_mod.invoke_judge_model("judge prompt", client, model="deepseek-chat")
+        self.assertIn("重试后成功", raw)
 
     def test_aggregate_judge_scores_groups_by_group_id(self):
         df = pd.DataFrame(

@@ -1,0 +1,2 @@
+﻿group_id,query_count,target_unit_count,avg_latency_ms,config_hash,aspect_recall_at_5,ndcg_at_5,precision_at_5,mrr_at_5,evidence_diversity_at_5,retrieval_variant,retrieval_mode,candidate_policy,retrieval_summary_source
+plain_retrieval,68,108,885.252,8b50bf28a263c259,0.75,0.3726,0.3704,0.6227,0.95,plain,plain_city_test_rerank,G_plain_retrieval_top5,formal_retrieval_eval

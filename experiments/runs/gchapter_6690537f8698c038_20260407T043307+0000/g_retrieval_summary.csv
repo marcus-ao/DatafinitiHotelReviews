@@ -1,0 +1,5 @@
+﻿group_id,retrieval_variant,aspect_recall_at_5,ndcg_at_5,precision_at_5,mrr_at_5,evidence_diversity_at_5,avg_latency_ms,retrieval_summary_source,retrieval_summary_run_dir
+G1,plain,0.75,0.3726,0.3704,0.6227,0.95,885.252,formal_retrieval_eval,experiments\runs\gret_plain_8b50bf28a263c259_20260407T042745+0000
+G2,aspect,0.8981,0.6996,0.6981,0.8333,0.9037,238.948,formal_retrieval_eval,experiments\runs\gret_aspect_6799b0368d72fbf5_20260407T042950+0000
+G3,plain,0.75,0.3726,0.3704,0.6227,0.95,885.252,formal_retrieval_eval,experiments\runs\gret_plain_8b50bf28a263c259_20260407T042745+0000
+G4,aspect,0.8981,0.6996,0.6981,0.8333,0.9037,238.948,formal_retrieval_eval,experiments\runs\gret_aspect_6799b0368d72fbf5_20260407T042950+0000

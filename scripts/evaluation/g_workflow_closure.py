@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 from pathlib import Path
 from typing import Any, Iterable, Mapping, cast
 
@@ -314,6 +315,50 @@ def export_g_closure_manifest(
     return validated_manifest
 
 
+def _latest_run_dir_or_raise(run_root: str | Path, pattern: str, *, label: str) -> Path:
+    run_root = Path(run_root)
+    matches = sorted(run_root.glob(pattern), key=lambda path: path.stat().st_mtime, reverse=True)
+    if not matches:
+        raise FileNotFoundError(
+            f"Missing {label} under {run_root} (pattern={pattern}). "
+            "Please generate or sync the required run before building the G closure manifest."
+        )
+    return matches[0]
+
+
+def export_latest_g_closure_manifest_from_workspace(
+    *,
+    run_dirs_json_path: str | Path,
+    output_path: str | Path,
+    run_root: str | Path = "experiments/runs",
+    blind_review_status: str = BLIND_REVIEW_STATUS_PENDING,
+) -> dict[str, Any]:
+    run_dirs_by_group = json.loads(Path(run_dirs_json_path).read_text(encoding="utf-8"))
+    if not isinstance(run_dirs_by_group, dict):
+        raise ValueError("g_run_dirs.json must contain a JSON object mapping group_id to run_dir.")
+
+    plain = _latest_run_dir_or_raise(run_root, "gret_plain_*", label="G plain retrieval run")
+    aspect = _latest_run_dir_or_raise(run_root, "gret_aspect_*", label="G aspect retrieval run")
+    gstats = _latest_run_dir_or_raise(run_root, "gstats_*", label="G stats run")
+    gjudge = _latest_run_dir_or_raise(run_root, "gjudgebatch_*", label="G judge batch run")
+    gblindsum = _latest_run_dir_or_raise(run_root, "gblindsum_*", label="G blind-review summary run")
+
+    return export_g_closure_manifest(
+        run_dirs_by_group=run_dirs_by_group,
+        output_path=output_path,
+        retrieval_run_dirs={
+            "G1": str(plain),
+            "G2": str(aspect),
+            "G3": str(plain),
+            "G4": str(aspect),
+        },
+        pairwise_tests_path=gstats / "pairwise_tests.csv",
+        judge_summary_path=gjudge / "judge_summary.csv",
+        blind_review_summary_dir=gblindsum,
+        blind_review_status=blind_review_status,
+    )
+
+
 def _validate_g_group_ids(group_ids: Iterable[str]) -> list[str]:
     normalized = [str(group_id) for group_id in group_ids]
     expected_group_ids = {str(group_id) for group_id in G_REQUIRED_GROUP_IDS}
@@ -529,9 +574,16 @@ def run_g_batch_llm_judge(
     judge_summary_rows: list[dict[str, Any]] = []
     for group_id in _validate_g_group_ids(run_dirs_by_group.keys()):
         run_dir = Path(run_dirs_by_group[group_id])
-        score_df = run_llm_judge(run_dir, model=model, client=client)
         score_path = output_dir / f"{group_id.lower()}_judge_scores.csv"
-        score_df.to_csv(score_path, index=False, encoding="utf-8-sig")
+        if not score_path.exists():
+            for prior_output_dir in sorted(output_dir.parent.glob("gjudgebatch_*"), key=lambda path: path.stat().st_mtime, reverse=True):
+                if prior_output_dir.resolve() == output_dir.resolve():
+                    continue
+                prior_score_path = prior_output_dir / score_path.name
+                if prior_score_path.exists() and prior_score_path.stat().st_size > 0:
+                    shutil.copy2(prior_score_path, score_path)
+                    break
+        score_df = run_llm_judge(run_dir, output_path=score_path, model=model, client=client)
         summary_df = aggregate_judge_scores(score_df)
         summary_df.to_csv(output_dir / f"{group_id.lower()}_judge_summary.csv", index=False, encoding="utf-8-sig")
         judge_score_rows.extend(score_df.to_dict(orient="records"))

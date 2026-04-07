@@ -1,0 +1,5 @@
+﻿group_id,schema_valid_rate,citation_precision,evidence_verifiability_mean,recommendation_coverage,aspect_alignment_rate,hallucination_rate,unsupported_honesty_rate
+G1,0.9853,0.9779,1.5404,0.9853,0.9412,0.0074,0.931
+G2,1.0,0.9816,1.9522,0.9853,0.9289,0.0037,0.9655
+G3,0.9706,0.9632,1.5515,0.9853,0.951,0.0221,1.0
+G4,0.9706,0.989,1.9449,1.0,0.9657,0.0221,1.0

@@ -1,0 +1,3 @@
+﻿group_id,query_count,citation_precision,evidence_verifiability_mean,schema_valid_rate,recommendation_coverage,aspect_alignment_rate,hallucination_rate,unsupported_honesty_rate,avg_latency_ms,config_hash,source_run_id,source_run_dir,source_label,latency_formally_comparable
+G1,68,0.9779,1.5404,0.9853,0.9853,0.9412,0.0074,0.931,5395.824,ec191d7195b72b76,ggen_1f8cbadcfff55384_20260406T154446+0000,d:\VSCodeWorkspace\GraduationDesign\DatafinitiHotelReviews\experiments\runs\ggen_1f8cbadcfff55384_20260406T154446+0000,G1,True
+G2,68,0.9816,1.9522,1.0,0.9853,0.9289,0.0037,0.9655,5745.495,63b4315941716707,ggen_9fe5ef46cda09dd4_20260406T155208+0000,d:\VSCodeWorkspace\GraduationDesign\DatafinitiHotelReviews\experiments\runs\ggen_9fe5ef46cda09dd4_20260406T155208+0000,G2,True

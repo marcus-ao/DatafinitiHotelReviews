@@ -1,0 +1,6 @@
+{
+  "task": "G_BLIND_REVIEW_AGGREGATE",
+  "input_path": "D:\\VSCodeWorkspace\\GraduationDesign\\DatafinitiHotelReviews\\experiments\\runs\\gblind_75aa3b1b2121da6b_20260407T023812+0000\\blind_review_worksheet_filled.csv",
+  "item_count": 4,
+  "pairwise_count": 8
+}

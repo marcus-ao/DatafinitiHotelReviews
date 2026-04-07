@@ -1,0 +1,6 @@
+{
+  "task": "G_BATCH_LLM_JUDGE",
+  "input_path": "experiments\\assets\\g_run_dirs.json",
+  "model": "deepseek-chat",
+  "score_count": 272
+}

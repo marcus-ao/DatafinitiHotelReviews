@@ -27,6 +27,23 @@ BLIND_REVIEW_TIE_LABELS = {
     "no_preference",
     "No Preference",
 }
+BLIND_REVIEW_ITEM_SCORE_GUIDANCE = (
+    "Human-style scoring guidance:\n"
+    "- 4.8-5.0: exceptionally strong, highly convincing, and hard to improve in any important way.\n"
+    "- 4.2-4.7: clearly strong, but still has one visible limitation or missing detail.\n"
+    "- 3.6-4.1: acceptable to good, but noticeably incomplete, generic, or only partially persuasive.\n"
+    "- 2.6-3.5: weak or mixed; some usefulness remains, but important flaws are easy to notice.\n"
+    "- 1.0-2.5: poor, misleading, unsupported, or not genuinely useful.\n"
+)
+BLIND_REVIEW_ITEM_FEW_SHOT_TEXT = (
+    "Calibration examples:\n"
+    "Example 1: A response is directly relevant, clear, honest about limits, and gives an actionable hotel suggestion, "
+    "but provides only moderate evidence detail. Plausible scores: overall_quality_score=4.6, "
+    "evidence_credibility_score=4.3, practical_value_score=4.7.\n"
+    "Example 2: A response is cautious and mostly credible, but it does not solve the user's core constraint and is only "
+    "partially useful. Plausible scores: overall_quality_score=3.7, evidence_credibility_score=4.1, "
+    "practical_value_score=2.8.\n"
+)
 
 
 def _load_run_result_rows(run_dir: str | Path) -> list[dict[str, Any]]:
@@ -287,15 +304,23 @@ def _extract_json_payload(raw_text: str) -> dict[str, Any]:
 def _build_blind_review_item_prompt(query_text: str, response_text: str) -> str:
     return (
         "You are an anonymous thesis review assistant. Score a single blind response using only the user query and "
-        "the response text itself. Do not infer model identity, experiment group, retrieval method, or training recipe.\n\n"
+        "the response text itself. Think like a careful human reviewer rather than a rigid scoring script. "
+        "Do not infer model identity, experiment group, retrieval method, or training recipe.\n\n"
         "Scoring dimensions:\n"
         "- overall_quality_score: overall answer quality, relevance, clarity, and honesty.\n"
         "- evidence_credibility_score: whether the response sounds well-supported and avoids unsupported claims.\n"
         "- practical_value_score: whether the response is actionable and genuinely useful for a real user.\n\n"
+        + BLIND_REVIEW_ITEM_SCORE_GUIDANCE
+        + "\n"
+        + BLIND_REVIEW_ITEM_FEW_SHOT_TEXT
+        + "\n"
         "Output rules:\n"
         "- Return strict JSON only.\n"
         "- Required fields: overall_quality_score, evidence_credibility_score, practical_value_score, reviewer_notes.\n"
-        "- All score fields must be between 1 and 5. One decimal place is allowed.\n"
+        "- All score fields must be between 1 and 5. Use one decimal place when needed to reflect nuance.\n"
+        "- Do not default to only x.0 or x.5 scores. Values like 4.1, 4.3, 4.6, or 3.8 are valid when they better match the judgment.\n"
+        "- Do not mechanically give the same score to all three dimensions unless the evidence truly supports that symmetry.\n"
+        "- Let subtle tradeoffs show up in the scores: a response can be honest but not very useful, or useful but only moderately credible.\n"
         "- reviewer_notes should be 1-2 short English sentences.\n\n"
         f"User query:\n{query_text}\n\n"
         f"Candidate response:\n{response_text}"
@@ -330,12 +355,14 @@ def _build_blind_review_pairwise_prompt(
     labels_text = ", ".join(labels)
     return (
         "You are an anonymous thesis review assistant. Compare multiple blind responses for the same query and choose "
-        "the strongest one. Do not infer model identity, experiment group, retrieval method, or training recipe.\n\n"
+        "the strongest one. Think like a careful human reviewer and make a decisive comparative judgment when one answer "
+        "is even slightly better. Do not infer model identity, experiment group, retrieval method, or training recipe.\n\n"
         "Output rules:\n"
         "- Return strict JSON only.\n"
         "- Required fields: pairwise_preference, pairwise_notes.\n"
         f"- pairwise_preference must be either X>Y where X and Y are chosen from {labels_text}, or tie.\n"
-        "- Use tie only if the top choices are genuinely indistinguishable.\n"
+        "- Use tie only if the top choices are genuinely indistinguishable after careful reading.\n"
+        "- Consider nuanced differences in honesty, evidence support, and practical usefulness; avoid defaulting to tie when one candidate is meaningfully better.\n"
         "- pairwise_notes should be 1-2 short English sentences.\n\n"
         f"Query bundle: {bundle_id}\n"
         f"User query:\n{query_text}\n\n"
@@ -419,7 +446,7 @@ def fill_blind_review_worksheet_with_llm(
         else worksheet_path.with_name("blind_review_worksheet_filled.csv")
     )
     resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
-    resolved_client = resolve_judge_client(client)
+    resolved_client = resolve_judge_client(client, model=model)
     llm_log_rows: list[dict[str, Any]] = []
 
     for row_index, row in item_rows.iterrows():

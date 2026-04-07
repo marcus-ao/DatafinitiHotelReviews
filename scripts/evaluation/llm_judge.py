@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -17,6 +18,10 @@ from scripts.shared.experiment_utils import load_jsonl, write_jsonl
 load_project_dotenv()
 DEFAULT_JUDGE_MODEL = os.getenv("LLM_JUDGE_MODEL", "deepseek-chat")
 DEFAULT_JUDGE_API_MODE = "auto"
+JUDGE_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+DEFAULT_JUDGE_MAX_RETRIES = max(int(os.getenv("LLM_JUDGE_MAX_RETRIES", "5")), 1)
+DEFAULT_JUDGE_RETRY_BACKOFF_SECONDS = max(float(os.getenv("LLM_JUDGE_RETRY_BACKOFF_SECONDS", "2.0")), 0.0)
+DEFAULT_JUDGE_REQUEST_DELAY_SECONDS = max(float(os.getenv("LLM_JUDGE_REQUEST_DELAY_SECONDS", "0.5")), 0.0)
 
 
 JUDGE_DIMENSIONS = (
@@ -235,16 +240,28 @@ def _extract_output_text(api_response: Any) -> str:
     raise ValueError("无法从 judge API 响应中提取文本输出。")
 
 
-def _resolve_judge_base_url() -> str | None:
-    for env_name in ["JUDGE_API_BASE_URL", "OPENAI_BASE_URL", "DEEPSEEK_BASE_URL"]:
+def _resolve_judge_base_url(model: str = DEFAULT_JUDGE_MODEL) -> str | None:
+    normalized_model = str(model).strip().lower()
+    env_priority = ["JUDGE_API_BASE_URL"]
+    if normalized_model.startswith("deepseek-"):
+        env_priority.extend(["DEEPSEEK_BASE_URL", "OPENAI_BASE_URL"])
+    else:
+        env_priority.extend(["OPENAI_BASE_URL", "DEEPSEEK_BASE_URL"])
+    for env_name in env_priority:
         value = os.getenv(env_name)
         if value:
             return value
     return None
 
 
-def _resolve_judge_api_key() -> str | None:
-    for env_name in ["JUDGE_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY"]:
+def _resolve_judge_api_key(model: str = DEFAULT_JUDGE_MODEL) -> str | None:
+    normalized_model = str(model).strip().lower()
+    env_priority = ["JUDGE_API_KEY"]
+    if normalized_model.startswith("deepseek-"):
+        env_priority.extend(["DEEPSEEK_API_KEY", "OPENAI_API_KEY"])
+    else:
+        env_priority.extend(["OPENAI_API_KEY", "DEEPSEEK_API_KEY"])
+    for env_name in env_priority:
         value = os.getenv(env_name)
         if value:
             return value
@@ -342,7 +359,7 @@ def score_single_response(
     return _build_judge_record(query_row, response_row, payload, model)
 
 
-def _resolve_client(client: Any) -> Any:
+def _resolve_client(client: Any, *, model: str = DEFAULT_JUDGE_MODEL) -> Any:
     if client is not None:
         return client
     try:
@@ -351,15 +368,33 @@ def _resolve_client(client: Any) -> Any:
         raise ImportError(
             "run_llm_judge 在未显式传入 client 时需要安装 openai。"
         ) from exc
-    api_key = _resolve_judge_api_key()
-    base_url = _resolve_judge_base_url()
+    api_key = _resolve_judge_api_key(model)
+    base_url = _resolve_judge_base_url(model)
     client = OpenAI(api_key=api_key, base_url=base_url)
     setattr(client, "_judge_base_url", base_url)
     return client
 
 
-def resolve_judge_client(client: Any = None) -> Any:
-    return _resolve_client(client)
+def resolve_judge_client(client: Any = None, *, model: str = DEFAULT_JUDGE_MODEL) -> Any:
+    return _resolve_client(client, model=model)
+
+
+def _is_retryable_judge_error(exc: Exception) -> bool:
+    status_code = getattr(exc, "status_code", None)
+    if status_code in JUDGE_RETRYABLE_STATUS_CODES:
+        return True
+    response = getattr(exc, "response", None)
+    if response is not None:
+        response_status = getattr(response, "status_code", None)
+        if response_status in JUDGE_RETRYABLE_STATUS_CODES:
+            return True
+    exc_name = exc.__class__.__name__
+    return exc_name in {
+        "APIConnectionError",
+        "APITimeoutError",
+        "InternalServerError",
+        "RateLimitError",
+    }
 
 
 def invoke_judge_model(
@@ -368,19 +403,31 @@ def invoke_judge_model(
     *,
     model: str = DEFAULT_JUDGE_MODEL,
 ) -> str:
-    resolved_client = _resolve_client(client)
+    resolved_client = _resolve_client(client, model=model)
     api_mode = _select_client_api_mode(resolved_client, model)
-    if api_mode == "responses":
-        api_response = resolved_client.responses.create(model=model, input=prompt)
-    elif api_mode == "chat_completions":
-        api_response = resolved_client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            stream=False,
-        )
-    else:
-        raise ValueError(f"Unsupported judge api mode: {api_mode}")
-    return _extract_output_text(api_response)
+    last_error: Exception | None = None
+    for attempt in range(DEFAULT_JUDGE_MAX_RETRIES):
+        try:
+            if api_mode == "responses":
+                api_response = resolved_client.responses.create(model=model, input=prompt)
+            elif api_mode == "chat_completions":
+                api_response = resolved_client.chat.completions.create(
+                    model=model,
+                    messages=[{"role": "user", "content": prompt}],
+                    stream=False,
+                )
+            else:
+                raise ValueError(f"Unsupported judge api mode: {api_mode}")
+            return _extract_output_text(api_response)
+        except Exception as exc:
+            last_error = exc
+            is_last_attempt = attempt == DEFAULT_JUDGE_MAX_RETRIES - 1
+            if is_last_attempt or not _is_retryable_judge_error(exc):
+                raise
+            time.sleep(DEFAULT_JUDGE_RETRY_BACKOFF_SECONDS * (attempt + 1))
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("invoke_judge_model reached an unexpected state without producing output.")
 
 
 def _iter_result_rows(results_dir_or_rows: str | Path | Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -392,40 +439,73 @@ def _iter_result_rows(results_dir_or_rows: str | Path | Iterable[dict[str, Any]]
     return list(results_dir_or_rows)
 
 
+def _judge_record_key(query_id: Any, group_id: Any) -> tuple[str, str]:
+    return (str(query_id or ""), str(group_id or ""))
+
+
+def _load_existing_judge_rows(output_path: Path) -> list[dict[str, Any]]:
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        return []
+    if output_path.suffix.lower() == ".jsonl":
+        return [dict(row) for row in load_jsonl(output_path)]
+    score_df = pd.read_csv(output_path)
+    if score_df.empty:
+        return []
+    return [dict(row) for row in score_df.to_dict(orient="records")]
+
+
+def _write_judge_rows(output_path: Path, score_rows: list[dict[str, Any]]) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.suffix.lower() == ".jsonl":
+        write_jsonl(output_path, score_rows)
+    else:
+        pd.DataFrame(score_rows).to_csv(output_path, index=False, encoding="utf-8-sig")
+
+
 def run_llm_judge(
     results_dir_or_rows: str | Path | Iterable[dict[str, Any]],
     output_path: str | Path | None = None,
     model: str = DEFAULT_JUDGE_MODEL,
     client: Any = None,
 ) -> pd.DataFrame:
-    resolved_client = _resolve_client(client)
+    resolved_client = _resolve_client(client, model=model)
     rows = _iter_result_rows(results_dir_or_rows)
-    score_rows: list[dict[str, Any]] = []
+    resolved_output_path = Path(output_path) if output_path is not None else None
+    existing_score_rows = _load_existing_judge_rows(resolved_output_path) if resolved_output_path is not None else []
+    score_row_map: dict[tuple[str, str], dict[str, Any]] = {}
+    for existing_row in existing_score_rows:
+        key = _judge_record_key(existing_row.get("query_id"), existing_row.get("group_id"))
+        score_row_map[key] = dict(existing_row)
+
+    ordered_score_rows: list[dict[str, Any]] = []
     for row in rows:
         intermediate = row.get("intermediate_objects", {})
         query_row = intermediate.get("eval_unit", row.get("query_row", {}))
         response_payload = intermediate.get("response", row.get("response_payload", {}))
-        score_rows.append(
-            score_single_response(
+        response_row = {
+            "query_id": row.get("query_id", query_row.get("query_id", "")),
+            "group_id": row.get("group_id", ""),
+            "response_payload": response_payload,
+        }
+        key = _judge_record_key(response_row.get("query_id"), response_row.get("group_id"))
+        cached_row = score_row_map.get(key)
+        if cached_row is None:
+            cached_row = score_single_response(
                 query_row,
-                {
-                    "query_id": row.get("query_id", query_row.get("query_id", "")),
-                    "group_id": row.get("group_id", ""),
-                    "response_payload": response_payload,
-                },
+                response_row,
                 resolved_client,
                 model=model,
             )
-        )
+            score_row_map[key] = cached_row
+            if resolved_output_path is not None:
+                _write_judge_rows(resolved_output_path, list(score_row_map.values()))
+            if DEFAULT_JUDGE_REQUEST_DELAY_SECONDS > 0:
+                time.sleep(DEFAULT_JUDGE_REQUEST_DELAY_SECONDS)
+        ordered_score_rows.append(dict(cached_row))
 
-    score_df = pd.DataFrame(score_rows)
-    if output_path is not None:
-        resolved_output_path = Path(output_path)
-        resolved_output_path.parent.mkdir(parents=True, exist_ok=True)
-        if resolved_output_path.suffix.lower() == ".jsonl":
-            write_jsonl(resolved_output_path, score_rows)
-        else:
-            score_df.to_csv(resolved_output_path, index=False, encoding="utf-8-sig")
+    score_df = pd.DataFrame(ordered_score_rows)
+    if resolved_output_path is not None:
+        _write_judge_rows(resolved_output_path, ordered_score_rows)
     return score_df
 
 

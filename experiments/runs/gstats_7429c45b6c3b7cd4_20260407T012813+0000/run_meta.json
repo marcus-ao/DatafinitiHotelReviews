@@ -1,0 +1,15 @@
+{
+  "task": "G_PAIRWISE_TESTS",
+  "input_path": "D:\\VSCodeWorkspace\\GraduationDesign\\DatafinitiHotelReviews\\experiments\\runs\\gpayload_64f75321e30c483d_20260407T012720+0000\\group_score_map.json",
+  "metrics": [
+    "aspect_alignment_rate",
+    "citation_precision",
+    "evidence_verifiability_mean",
+    "hallucination_rate",
+    "latency_ms",
+    "recommendation_coverage",
+    "schema_valid_rate",
+    "unsupported_honesty_rate"
+  ],
+  "row_count": 48
+}

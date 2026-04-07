@@ -227,6 +227,78 @@ class GWorkflowClosureTestCase(unittest.TestCase):
             self.assertEqual(sorted(validated["retrieval_run_dirs"]), ["G1", "G2", "G3", "G4"])
             self.assertEqual(validated["blind_review_status"], closure_mod.BLIND_REVIEW_STATUS_PENDING)
 
+    def test_export_latest_g_closure_manifest_from_workspace_raises_clear_error_when_retrieval_runs_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_root = Path(tempdir)
+            run_dirs = {
+                group_id: str(self._write_generation_run(temp_root, group_id))
+                for group_id in ["G1", "G2", "G3", "G4"]
+            }
+            run_dirs_json = temp_root / "g_run_dirs.json"
+            run_dirs_json.write_text(json.dumps(run_dirs), encoding="utf-8")
+
+            with self.assertRaises(FileNotFoundError) as ctx:
+                closure_mod.export_latest_g_closure_manifest_from_workspace(
+                    run_dirs_json_path=run_dirs_json,
+                    output_path=temp_root / "g_closure_manifest.json",
+                    run_root=temp_root,
+                )
+
+            self.assertIn("G plain retrieval run", str(ctx.exception))
+
+    def test_run_g_batch_llm_judge_seeds_from_previous_batch_outputs(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_root = Path(tempdir)
+            run_dirs = {group_id: self._write_generation_run(temp_root, group_id) for group_id in ["G1", "G2", "G3", "G4"]}
+            prior_batch_dir = temp_root / "gjudgebatch_prior"
+            prior_batch_dir.mkdir()
+            pd.DataFrame(
+                [
+                    {
+                        "query_id": "q001",
+                        "group_id": "G1",
+                        "judge_model": "deepseek-chat",
+                        "relevance": 4.0,
+                        "traceability": 4.0,
+                        "fluency": 4.0,
+                        "completeness": 4.0,
+                        "honesty": 4.0,
+                        "overall_mean": 4.0,
+                        "brief_rationale": "seeded",
+                    }
+                ]
+            ).to_csv(prior_batch_dir / "g1_judge_scores.csv", index=False, encoding="utf-8-sig")
+
+            observed_seed_contents: list[str] = []
+
+            def _fake_run_llm_judge(run_dir: Path, *, output_path: Path, model: str, client=None):
+                if Path(output_path).name == "g1_judge_scores.csv":
+                    observed_seed_contents.append(Path(output_path).read_text(encoding="utf-8-sig"))
+                return pd.DataFrame(
+                    [
+                        {
+                            "query_id": "q001",
+                            "group_id": run_dir.name.upper(),
+                            "judge_model": model,
+                            "relevance": 4.0,
+                            "traceability": 4.0,
+                            "fluency": 4.0,
+                            "completeness": 4.0,
+                            "honesty": 4.0,
+                            "overall_mean": 4.0,
+                            "brief_rationale": "ok",
+                        }
+                    ]
+                )
+
+            current_batch_dir = temp_root / "gjudgebatch_current"
+            with mock.patch.object(closure_mod, "run_llm_judge", side_effect=_fake_run_llm_judge):
+                closure_mod.run_g_batch_llm_judge(run_dirs, output_dir=current_batch_dir, model="deepseek-chat")
+
+            self.assertEqual(len(observed_seed_contents), 1)
+            self.assertIn("seeded", observed_seed_contents[0])
+            self.assertTrue((current_batch_dir / "g1_judge_scores.csv").exists())
+
     def test_validate_g_closure_manifest_requires_blind_review_dir_when_ready(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             temp_root = Path(tempdir)

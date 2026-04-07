@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import pandas as pd
 
@@ -24,6 +25,16 @@ class _FakeClient:
 
 
 class BlindReviewExportTestCase(unittest.TestCase):
+    def test_build_blind_review_item_prompt_encourages_human_like_granular_scoring(self):
+        prompt = blind_mod._build_blind_review_item_prompt(
+            "请推荐安静且卫生较好的酒店",
+            "Summary: 推荐酒店A",
+        )
+        self.assertIn("careful human reviewer", prompt)
+        self.assertIn("Do not default to only x.0 or x.5 scores", prompt)
+        self.assertIn("4.1, 4.3, 4.6, or 3.8", prompt)
+        self.assertIn("Calibration examples", prompt)
+
     def test_build_blind_review_rows_is_reproducible_and_hides_group_labels(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
             tmp_path = Path(tmp_dir)
@@ -293,6 +304,95 @@ class BlindReviewExportTestCase(unittest.TestCase):
             self.assertEqual(str(filled_df.loc[0, "reviewer_notes"]), "Strong and useful.")
             self.assertEqual(str(filled_df.loc[2, "pairwise_preference"]), "A>B")
             self.assertTrue(Path(result["log_path"]).exists())
+
+    def test_fill_blind_review_worksheet_resolves_client_with_model(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            worksheet_path = tmp_path / "blind_review_worksheet.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "review_item_id": "blind_001_A",
+                        "query_bundle_id": "bundle_001",
+                        "blind_label": "A",
+                        "query_text_zh": "请推荐安静的酒店",
+                        "response_text": "Summary: 推荐酒店A",
+                        "overall_quality_score": "",
+                        "evidence_credibility_score": "",
+                        "practical_value_score": "",
+                        "reviewer_notes": "",
+                        "available_blind_labels": "",
+                        "pairwise_preference": "",
+                        "pairwise_notes": "",
+                    },
+                    {
+                        "review_item_id": "blind_001_B",
+                        "query_bundle_id": "bundle_001",
+                        "blind_label": "B",
+                        "query_text_zh": "请推荐安静的酒店",
+                        "response_text": "Summary: 推荐酒店B",
+                        "overall_quality_score": "",
+                        "evidence_credibility_score": "",
+                        "practical_value_score": "",
+                        "reviewer_notes": "",
+                        "available_blind_labels": "",
+                        "pairwise_preference": "",
+                        "pairwise_notes": "",
+                    },
+                    {
+                        "review_item_id": None,
+                        "query_bundle_id": "bundle_001",
+                        "blind_label": None,
+                        "query_text_zh": None,
+                        "response_text": None,
+                        "overall_quality_score": "",
+                        "evidence_credibility_score": "",
+                        "practical_value_score": "",
+                        "reviewer_notes": "",
+                        "available_blind_labels": "A,B",
+                        "pairwise_preference": "",
+                        "pairwise_notes": "",
+                    },
+                ]
+            ).to_csv(worksheet_path, index=False, encoding="utf-8-sig")
+
+            client = _FakeClient(
+                [
+                    json.dumps(
+                        {
+                            "overall_quality_score": 4.6,
+                            "evidence_credibility_score": 4.7,
+                            "practical_value_score": 4.5,
+                            "reviewer_notes": "Strong and useful.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(
+                        {
+                            "overall_quality_score": 4.2,
+                            "evidence_credibility_score": 4.1,
+                            "practical_value_score": 4.0,
+                            "reviewer_notes": "Good but slightly weaker.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                    json.dumps(
+                        {
+                            "pairwise_preference": "A>B",
+                            "pairwise_notes": "A is slightly more complete.",
+                        },
+                        ensure_ascii=False,
+                    ),
+                ]
+            )
+
+            with mock.patch.object(blind_mod, "resolve_judge_client", return_value=client) as mocked_resolve:
+                blind_mod.fill_blind_review_worksheet_with_llm(
+                    worksheet_path,
+                    model="deepseek-reasoner",
+                )
+
+            mocked_resolve.assert_called_once_with(None, model="deepseek-reasoner")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,14 @@
+{
+  "task": "G_BLIND_REVIEW_EXPORT",
+  "input_path": "experiments\\assets\\g_run_dirs.json",
+  "sample_size": 20,
+  "seed": 42,
+  "group_ids": [
+    "G1",
+    "G2",
+    "G3",
+    "G4"
+  ],
+  "exported_count": 80,
+  "worksheet_count": 100
+}

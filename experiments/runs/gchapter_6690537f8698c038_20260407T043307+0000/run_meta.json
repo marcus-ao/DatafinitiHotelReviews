@@ -1,17 +1,23 @@
 {
-  "group_run_dirs": {
-    "G1": "D:\\VSCodeWorkspace\\GraduationDesign\\DatafinitiHotelReviews\\experiments\\runs\\ggen_1f8cbadcfff55384_20260406T154446+0000",
-    "G2": "D:\\VSCodeWorkspace\\GraduationDesign\\DatafinitiHotelReviews\\experiments\\runs\\ggen_9fe5ef46cda09dd4_20260406T155208+0000",
-    "G3": "D:\\VSCodeWorkspace\\GraduationDesign\\DatafinitiHotelReviews\\experiments\\runs\\ggen_a3e6f7da3d69ef54_20260406T155927+0000",
-    "G4": "D:\\VSCodeWorkspace\\GraduationDesign\\DatafinitiHotelReviews\\experiments\\runs\\ggen_49001bbb5794fd52_20260406T160643+0000"
-  },
+  "task": "G_CHAPTER_REPORT",
+  "group_ids": [
+    "G1",
+    "G2",
+    "G3",
+    "G4"
+  ],
+  "retrieval_group_ids": [
+    "G1",
+    "G2",
+    "G3",
+    "G4"
+  ],
   "retrieval_run_dirs": {
     "G1": "experiments\\runs\\gret_plain_8b50bf28a263c259_20260407T042745+0000",
     "G2": "experiments\\runs\\gret_aspect_6799b0368d72fbf5_20260407T042950+0000",
     "G3": "experiments\\runs\\gret_plain_8b50bf28a263c259_20260407T042745+0000",
     "G4": "experiments\\runs\\gret_aspect_6799b0368d72fbf5_20260407T042950+0000"
   },
-  "stat_payload_path": null,
   "pairwise_tests_path": "experiments\\runs\\gstats_7429c45b6c3b7cd4_20260407T012813+0000\\pairwise_tests.csv",
   "judge_summary_path": "experiments\\runs\\gjudgebatch_883be7a96c5ea2b5_20260407T021559+0000\\judge_summary.csv",
   "blind_review_summary_dir": "experiments\\runs\\gblindsum_7c57638ae6107a8b_20260407T041805+0000",
