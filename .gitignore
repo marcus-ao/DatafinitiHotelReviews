@@ -53,3 +53,7 @@ tmp/
 .env
 .env.*
 !.env.example
+
+# Writing materials
+docs/thesis_writing/
+docs/thesis_writing_thought/

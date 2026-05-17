@@ -1,0 +1,9 @@
+﻿preference_label,count
+G1>G2,2
+G1>G4,1
+G2>G1,4
+G2>G3,1
+G2>G4,5
+G3>G2,1
+G4>G2,4
+G4>G3,2

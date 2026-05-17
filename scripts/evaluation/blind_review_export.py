@@ -360,7 +360,8 @@ def _build_blind_review_pairwise_prompt(
         "Output rules:\n"
         "- Return strict JSON only.\n"
         "- Required fields: pairwise_preference, pairwise_notes.\n"
-        f"- pairwise_preference must be either X>Y where X and Y are chosen from {labels_text}, or tie.\n"
+        f"- pairwise_preference must be EXACTLY one of: {', '.join([f'{a}>{b}' for a in labels for b in labels if a != b] + ['tie'])}.\n"
+        "- This is a BINARY comparison: pick the single best candidate and write X>Y (e.g. A>B). Do NOT write a full ranking like A>B>C>D.\n"
         "- Use tie only if the top choices are genuinely indistinguishable after careful reading.\n"
         "- Consider nuanced differences in honesty, evidence support, and practical usefulness; avoid defaulting to tie when one candidate is meaningfully better.\n"
         "- pairwise_notes should be 1-2 short English sentences.\n\n"
@@ -421,7 +422,7 @@ def fill_blind_review_worksheet_with_llm(
     output_path: str | Path | None = None,
     model: str = DEFAULT_BLIND_REVIEW_MODEL,
     client: Any = None,
-    max_attempts: int = 2,
+    max_attempts: int = 4,
 ) -> dict[str, Any]:
     worksheet_path = Path(worksheet_path)
     if not worksheet_path.exists():
